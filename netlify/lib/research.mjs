@@ -1,7 +1,7 @@
 import { callModel, extractJson } from "./ai.mjs";
 import { clip, env, uniqBy } from "./util.mjs";
 import { evaluateSourceQuality, TOPIC_NAMES } from "./report-quality.mjs";
-import { normalizeRuntimeMode, CN_RESEARCH_MODELS, INTL_RESEARCH_MODELS } from "./runtime-mode.mjs";
+import { DEEPSEEK_FLASH_MODEL, DEEPSEEK_PRO_MODEL } from "./ai.mjs";
 
 const SEARCH_RESULT_LIMIT = 10;
 const TOPIC_READ_LIMIT = 24;
@@ -10,15 +10,8 @@ const SEARCH_TIMEOUT_MS = 12000;
 const MODEL_PLANNING_TIMEOUT_MS = 60000;
 
 const RESEARCH_MODEL_ROUTES = [
-  { model: "deepseek-ai/DeepSeek-V4-Flash", channelNames: ["international-primary", "international-secondary"] },
-  { model: "deepseek-ai/DeepSeek-V4-Pro", channelNames: ["international-primary", "international-secondary"] },
-  { model: "Pro/deepseek-ai/DeepSeek-V3.2", channelNames: ["china-primary", "china-secondary"] },
-  { model: "zai-org/GLM-5.1", channelNames: ["international-primary", "international-secondary"] },
-  { model: "Qwen/Qwen3.6-35B-A3B", channelNames: ["international-primary", "international-secondary"] },
-  { model: "moonshotai/Kimi-K2.6", channelNames: ["international-primary", "international-secondary"] },
-  { model: "Pro/zai-org/GLM-5.1", channelNames: ["china-primary", "china-secondary"] },
-  { model: "Qwen/Qwen3.6-35B-A3B", channelNames: ["china-primary", "china-secondary"] },
-  { model: "Pro/moonshotai/Kimi-K2.6", channelNames: ["china-primary", "china-secondary"] }
+  { model: DEEPSEEK_FLASH_MODEL },
+  { model: DEEPSEEK_PRO_MODEL }
 ];
 
 const SEARCH_HEADERS = {
@@ -147,7 +140,7 @@ function domainOf(url = "") {
 
 function isBadSourceUrl(url = "") {
   const value = String(url).toLowerCase();
-  return /kanji|jiten|zidian|cidian|hanyu|zdic|dictionary|wiktionary|youdao|iciba|bing\.com\/search|google\.com\/search|baidu\.com\/s\?|so\.com\/(?:link|s\?|help)|info\.so\.com|map\.360\.cn|hao\.360\.com|e\.360\.cn|bbs\.360\.cn|zhanzhang\.so\.com|shuidi\.cn\/(?:owner_resume|person)/.test(value);
+  return /kanji|jiten|zidian|cidian|hanyu|zdic|dictionary|wiktionary|youdao|iciba|bing\.com\/search|google\.com\/search|baidu\.com\/s\?|news\.so\.com\/ns|image\.so\.com\/i|so\.com\/(?:link|s\?|help)|info\.so\.com|map\.360\.cn|hao\.360\.com|e\.360\.cn|bbs\.360\.cn|zhanzhang\.so\.com|sogou\.com\/web|duckduckgo\.com\/html|shuidi\.cn\/(?:owner_resume|person)/.test(value);
 }
 
 function validUrl(value) {
@@ -410,6 +403,252 @@ async function searchBing(query, limit, topic, timeoutMs = SEARCH_TIMEOUT_MS) {
   return parseBing(text, query, topic).slice(0, limit);
 }
 
+function parseBochaPayload(payload, query, topic) {
+  const rows =
+    payload?.data?.webPages?.value ||
+    payload?.webPages?.value ||
+    payload?.data?.webPages ||
+    payload?.data?.results ||
+    payload?.results ||
+    payload?.items ||
+    [];
+  return arr(rows)
+    .map((row) => {
+      const url = normalizeUrl(row.url || row.link || row.href || row.site || row.source);
+      return {
+        title: cleanTitle(row.name || row.title || row.siteName || row.url || "博查搜索结果"),
+        url,
+        snippet: clip(row.snippet || row.summary || row.content || row.description || "", 900),
+        query,
+        topic,
+        provider: "bocha",
+        bochaScore: row.score || row.rank || ""
+      };
+    })
+    .filter((item) => validUrl(item.url));
+}
+
+function parseTavilyPayload(payload, query, topic) {
+  const rows = payload?.results || payload?.data?.results || payload?.items || [];
+  return arr(rows)
+    .map((row) => {
+      const url = normalizeUrl(row.url || row.link || row.href || row.source);
+      return {
+        title: cleanTitle(row.title || row.name || url || "Tavily搜索结果"),
+        url,
+        snippet: clip(row.content || row.snippet || row.summary || row.description || "", 900),
+        query,
+        topic,
+        provider: "tavily",
+        tavilyScore: row.score || row.rank || ""
+      };
+    })
+    .filter((item) => validUrl(item.url));
+}
+
+function withSearchDiagnostics(results = [], diagnostics = []) {
+  const rows = Array.isArray(results) ? results : arr(results);
+  const cleanDiagnostics = arr(diagnostics).filter(Boolean);
+  const descriptor = Object.getOwnPropertyDescriptor(rows, "searchDiagnostics");
+  const target = descriptor && !descriptor.configurable ? [...rows] : rows;
+  Object.defineProperty(target, "searchDiagnostics", {
+    value: cleanDiagnostics,
+    enumerable: false,
+    configurable: true
+  });
+  return target;
+}
+
+async function searchBocha(query, limit, topic, timeoutMs = SEARCH_TIMEOUT_MS) {
+  const apiKey = env("BOCHA_API_KEY");
+  if (!apiKey) {
+    return withSearchDiagnostics([], [{ provider: "bocha", ok: false, status: "missing_key", count: 0, message: "未配置 BOCHA_API_KEY" }]);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("https://api.bochaai.com/v1/web-search", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        query,
+        freshness: "noLimit",
+        summary: true,
+        count: Math.max(5, Math.min(20, Number(limit || SEARCH_RESULT_LIMIT)))
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      let message = response.statusText || "请求失败";
+      try {
+        const payload = await response.json();
+        message = payload?.message || payload?.error || message;
+      } catch {
+        // Keep status text.
+      }
+      return withSearchDiagnostics([], [{ provider: "bocha", ok: false, status: response.status, count: 0, message }]);
+    }
+    const payload = await response.json();
+    const rows = parseBochaPayload(payload, query, topic);
+  return withSearchDiagnostics(rows, [{ provider: "bocha", ok: true, status: response.status, count: rows.length, message: rows.length ? "博查已返回候选来源" : "博查返回为空" }]);
+  } catch (error) {
+    return withSearchDiagnostics([], [{ provider: "bocha", ok: false, status: "error", count: 0, message: error?.name === "AbortError" ? "请求超时" : error?.message || "请求异常" }]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function searchTavily(query, limit, topic, timeoutMs = SEARCH_TIMEOUT_MS) {
+  const apiKey = env("TAVILY_API_KEY");
+  if (!apiKey) {
+    return withSearchDiagnostics([], [{ provider: "tavily", ok: false, status: "missing_key", count: 0, message: "未配置 TAVILY_API_KEY" }]);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: env("TAVILY_SEARCH_DEPTH") || "basic",
+        max_results: Math.max(5, Math.min(20, Number(limit || SEARCH_RESULT_LIMIT))),
+        include_answer: false,
+        include_raw_content: false,
+        include_images: false
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      let message = response.statusText || "请求失败";
+      try {
+        const payload = await response.json();
+        message = payload?.message || payload?.error || payload?.detail || message;
+      } catch {
+        // Keep status text.
+      }
+      return withSearchDiagnostics([], [{ provider: "tavily", ok: false, status: response.status, count: 0, message }]);
+    }
+    const payload = await response.json();
+    const rows = parseTavilyPayload(payload, query, topic);
+    return withSearchDiagnostics(rows, [{ provider: "tavily", ok: true, status: response.status, count: rows.length, message: rows.length ? "Tavily已返回候选来源" : "Tavily返回为空" }]);
+  } catch (error) {
+    return withSearchDiagnostics([], [{ provider: "tavily", ok: false, status: "error", count: 0, message: error?.name === "AbortError" ? "请求超时" : error?.message || "请求异常" }]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const tavilyKeyCooldown = new Map();
+let tavilyKeyCursor = 0;
+
+function tavilyKeys() {
+  const values = [
+    env("TAVILY_API_KEYS"),
+    env("TAVILY_API_KEY"),
+    env("TAVILY_API_KEY_1"),
+    env("TAVILY_API_KEY_2"),
+    env("TAVILY_API_KEY_3"),
+    env("TAVILY_API_KEY_4"),
+    env("TAVILY_API_KEY_5")
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(/[,;\s]+/))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set(values));
+}
+
+function tavilyKeyLabel(apiKey = "") {
+  const key = String(apiKey || "");
+  return key ? `...${key.slice(-6)}` : "none";
+}
+
+function markTavilyKeyFailure(apiKey, status, message = "") {
+  if (!apiKey) return;
+  const text = `${status} ${message}`.toLowerCase();
+  let cooldownMs = 2 * 60 * 1000;
+  if (status === 401 || status === 403 || /unauthorized|invalid|forbidden/.test(text)) cooldownMs = 24 * 60 * 60 * 1000;
+  if (status === 402 || status === 429 || /quota|credit|limit|exceed|usage|rate/.test(text)) cooldownMs = 12 * 60 * 60 * 1000;
+  tavilyKeyCooldown.set(apiKey, { until: Date.now() + cooldownMs, status, message });
+}
+
+function tavilyKeyOrder() {
+  const now = Date.now();
+  const keys = tavilyKeys();
+  const active = keys.filter((key) => Number(tavilyKeyCooldown.get(key)?.until || 0) <= now);
+  const usable = active.length ? active : keys;
+  if (!usable.length) return [];
+  const start = tavilyKeyCursor % usable.length;
+  tavilyKeyCursor = (tavilyKeyCursor + 1) % usable.length;
+  return [...usable.slice(start), ...usable.slice(0, start)];
+}
+
+async function searchTavilyByKey(query, limit, topic, apiKey, timeoutMs = SEARCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: env("TAVILY_SEARCH_DEPTH") || "basic",
+        max_results: Math.max(5, Math.min(20, Number(limit || SEARCH_RESULT_LIMIT))),
+        include_answer: false,
+        include_raw_content: false,
+        include_images: false
+      }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      let message = response.statusText || "request failed";
+      try {
+        const payload = await response.json();
+        message = payload?.message || payload?.error || payload?.detail || message;
+      } catch {
+        // Keep status text.
+      }
+      markTavilyKeyFailure(apiKey, response.status, message);
+      return withSearchDiagnostics([], [{ provider: "tavily", ok: false, status: response.status, count: 0, message, key: tavilyKeyLabel(apiKey) }]);
+    }
+    const payload = await response.json();
+    const rows = parseTavilyPayload(payload, query, topic);
+    return withSearchDiagnostics(rows, [{ provider: "tavily", ok: true, status: response.status, count: rows.length, message: rows.length ? "Tavily returned candidates" : "Tavily returned empty", key: tavilyKeyLabel(apiKey) }]);
+  } catch (error) {
+    const message = error?.name === "AbortError" ? "request timeout" : error?.message || "request error";
+    markTavilyKeyFailure(apiKey, "error", message);
+    return withSearchDiagnostics([], [{ provider: "tavily", ok: false, status: "error", count: 0, message, key: tavilyKeyLabel(apiKey) }]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function searchTavilyPooled(query, limit, topic, timeoutMs = SEARCH_TIMEOUT_MS) {
+  const keys = tavilyKeyOrder();
+  if (!keys.length) {
+    return withSearchDiagnostics([], [{ provider: "tavily", ok: false, status: "missing_key", count: 0, message: "missing TAVILY_API_KEY/TAVILY_API_KEYS" }]);
+  }
+  const diagnostics = [];
+  for (const apiKey of keys) {
+    const result = await searchTavilyByKey(query, limit, topic, apiKey, timeoutMs);
+    diagnostics.push(...arr(result?.searchDiagnostics));
+    if (result.length) return withSearchDiagnostics(result, diagnostics);
+    const latest = arr(result?.searchDiagnostics).at(-1);
+    if (latest?.ok) return withSearchDiagnostics(result, diagnostics);
+  }
+  return withSearchDiagnostics([], diagnostics);
+}
+
 async function withSearchDeadline(promise, timeoutMs = 12000) {
   let timer;
   try {
@@ -424,25 +663,118 @@ async function withSearchDeadline(promise, timeoutMs = 12000) {
   }
 }
 
-export async function searchWeb(query, limit = SEARCH_RESULT_LIMIT, topic = "通用检索", timeoutMs = SEARCH_TIMEOUT_MS) {
-  const fastTimeout = Math.min(4000, timeoutMs);
-  const backupTimeout = Math.min(6000, timeoutMs);
-  const wholeSearchTimeout = Math.min(14000, Math.max(8000, timeoutMs));
-  const providers = [
-    () => searchSogou(query, limit, topic, fastTimeout),
-    () => searchSo360(query, limit, topic, backupTimeout),
-    () => searchJina(query, limit, topic, backupTimeout),
-    () => searchDuckDuckGo(query, limit, topic, backupTimeout),
-    () => searchBing(query, limit, topic, backupTimeout)
-  ];
-  const settled = await Promise.allSettled(providers.map((provider) => withSearchDeadline(provider(), wholeSearchTimeout)));
-  const results = settled.flatMap((item) => (item.status === "fulfilled" ? item.value : []));
+function rankedSearchResults(results = [], query = "", limit = SEARCH_RESULT_LIMIT) {
   return uniqBy(
     results
       .map((item) => ({ ...item, searchRelevanceScore: relevanceScore(item, query) }))
       .sort((a, b) => b.searchRelevanceScore - a.searchRelevanceScore),
     (item) => item.url
   ).slice(0, Math.max(limit, Math.min(30, limit * 2)));
+}
+
+function shouldUseBocha(results = [], limit = SEARCH_RESULT_LIMIT, topic = "", query = "") {
+  const mode = String(env("BOCHA_MODE") || env("SEARCH_PRIMARY") || "bocha").toLowerCase();
+  if (mode === "off" || mode === "false" || mode === "0") return false;
+  if (!env("BOCHA_API_KEY")) return false;
+  if (mode === "always") return true;
+  if (mode === "bocha" || mode === "auto") return true;
+  if (!mode.includes("bocha")) return false;
+  const text = `${topic} ${query}`;
+  const important = /核验|风险|法律|信用|股权|财务|重大项目|招投标|限制高消费|失信|被执行|诉讼|年报|公告|融资|补贴/.test(text);
+  const usefulCount = results.filter((item) => Number(item.searchRelevanceScore || 0) > 0).length;
+  return important || usefulCount < Math.min(Math.max(6, Math.floor(limit * 0.7)), 10);
+}
+
+function shouldUseTavily(results = [], limit = SEARCH_RESULT_LIMIT, topic = "", query = "") {
+  if (!tavilyKeys().length) return false;
+  const mode = String(env("TAVILY_MODE") || env("SEARCH_PRIMARY") || env("SEARCH_SECONDARY") || "tavily").toLowerCase();
+  if (mode === "off" || mode === "false" || mode === "0") return false;
+  if (mode === "tavily" || mode === "always" || mode === "hybrid") return true;
+  if (!mode.includes("tavily") && String(env("SEARCH_PRIMARY") || "").toLowerCase() !== "tavily") return false;
+  const text = `${topic} ${query}`;
+  const important = /营收|营业收入|利润|净利润|母公司|财务|年报|公告|融资|招投标|信用|法律|股权|重大项目|数字化|AI|智能制造/.test(text);
+  const usefulCount = results.filter((item) => Number(item.searchRelevanceScore || 0) > 0).length;
+  return important || usefulCount < Math.min(Math.max(8, Math.floor(limit * 0.9)), 12);
+}
+
+function isTavilyQuotaDiagnostic(item = {}) {
+  if (item.provider !== "tavily") return false;
+  const status = Number(item.status);
+  const text = `${item.status || ""} ${item.message || ""}`.toLowerCase();
+  return status === 402 || status === 429 || /quota|credit|limit|exceed|usage|rate/.test(text);
+}
+
+function tavilyQuotaWarning(diagnostics = []) {
+  const keyCount = tavilyKeys().length;
+  if (!keyCount) return "";
+  const failedKeys = new Set(
+    arr(diagnostics)
+      .filter(isTavilyQuotaDiagnostic)
+      .map((item) => item.key || "unknown")
+  );
+  if (failedKeys.size >= keyCount) {
+    return `Tavily搜索额度可能已用完：${failedKeys.size}/${keyCount}个key被限额，请补充Key或等待额度恢复。`;
+  }
+  if (failedKeys.size > 0) {
+    return `Tavily部分key被限额：${failedKeys.size}/${keyCount}，系统已自动切换备用key。`;
+  }
+  return "";
+}
+
+function searchDiagnosticText(results = []) {
+  const diagnostics = arr(results?.searchDiagnostics).filter((item) => item.provider === "bocha" || item.provider === "tavily");
+  if (!diagnostics.length) return "";
+  const quotaWarning = tavilyQuotaWarning(diagnostics);
+  if (quotaWarning) return quotaWarning;
+  const latest = diagnostics[diagnostics.length - 1];
+  const label = latest.provider === "tavily" ? "Tavily" : "博查";
+  if (latest.ok) return `${label}返回 ${latest.count || 0} 条`;
+  return `${label}未返回：${latest.status}${latest.message ? `，${clip(latest.message, 50)}` : ""}`;
+}
+
+export async function searchWeb(query, limit = SEARCH_RESULT_LIMIT, topic = "通用检索", timeoutMs = SEARCH_TIMEOUT_MS) {
+  const fastTimeout = Math.min(4000, timeoutMs);
+  const backupTimeout = Math.min(6000, timeoutMs);
+  const wholeSearchTimeout = Math.min(14000, Math.max(8000, timeoutMs));
+  const searchPrimary = String(env("SEARCH_PRIMARY") || "tavily").toLowerCase();
+  const freeProviders = [
+    () => searchSogou(query, limit, topic, fastTimeout),
+    () => searchSo360(query, limit, topic, backupTimeout),
+    () => searchJina(query, limit, topic, backupTimeout),
+    () => searchDuckDuckGo(query, limit, topic, backupTimeout),
+    () => searchBing(query, limit, topic, backupTimeout)
+  ];
+  const tavilyFirst = shouldUseTavily([], limit, topic, query) && searchPrimary.includes("tavily")
+    ? [() => searchTavilyPooled(query, Math.max(limit, 12), topic, Math.min(10000, timeoutMs))]
+    : [];
+  const bochaFirst = shouldUseBocha([], limit, topic, query)
+    ? [() => searchBocha(query, Math.max(limit, 12), topic, Math.min(10000, timeoutMs))]
+    : [];
+  const settled = await Promise.allSettled([...tavilyFirst, ...bochaFirst, ...freeProviders].map((provider) => withSearchDeadline(provider(), wholeSearchTimeout)));
+  const diagnostics = [];
+  const freeResults = settled.flatMap((item) => {
+    if (item.status !== "fulfilled") return [];
+    diagnostics.push(...arr(item.value?.searchDiagnostics));
+    return item.value || [];
+  });
+  let ranked = rankedSearchResults(freeResults, query, limit);
+  if (shouldUseTavily(ranked, limit, topic, query) && !ranked.some((item) => item.provider === "tavily")) {
+    const tavilyRows = await withSearchDeadline(
+      searchTavilyPooled(query, Math.max(limit, 12), topic, Math.min(10000, timeoutMs)),
+      Math.min(11000, Math.max(7000, timeoutMs))
+    );
+    diagnostics.push(...arr(tavilyRows?.searchDiagnostics));
+    ranked = rankedSearchResults([...ranked, ...tavilyRows], query, limit);
+  }
+  if (shouldUseBocha(ranked, limit, topic, query) && !ranked.some((item) => item.provider === "bocha")) {
+    const bochaRows = await withSearchDeadline(
+      searchBocha(query, Math.max(limit, 12), topic, Math.min(10000, timeoutMs)),
+      Math.min(11000, Math.max(7000, timeoutMs))
+    );
+    diagnostics.push(...arr(bochaRows?.searchDiagnostics));
+    ranked = rankedSearchResults([...ranked, ...bochaRows], query, limit);
+  }
+  return withSearchDiagnostics(ranked, diagnostics);
 }
 
 export async function readSource(url) {
@@ -585,17 +917,13 @@ function websiteDomain(company) {
 }
 
 async function modelResearchModels(runtimeMode) {
-  const configured = String(env("SILICONFLOW_RESEARCH_MODELS") || "")
+  const configured = String(env("DEEPSEEK_RESEARCH_MODELS") || "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  if (configured.length && !configured.some((item) => item.includes("DeepSeek"))) {
-    return configured.slice(0, 6).map((model) => ({ model }));
-  }
-  const mode = normalizeRuntimeMode(runtimeMode);
-  const intlRoutes = RESEARCH_MODEL_ROUTES.filter((route) => arr(route.channelNames).some((name) => name.startsWith("international")));
-  const cnRoutes = RESEARCH_MODEL_ROUTES.filter((route) => arr(route.channelNames).some((name) => name.startsWith("china")));
-  return mode.mode === "china" ? [...cnRoutes, ...intlRoutes] : [...intlRoutes, ...cnRoutes];
+  const allowed = new Set([DEEPSEEK_FLASH_MODEL, DEEPSEEK_PRO_MODEL]);
+  const models = configured.filter((model) => allowed.has(model));
+  return (models.length ? models : RESEARCH_MODEL_ROUTES.map((route) => route.model)).map((model) => ({ model }));
 }
 
 async function mapLimit(items, limit, worker) {
@@ -828,30 +1156,38 @@ function sourceRelevance(item, company = {}, text = "") {
   const companySpecific = Boolean(exactNameHit || coreHit || stockHit || (financeHard && stock?.code && String(item.url || "").includes(stock.code)));
   const queryText = `${item.query || ""}`;
   const queryCompanyHit = Boolean((name && queryText.includes(name)) || (core && core.length >= 4 && queryText.includes(core)));
-  const weakSourceHit = Boolean(!companySpecific && queryCompanyHit && trustedWeakSourceUrl(item.url));
+  const weakSourceHit = Boolean(!companySpecific && trustedWeakSourceUrl(item.url) && (industryHit || regionHit));
+  const genericWeakHit = Boolean(
+    !companySpecific &&
+      (industryHit || regionHit) &&
+      !badTitle &&
+      !isBadSourceUrl(item.url) &&
+      (item.provider === "bocha" || trustedDomainScore(item.url) >= -8 || /news|gov|patent|job|career|b2b|expo|fair|supplier|product|company|corp|官网|新闻|招聘|专利|展会|供应商|产品/i.test(`${item.title || ""} ${item.url || ""}`))
+  );
   let score = 0;
   if (exactNameHit) score += 55;
   if (coreHit) score += 35;
   if (stockHit) score += 45;
-  if (financeHard) score += 28;
+  if (financeHard && (exactNameHit || coreHit || stockHit)) score += 28;
   if (industryHit) score += 12;
   if (regionHit) score += 8;
   if (trustedDomainScore(item.url) > 0) score += Math.min(18, trustedDomainScore(item.url));
   if (badTitle || isBadSourceUrl(item.url)) score -= 80;
   const isIndustryBackground = !companySpecific && sourceType === "行业背景来源" && industryHit;
-  const relevant = score >= 18 || isIndustryBackground || weakSourceHit;
+  const relevant = score >= 18 || isIndustryBackground || weakSourceHit || genericWeakHit;
   const reason = companySpecific
     ? `命中${[exactNameHit || coreHit ? "企业名称" : "", stockHit ? `股票代码${stock.code}` : "", financeHard ? "财务硬来源" : ""].filter(Boolean).join("、")}`
     : isIndustryBackground
       ? `行业背景来源，命中行业关键词“${industry}”`
-      : weakSourceHit
+      : weakSourceHit || genericWeakHit
         ? "弱线索来源：搜索词命中企业，来源域名可作为主体、招聘、官网或产业线索，正式结论需进一步核对"
         : "未命中企业名称、股票代码、官网域名或核心行业词";
   return {
     relevant,
     relevanceScore: score,
     relevanceReason: reason,
-    sourceType: weakSourceHit ? "弱线索来源" : sourceType,
+    sourceType: weakSourceHit || genericWeakHit ? "线索来源" : sourceType,
+    confidence: weakSourceHit || genericWeakHit ? "低" : "",
     domain: domainOf(item.url),
     isCompanySpecific: companySpecific,
     weakEvidence: weakSourceHit
@@ -874,21 +1210,29 @@ function planningSegments(company = {}, options = {}) {
 
 async function callPlanningModel(messages, modelRoutes, company, options = {}) {
   const errors = [];
+  const deadline = Date.now() + (options.segmentBudgetMs || 90000);
   for (const route of modelRoutes) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
     const model = typeof route === "string" ? route : route.model;
     const channelNames = typeof route === "string" ? undefined : route.channelNames;
     try {
+      await options.onAttempt?.({ status: "start", model, channel: arr(channelNames).join("/") || "auto", remainingMs });
       const answer = await callModel(messages, {
         model,
         channelNames,
         runtimeMode: company.runtimeMode || options.runtimeMode,
         temperature: 0.1,
         maxTokens: 3500,
-        timeoutMs: options.timeoutPerModelMs || 60000
+        timeoutMs: Math.min(options.timeoutPerModelMs || 45000, remainingMs),
+        totalTimeoutMs: Math.max(3000, remainingMs),
+        onAttempt: options.onAttempt
       });
+      await options.onAttempt?.({ status: "success", model: answer.model, channel: answer.channel });
       return { model: answer.model, channel: answer.channel, parsed: extractJson(answer.content) };
     } catch (error) {
       errors.push(`${model}: ${error?.message || String(error)}`);
+      await options.onAttempt?.({ status: "error", model, channel: arr(channelNames).join("/") || "auto", error: error?.message || String(error) });
     }
   }
   const err = new Error(errors.join("\n") || "所有检索规划模型均调用失败");
@@ -946,7 +1290,18 @@ async function expandPlanWithModels(company, existingSources = [], options = {})
     ];
     const output = await callPlanningModel(messages, modelRoutes, company, {
       ...options,
-      timeoutPerModelMs: options.timeoutPerModelMs || (options.aggressive ? 60000 : 50000)
+      timeoutPerModelMs: options.timeoutPerModelMs || (options.aggressive ? 120000 : 90000),
+      segmentBudgetMs: options.segmentBudgetMs || (options.aggressive ? 240000 : 180000),
+      onAttempt: async (attempt) => {
+        await options.onProgress?.({
+          completed: index,
+          total: segments.length,
+          currentSegment: segment.title,
+          currentModel: attempt.model ? `${attempt.model}（${attempt.channel || "auto"}）` : "",
+          attemptStatus: attempt.status,
+          attemptError: attempt.error
+        });
+      }
     });
     outputs.push({ ...output, segment: segment.title, topic: segment.topic });
     await options.onProgress?.({
@@ -1088,10 +1443,11 @@ export async function collectSources(company, onProgress = async () => {}, optio
     const topicSearchResults = await mapLimit(topicPlan, 3, async (item) => {
       await ensureNotCancelled(options);
       const results = await searchWeb(item.query, item.limit, item.topic);
+      const diagnosticText = searchDiagnosticText(results);
       topicSearchDone += 1;
       await onProgress(topicStart + Math.min(4, Math.round((topicSearchDone / Math.max(topicPlan.length, 1)) * 4)), `分主题检索：${topic}`, {
         phaseKey: "search",
-        detail: `已完成 ${topicSearchDone}/${topicPlan.length} 组：${clip(item.query, 64)}；本专题新增候选 ${results.length} 个。`,
+        detail: `已完成 ${topicSearchDone}/${topicPlan.length} 组：${clip(item.query, 64)}；本专题新增候选 ${results.length} 个。${diagnosticText ? ` ${diagnosticText}。` : ""}`,
         completed: topicSearchDone,
         total: topicPlan.length,
         foundCount: uniqBy([...found, ...topicFound, ...results], (source) => source.url).length,
@@ -1122,7 +1478,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
           topic,
           text: clip(text, 7000),
           readable: Boolean(text && text.length > 200),
-          confidence: relevance.sourceType === "财务硬来源" ? "高" : confidenceForUrl(item.url),
+          confidence: relevance.confidence || (relevance.sourceType === "财务硬来源" ? "高" : confidenceForUrl(item.url)),
           usedFor: item.usedFor || `${relevance.sourceType}：${topic}`
         });
       }
@@ -1201,10 +1557,11 @@ export async function collectSources(company, onProgress = async () => {}, optio
     const deterministicRescue = await mapLimit(rescuePlan, 3, async (item) => {
       await ensureNotCancelled(options);
       const results = await searchWeb(item.query, item.limit, item.topic);
+      const diagnosticText = searchDiagnosticText(results);
       rescueDone += 1;
       await onProgress(71 + Math.round((rescueDone / Math.max(rescuePlan.length, 1)) * 2), `补充检索：${item.topic}`, {
         phaseKey: "search",
-        detail: `已完成 ${rescueDone}/${rescuePlan.length} 组：${clip(item.query, 64)}`,
+        detail: `已完成 ${rescueDone}/${rescuePlan.length} 组：${clip(item.query, 64)}${diagnosticText ? `；${diagnosticText}` : ""}`,
         completed: rescueDone,
         total: rescuePlan.length,
         foundCount: uniqBy([...found, ...rescueFound, ...results], (source) => source.url).length
@@ -1218,10 +1575,11 @@ export async function collectSources(company, onProgress = async () => {}, optio
     const modelRescue = await mapLimit(rescueQueries, 3, async (item) => {
       await ensureNotCancelled(options);
       const results = await searchWeb(item.query, item.limit, item.topic);
+      const diagnosticText = searchDiagnosticText(results);
       modelRescueDone += 1;
       await onProgress(73 + Math.round((modelRescueDone / Math.max(rescueQueries.length, 1)) * 2), `多模型补充：${item.topic}`, {
         phaseKey: "search",
-        detail: `已完成 ${modelRescueDone}/${rescueQueries.length} 组：${clip(item.query, 64)}`,
+        detail: `已完成 ${modelRescueDone}/${rescueQueries.length} 组：${clip(item.query, 64)}${diagnosticText ? `；${diagnosticText}` : ""}`,
         completed: modelRescueDone,
         total: rescueQueries.length,
         foundCount: uniqBy([...found, ...rescueFound, ...results], (source) => source.url).length
@@ -1246,7 +1604,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
           ...relevance,
           text: clip(text, 7000),
           readable: Boolean(text && text.length > 200),
-          confidence: relevance.sourceType === "财务硬来源" ? "高" : confidenceForUrl(item.url),
+          confidence: relevance.confidence || (relevance.sourceType === "财务硬来源" ? "高" : confidenceForUrl(item.url)),
           usedFor: item.usedFor || `${relevance.sourceType}：${item.topic || "补充资料"}`
         });
       }

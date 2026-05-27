@@ -58,6 +58,7 @@ export function normalizeReportSources(sources = [], max = 32) {
         relevanceScore: source.relevanceScore ?? "",
         isCompanySpecific: Boolean(source.isCompanySpecific),
         readable: Boolean(source.readable || String(source.text || "").length > 200),
+        evidenceTier: source.evidenceTier || evidenceTierOf(source),
         text: source.text || ""
       }))
       .filter((source) => isHttpUrl(source.url)),
@@ -65,10 +66,52 @@ export function normalizeReportSources(sources = [], max = 32) {
   ).slice(0, max);
 }
 
+export function evidenceTierOf(source = {}) {
+  const confidence = String(source.confidence || "");
+  const sourceType = String(source.sourceType || "");
+  if (/弱|线索|行业背景/.test(sourceType) || confidence === "低") return "weak";
+  if (confidence === "高" || /财务硬来源|主体核对来源/.test(sourceType)) return "high";
+  return "medium";
+}
+
+export function buildEvidencePool(sources = []) {
+  const normalized = normalizeReportSources(sources, 200);
+  const high = normalized.filter((source) => evidenceTierOf(source) === "high");
+  const medium = normalized.filter((source) => evidenceTierOf(source) === "medium");
+  const weak = normalized.filter((source) => evidenceTierOf(source) === "weak");
+  return {
+    highConfidenceCount: high.length,
+    mediumConfidenceCount: medium.length,
+    weakClueCount: weak.length,
+    totalEvidenceCount: normalized.length,
+    label: `高置信 ${high.length} 条｜中置信 ${medium.length} 条｜弱线索 ${weak.length} 条`,
+    highConfidenceSourceIds: high.map((source, index) => source.sourceId || index + 1).slice(0, 20),
+    mediumConfidenceSourceIds: medium.map((source, index) => source.sourceId || index + 1).slice(0, 20),
+    weakClueSourceIds: weak.map((source, index) => source.sourceId || index + 1).slice(0, 20)
+  };
+}
+
+function hasPainEvidenceSignal(source = {}) {
+  const text = [
+    source.topic,
+    source.usedFor,
+    source.query,
+    source.title,
+    source.snippet,
+    source.relevanceReason,
+    source.text
+  ].join(" ");
+  return /痛点|质量|追溯|返工|故障|设备|工艺|排产|交付|供应链|成本|合规|数据安全|研发|DFM|可制造性|缺陷|异常|停线|缺料|换线|库存|良率|OEE|IATF|召回|售后|投诉|traceability|quality|delivery|maintenance|downtime|defect|manufacturability|schedule|planning|risk|cost/i.test(text);
+}
+
 export function evaluateSourceQuality(sources = []) {
   const verifiedSources = normalizeReportSources(sources, 200);
   const readableSources = verifiedSources.filter((source) => source.readable);
-  const coveredTopics = Array.from(new Set(verifiedSources.map((source) => source.topic).filter(Boolean)));
+  const evidencePool = buildEvidencePool(verifiedSources);
+  const coveredTopicSet = new Set(verifiedSources.map((source) => source.topic).filter(Boolean));
+  const painSignalCount = verifiedSources.filter(hasPainEvidenceSignal).length;
+  if (painSignalCount > 0) coveredTopicSet.add(TOPIC_NAMES[4]);
+  const coveredTopics = Array.from(coveredTopicSet);
   const missingTopics = TOPIC_NAMES.filter((topic) => !coveredTopics.includes(topic));
   const verifiedSourceCount = verifiedSources.length;
   const readableSourceCount = readableSources.length;
@@ -114,6 +157,10 @@ export function evaluateSourceQuality(sources = []) {
     coveredTopics,
     missingTopics,
     qualityWarnings,
+    evidencePool,
+    topicCoverageSignals: {
+      painSignalCount
+    },
     canGenerateReport: true
   };
 }
@@ -167,6 +214,7 @@ export function buildDiagnosticReport(company, sources, quality) {
       topicCoverageCount: quality.topicCoverageCount
     },
     sources: verifiedSources,
+    evidencePool: quality.evidencePool,
     keywords: [standardName, company.region, company.industry].filter(Boolean),
     qualityLevel: quality.qualityLevel,
     qualityLabel: quality.qualityLabel,

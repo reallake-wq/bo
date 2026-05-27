@@ -63,7 +63,7 @@ export function durationText(ms) {
 
 function estimateRemaining(job, elapsedMs) {
   const progress = Math.max(1, Math.min(99, Number(job.progress || 0)));
-  if (!["queued", "running"].includes(job.status)) return 0;
+  if (!["queued", "running", "needs_resume"].includes(job.status)) return 0;
   const defaultTotal = 15 * 60 * 1000;
   const byProgress = progress >= 8 && elapsedMs >= 8000 ? (elapsedMs / progress) * 100 : defaultTotal;
   const totalEstimate = Math.max(defaultTotal * 0.55, Math.min(defaultTotal * 1.8, byProgress));
@@ -73,10 +73,13 @@ function estimateRemaining(job, elapsedMs) {
 export function decorateJob(job = {}) {
   const created = Date.parse(job.createdAt || job.updatedAt || nowIso());
   const updated = Date.parse(job.updatedAt || job.createdAt || nowIso());
-  const elapsedMs = Number.isFinite(created) ? Math.max(0, Date.now() - created) : 0;
+  const isTerminal = ["done", "error", "cancelled"].includes(String(job.status || ""));
+  const finished = Date.parse(job.finishedAt || job.completedAt || job.cancelledAt || job.errorAt || (isTerminal ? job.updatedAt : "") || "");
+  const endTime = isTerminal && Number.isFinite(finished) ? finished : Date.now();
+  const elapsedMs = Number.isFinite(created) ? Math.max(0, endTime - created) : 0;
   const currentPhase = normalizePhase(job);
   const steps = Array.isArray(job.steps) ? job.steps : [];
-  const now = Date.now();
+  const now = endTime;
   const phaseTree = JOB_PHASES.map((phase) => {
     const phaseSteps = steps.filter((step) => (step.phaseKey || phaseForProgress(step.progress).key) === phase.key);
     const last = phaseSteps[phaseSteps.length - 1];

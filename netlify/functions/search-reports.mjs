@@ -2,8 +2,10 @@
 import { getIndex, listJson, readJson, saveIndex } from "../lib/store.mjs";
 import { normalizeText, scoreMatch } from "../lib/util.mjs";
 import { qualityStatusText, withinDays } from "../lib/report-quality.mjs";
-import { buildOpportunityRating, ratingIndex } from "../lib/opportunity-rating.mjs";
+import { ratingIndex } from "../lib/opportunity-rating.mjs";
+import { resolveRatingIndex } from "../lib/rating-resolver.mjs";
 import { auditReport } from "../lib/source-audit.mjs";
+import { applySensitiveVerification } from "../lib/sensitive-verification.mjs";
 
 function periodDays(period) {
   if (period === "7d") return 7;
@@ -16,9 +18,10 @@ function dedupeLatestByCompany(reports) {
   const seen = new Set();
   const out = [];
   for (const report of reports) {
-    const key =
+    const companyKey =
       report.companyKey ||
       normalizeText(`${report.standardName || report.companyName || ""}|${report.region || ""}`);
+    const key = `${report.sellerProfileId || "unbound"}|${companyKey}`;
     if (!key) {
       out.push(report);
       continue;
@@ -35,6 +38,8 @@ export default async function handler(request) {
   const query = url.searchParams.get("q") || "";
   const period = url.searchParams.get("period") || "30d";
   const rating = url.searchParams.get("rating") || "all";
+  const profileId = url.searchParams.get("profileId") || "all";
+  const profileName = url.searchParams.get("profileName") || "";
   const days = periodDays(period);
   const normalizedQuery = normalizeText(query);
   const matchThreshold = normalizedQuery ? Math.max(4, Math.ceil(normalizedQuery.length * 0.9)) : 0;
@@ -47,7 +52,15 @@ export default async function handler(request) {
         reportId: report.reportId,
         companyName: report.companyName,
         standardName: report.standardName,
+        targetCompanyName: report.targetCompanyName || report.standardName || report.companyName,
         companyKey: report.companyKey,
+        sellerProfileId: report.sellerProfileId || "",
+        sellerProfileName: report.sellerProfileName || "未绑定我的企业",
+        sellerProfileSnapshot: report.sellerProfileSnapshot || null,
+        opportunityFit: report.opportunityFit,
+        reportMode: report.reportMode,
+        activeRoundNo: report.activeRoundNo,
+        roundCount: report.roundCount || (report.rounds || []).length,
         aliases: report.aliases || [],
         region: report.region || "",
         industry: report.industry || "",
@@ -73,13 +86,24 @@ export default async function handler(request) {
       await saveIndex(index);
     }
   }
+  let indexNeedsSave = false;
   const enrichedReports = await Promise.all(
     (index.reports || []).map(async (report) => {
       const full = await readJson("reports", `${report.reportId}.json`, null);
-      if (!full) return { ...report, opportunityRating: report.opportunityRating || { status: "not_rated", label: "鏆備笉璇勭骇" } };
-      const audited = auditReport(full);
-      const ratingValue = ratingIndex(buildOpportunityRating(audited));
-      return {
+      if (!full) return null;
+      const checked = full.sensitiveVerification ? applySensitiveVerification(full, full.sensitiveVerification) : full;
+      const audited = auditReport(checked);
+      const ratingValue = resolveRatingIndex(audited);
+      if (JSON.stringify(report.opportunityRating || {}) !== JSON.stringify(ratingValue || {})) {
+        indexNeedsSave = true;
+      }
+      if (
+        Number(report.activeRoundNo || 0) !== Number(audited.activeRoundNo || 0) ||
+        Number(report.roundCount || 0) !== Number((audited.rounds || []).length || 0)
+      ) {
+        indexNeedsSave = true;
+      }
+      const next = {
         ...report,
         sourceCount: audited.sourceCount,
         verifiedSourceCount: audited.verifiedSourceCount,
@@ -88,12 +112,24 @@ export default async function handler(request) {
         qualityLevel: audited.qualityLevel,
         qualityLabel: audited.qualityLabel,
         sourceAudit: audited.sourceAudit,
+        sellerProfileId: audited.sellerProfileId || report.sellerProfileId || "",
+        sellerProfileName: audited.sellerProfileName || report.sellerProfileName || "未绑定我的企业",
+        targetCompanyName: audited.targetCompanyName || audited.standardName || report.targetCompanyName,
+        opportunityFit: audited.opportunityFit || report.opportunityFit,
+        reportMode: audited.reportMode || report.reportMode,
+        activeRoundNo: audited.activeRoundNo || report.activeRoundNo,
+        roundCount: (audited.rounds || []).length || report.roundCount,
         opportunityRating: ratingValue
       };
+      return next;
     })
   );
+  const existingReports = enrichedReports.filter(Boolean);
+  if (indexNeedsSave || existingReports.length !== (index.reports || []).length) {
+    await saveIndex({ reports: existingReports });
+  }
   const reports = dedupeLatestByCompany(
-    enrichedReports
+    existingReports
       .filter((report) => (days ? withinDays(report.generatedAt, days) : true))
       .map((report) => ({
         ...report,
@@ -106,10 +142,15 @@ export default async function handler(request) {
         if (rating === "not_rated") return report.opportunityRating?.status !== "rated";
         return report.opportunityRating?.grade === rating;
       })
+      .filter((report) => profileId === "all" || (profileId === "unbound" ? !report.sellerProfileId : report.sellerProfileId === profileId))
+      .filter((report) => {
+        if (!profileName) return true;
+        return normalizeText(report.sellerProfileName || "").includes(normalizeText(profileName));
+      })
       .filter((report) => report.matchScore >= matchThreshold)
       .sort((a, b) => String(b.generatedAt).localeCompare(String(a.generatedAt)))
       .sort((a, b) => b.matchScore - a.matchScore)
   ).slice(0, 200);
-  return json({ ok: true, period, rating, reports });
+  return json({ ok: true, period, rating, profileId, reports });
 }
 

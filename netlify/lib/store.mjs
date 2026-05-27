@@ -1,7 +1,8 @@
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const LOCAL_ROOT = join(process.cwd(), "local-data");
+const localWriteQueues = new Map();
 
 async function blobStore(namespace) {
   const isNetlifyRuntime =
@@ -28,12 +29,16 @@ export async function readJson(namespace, key, fallback = null) {
     const value = await store.get(key, { type: "json" });
     return value ?? fallback;
   }
-  try {
-    const raw = await readFile(localPath(namespace, key), "utf8");
-    return JSON.parse(raw.replace(/^\uFEFF/, ""));
-  } catch {
-    return fallback;
+  const path = localPath(namespace, key);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const raw = await readFile(path, "utf8");
+      return JSON.parse(raw.replace(/^\uFEFF/, ""));
+    } catch {
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
   }
+  return fallback;
 }
 
 export async function writeJson(namespace, key, value) {
@@ -43,8 +48,35 @@ export async function writeJson(namespace, key, value) {
     return;
   }
   const path = localPath(namespace, key);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
+  const previous = localWriteQueues.get(path) || Promise.resolve();
+  const task = previous.catch(() => {}).then(async () => {
+    const data = JSON.stringify(value, null, 2);
+    await mkdir(dirname(path), { recursive: true });
+    const tmp = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+    await writeFile(tmp, data, "utf8");
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        await rename(tmp, path);
+        return;
+      } catch (error) {
+        if (!["EPERM", "EBUSY", "EACCES"].includes(error?.code) || attempt === 7) {
+          if (["EPERM", "EBUSY", "EACCES"].includes(error?.code)) {
+            await writeFile(path, data, "utf8");
+            await rm(tmp, { force: true });
+            return;
+          }
+          await rm(tmp, { force: true });
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
+  });
+  const queued = task.finally(() => {
+    if (localWriteQueues.get(path) === queued) localWriteQueues.delete(path);
+  });
+  localWriteQueues.set(path, queued);
+  return task;
 }
 
 export async function readText(namespace, key, fallback = "") {

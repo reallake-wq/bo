@@ -15,6 +15,11 @@ const FINANCE_HARD_DOMAINS = [
 ];
 const ALWAYS_BAD_DOMAINS = [
   "map.360.cn",
+  "news.so.com",
+  "image.so.com",
+  "m.image.so.com",
+  "so.com",
+  "sogou.com",
   "amap.com",
   "baike.baidu.com",
   "11467.com",
@@ -138,7 +143,7 @@ function isAlwaysBadDomain(domain = "") {
 
 function isBadUrl(url = "") {
   const value = String(url).toLowerCase();
-  return /javascript:|jina\.ai|bing\.com\/search|google\.com\/search|baidu\.com\/s\?|so\.com\/(?:link|s\?|help)|info\.so\.com|map\.360\.cn|hao\.360\.com|e\.360\.cn|bbs\.360\.cn|zhanzhang\.so\.com|shuidi\.cn\/(?:owner_resume|person)|kanji|jiten|zidian|cidian|hanyu|zdic|dictionary|wiktionary|youdao|iciba/.test(value);
+  return /javascript:|jina\.ai|bing\.com\/search|google\.com\/search|baidu\.com\/s\?|news\.so\.com\/ns|image\.so\.com\/i|so\.com\/(?:link|s\?|help)|info\.so\.com|map\.360\.cn|hao\.360\.com|e\.360\.cn|bbs\.360\.cn|zhanzhang\.so\.com|sogou\.com\/web|duckduckgo\.com\/html|shuidi\.cn\/(?:owner_resume|person)|kanji|jiten|zidian|cidian|hanyu|zdic|dictionary|wiktionary|youdao|iciba/.test(value);
 }
 
 function titleKey(title = "") {
@@ -204,8 +209,9 @@ function auditOneSource(source = {}, context = {}) {
   const coreHit = core && core.length >= 4 && haystack.includes(core);
   const stockHit = stock && haystack.includes(normalizeText(stock));
   const industryHit = company.industry && haystack.includes(normalizeText(company.industry));
-  const strongCompanyHit = Boolean(source.isCompanySpecific || exactNameHit || aliasHit || coreHit || stockHit);
+  const strongCompanyHit = Boolean(exactNameHit || aliasHit || coreHit || stockHit);
   let sourceType = source.sourceType || "";
+  let confidence = source.confidence || "";
   const reasons = [];
 
   if (!url || !/^https?:\/\//i.test(url)) return { keep: false, reason: "无效链接", source: null };
@@ -215,7 +221,13 @@ function auditOneSource(source = {}, context = {}) {
   const financeEvidence = isFinanceEvidence(source, url);
   if (sourceType === "财务硬来源" && !isFinanceHardDomain(domain) && !financeEvidence) {
     sourceType = "企业公开来源";
+    if (confidence === "高") confidence = strongCompanyHit ? "中高" : "低";
     reasons.push("原财务硬来源域名不合规，已降级");
+  }
+  if (sourceType === "财务硬来源" && !stockHit) {
+    sourceType = strongCompanyHit ? "企业公开来源" : "线索来源";
+    if (confidence === "高" || !confidence) confidence = strongCompanyHit ? "中" : "低";
+    reasons.push("财务域名未命中目标股票代码，已降级");
   }
   if (isLowValueDomain(domain) && !strongCompanyHit) {
     return { keep: false, reason: `低相关域名且未命中企业：${domain}`, source: null };
@@ -224,17 +236,22 @@ function auditOneSource(source = {}, context = {}) {
     return { keep: false, reason: "未命中企业名称、股票代码或行业关键词", source: null };
   }
   if (!sourceType) {
-    sourceType = isFinanceHardDomain(domain)
+    sourceType = isFinanceHardDomain(domain) && stockHit
       ? "财务硬来源"
-      : financeEvidence
+      : financeEvidence && stockHit
         ? "财务硬来源"
+      : (isFinanceHardDomain(domain) || financeEvidence) && strongCompanyHit
+        ? "企业公开来源"
       : /qcc|aiqicha|tianyancha|shuidi|gov\.cn/.test(domain)
         ? "主体核对来源"
         : industryHit && !strongCompanyHit
           ? "行业背景来源"
           : "企业公开来源";
   }
-  if (sourceType === "财务硬来源" && !isFinanceHardDomain(domain) && !financeEvidence) sourceType = "企业公开来源";
+  if (sourceType === "财务硬来源" && (!stockHit || (!isFinanceHardDomain(domain) && !financeEvidence))) {
+    sourceType = strongCompanyHit ? "企业公开来源" : "线索来源";
+    if (confidence === "高" || !confidence) confidence = strongCompanyHit ? "中" : "低";
+  }
   if (strongCompanyHit) reasons.push(`命中${[exactNameHit || coreHit ? "企业名称" : "", aliasHit ? "别名" : "", stockHit ? "股票代码" : ""].filter(Boolean).join("、")}`);
   else if (industryHit) reasons.push("命中行业关键词");
 
@@ -243,9 +260,10 @@ function auditOneSource(source = {}, context = {}) {
     url,
     domain,
     sourceType,
+    confidence,
     relevanceReason: reasons.join("；") || source.relevanceReason || "通过来源审计",
     relevanceScore: Number(source.relevanceScore || 0) + (strongCompanyHit ? 40 : industryHit ? 10 : 0),
-    isCompanySpecific: Boolean(source.isCompanySpecific || strongCompanyHit),
+    isCompanySpecific: Boolean(strongCompanyHit),
     title: clip(String(source.title || url).replace(/\s+/g, " "), 140)
   };
   return { keep: true, reason: "", source: next };
@@ -258,18 +276,14 @@ function weakAuditOneSource(source = {}, context = {}, existingUrls = new Set())
   const name = company.standardName || company.companyName || company.name || company.query || "";
   const core = coreName(name);
   const haystack = normalizeText([source.title, source.snippet, source.text, url].join(" "));
-  const queryText = normalizeText(source.query || "");
   const industry = normalizeText(company.industry || "");
   const directHit = Boolean((name && haystack.includes(normalizeText(name))) || (core && core.length >= 4 && haystack.includes(core)));
-  const queryHit = Boolean((name && queryText.includes(normalizeText(name))) || (core && core.length >= 4 && queryText.includes(core)));
-  const trustedWeakDomain =
-    /qcc|aiqicha|tianyancha|shuidi|qixin|qichamao|gov\.cn|gsxt|zhipin|liepin|51job|zhaopin|jobui|kanzhun|baike\.baidu|cnpp|cdc-expo|ccsa|patent|cnipa|ciboconn|cibocabling/.test(domain);
   const industryHit = Boolean(industry && haystack.includes(industry));
   const industryBackground = source.sourceType === "行业背景来源" || /协会|标准|行业|展会|报告|政策|工信部|通信|汽车|数据中心/.test(`${source.title || ""} ${source.snippet || ""}`);
 
   if (!url || !/^https?:\/\//i.test(url) || existingUrls.has(url)) return null;
   if (isBadUrl(url) || !domain || isAlwaysBadDomain(domain)) return null;
-  if (!directHit && !(queryHit && trustedWeakDomain) && !(industryBackground && (industryHit || queryHit))) return null;
+  if (!directHit && !(industryBackground && industryHit)) return null;
 
   return {
     ...source,
@@ -278,12 +292,10 @@ function weakAuditOneSource(source = {}, context = {}, existingUrls = new Set())
     sourceType: source.sourceType || (industryBackground && !directHit ? "行业背景来源" : "弱线索来源"),
     confidence: source.confidence || (directHit ? "中" : "低"),
     readable: Boolean(source.readable || String(source.text || "").length > 120),
-    isCompanySpecific: Boolean(source.isCompanySpecific || directHit),
+    isCompanySpecific: Boolean(directHit),
     relevanceReason: directHit
       ? "弱证据保留：命中企业名称"
-      : queryHit && trustedWeakDomain
-        ? "弱证据保留：检索词命中企业，来源域名可作为线索"
-        : "弱证据保留：行业/标准/展会背景线索",
+      : "弱证据保留：行业/标准/展会背景线索",
     title: clip(String(source.title || url).replace(/\s+/g, " "), 140)
   };
 }
@@ -317,7 +329,28 @@ export function auditSources(sources = [], context = {}) {
     sources: deduped,
     removed,
     warnings,
-    removedCount: removed.length + (cleaned.length - deduped.length)
+    removedCount: removed.length + Math.max(0, cleaned.length - deduped.length)
+  };
+}
+
+function evidenceTierOf(source = {}) {
+  const confidence = String(source.confidence || "");
+  const sourceType = String(source.sourceType || "");
+  if (/弱|线索|行业背景/.test(sourceType) || confidence === "低") return "weak";
+  if (confidence === "高" || /财务硬来源|主体核对来源/.test(sourceType)) return "high";
+  return "medium";
+}
+
+function buildEvidencePool(sources = []) {
+  const high = sources.filter((source) => evidenceTierOf(source) === "high");
+  const medium = sources.filter((source) => evidenceTierOf(source) === "medium");
+  const weak = sources.filter((source) => evidenceTierOf(source) === "weak");
+  return {
+    highConfidenceCount: high.length,
+    mediumConfidenceCount: medium.length,
+    weakClueCount: weak.length,
+    totalEvidenceCount: sources.length,
+    label: `高置信 ${high.length} 条｜中置信 ${medium.length} 条｜弱线索 ${weak.length} 条`
   };
 }
 
@@ -356,6 +389,7 @@ export function auditReport(report = {}) {
     },
     verifiedSourceCount: audit.sources.length,
     sourceCount: audit.sources.length,
+    evidencePool: buildEvidencePool(audit.sources),
     qualityLevel,
     qualityLabel,
     qualityWarnings: Array.from(new Set(nextWarnings))

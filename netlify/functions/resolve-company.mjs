@@ -54,6 +54,32 @@ function boostWithAnnualReport(candidates, query, region, industry, annualReport
     .slice(0, 5);
 }
 
+function dedupeCandidates(candidates = []) {
+  const seen = new Map();
+  for (const candidate of candidates || []) {
+    const name = candidate.standardName || candidate.name || "";
+    const key = [
+      normalizeCandidateName(name),
+      normalizeText(candidate.region || ""),
+      normalizeText(candidate.industry || "")
+    ].join("|");
+    if (!key.replace(/\|/g, "")) continue;
+    const existing = seen.get(key);
+    if (existing) {
+      existing.sourceUrls = Array.from(new Set([...(existing.sourceUrls || []), ...(candidate.sourceUrls || [])]));
+      existing.confidence = Math.max(Number(existing.confidence || 0), Number(candidate.confidence || 0));
+      existing.reason = existing.reason || candidate.reason || "";
+      existing.sourcesMerged = Math.max(Number(existing.sourcesMerged || 1), existing.sourceUrls.length || 1);
+      continue;
+    }
+    seen.set(key, {
+      ...candidate,
+      sourcesMerged: Math.max(1, (candidate.sourceUrls || []).length || 1)
+    });
+  }
+  return Array.from(seen.values()).sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+}
+
 function dedupeLatest(reports) {
   const seen = new Set();
   const out = [];
@@ -132,7 +158,7 @@ export default async function handler(request) {
       const resolved = await resolveCandidates(query, region, industry, body.aiNeeds || "");
       return json({
         ok: true,
-        candidates: boostWithAnnualReport(resolved.candidates || [], query, region, industry, annualReportSummary),
+        candidates: dedupeCandidates(boostWithAnnualReport(resolved.candidates || [], query, region, industry, annualReportSummary)),
         cached,
         model: resolved.model,
         channel: resolved.channel
@@ -140,7 +166,7 @@ export default async function handler(request) {
     } catch {
       return json({
         ok: true,
-        candidates: boostWithAnnualReport(
+        candidates: dedupeCandidates(boostWithAnnualReport(
           exactCached.length
             ? exactCached.slice(0, 3).map(candidateFromReport)
             : [
@@ -161,7 +187,7 @@ export default async function handler(request) {
           region,
           industry,
           annualReportSummary
-        ),
+        )),
         cached,
         model: "fast-resolve",
         channel: "fast-resolve"

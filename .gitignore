@@ -8,5 +8,8 @@ dist/
 .env.*
 !.env.example
 *.log
+last-test-job*.json
+last-test-job*.txt
+docs-assets/nb-bo-*
 local-data/
 local-server-ready.txt

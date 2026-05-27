@@ -1,30 +1,86 @@
 import { fail, json } from "../lib/http.mjs";
-import { readJson, readText } from "../lib/store.mjs";
-import { buildOpportunityRating, OPPORTUNITY_RATING_VERSION } from "../lib/opportunity-rating.mjs";
+import { getIndex, readJson, readText, saveIndex, writeJson, writeText } from "../lib/store.mjs";
+import { ratingIndex } from "../lib/opportunity-rating.mjs";
+import { ratingChanged, resolveOpportunityRating } from "../lib/rating-resolver.mjs";
 import { normalizeReportShape, renderReportHtml } from "../lib/report.mjs";
 import { auditReport } from "../lib/source-audit.mjs";
+import { applySensitiveVerification } from "../lib/sensitive-verification.mjs";
+
+function indexEntryFromReport(report = {}, existing = {}) {
+  return {
+    ...existing,
+    reportId: report.reportId,
+    companyName: report.companyName,
+    standardName: report.standardName,
+    targetCompanyName: report.targetCompanyName || report.standardName || report.companyName,
+    companyKey: report.companyKey,
+    sellerProfileId: report.sellerProfileId || "",
+    sellerProfileName: report.sellerProfileName || existing.sellerProfileName || "未绑定我的企业",
+    sellerProfileSnapshot: report.sellerProfileSnapshot || existing.sellerProfileSnapshot || null,
+    opportunityFit: report.opportunityFit || existing.opportunityFit,
+    reportMode: report.reportMode,
+    activeRoundNo: report.activeRoundNo,
+    roundCount: (report.rounds || []).length,
+    aliases: report.aliases || [],
+    region: report.region || "",
+    industry: report.industry || "",
+    keywords: report.keywords || [],
+    sourceCount: report.sourceCount,
+    verifiedSourceCount: report.verifiedSourceCount,
+    readableSourceCount: report.readableSourceCount,
+    topicCoverageCount: report.topicCoverageCount,
+    qualityLevel: report.qualityLevel,
+    qualityLabel: report.qualityLabel,
+    opportunityRating: ratingIndex(report.opportunityRating),
+    durationMs: report.durationMs,
+    generatedAt: report.generatedAt || existing.generatedAt,
+    updatedAt: report.updatedAt || existing.updatedAt || report.generatedAt,
+    modelName: report.modelName,
+    modelChannel: report.modelChannel,
+    modelDisplay: report.modelDisplay,
+    usedModels: report.usedModels || []
+  };
+}
 
 export default async function handler(request) {
   const url = new URL(request.url);
   const reportId = url.searchParams.get("reportId");
   if (!reportId) return fail("缺少reportId", 400);
+
   const savedReport = await readJson("reports", `${reportId}.json`, null);
-  const audited = savedReport ? auditReport(savedReport) : null;
-  const shouldRecomputeRating =
-    Boolean(audited?.annualReportEvidence) ||
-    audited?.sourceAudit?.removedCount ||
-    !savedReport?.opportunityRating ||
-    savedReport?.opportunityRating?.version !== OPPORTUNITY_RATING_VERSION ||
-    savedReport?.opportunityRating?.status !== "rated" ||
-    audited?.qualityLevel !== savedReport?.qualityLevel ||
-    audited?.qualityLabel !== savedReport?.qualityLabel;
+  const checkedReport = savedReport?.sensitiveVerification
+    ? applySensitiveVerification(savedReport, savedReport.sensitiveVerification)
+    : savedReport;
+  const audited = checkedReport ? auditReport(checkedReport) : null;
   const report = audited
     ? normalizeReportShape({
         ...audited,
-        opportunityRating: shouldRecomputeRating ? buildOpportunityRating(audited) : savedReport.opportunityRating
+        opportunityRating: resolveOpportunityRating(audited)
       })
     : null;
+
   if (!report) return fail("报告不存在", 404);
+
   const html = renderReportHtml(report) || (await readText("reports", `${reportId}.html`, ""));
+  const ratingWasChanged = ratingChanged(savedReport?.opportunityRating, report.opportunityRating);
+  const shapeWasChanged =
+    Number(savedReport?.activeRoundNo || 0) !== Number(report.activeRoundNo || 0) ||
+    Number((savedReport?.rounds || []).length || 0) !== Number((report.rounds || []).length || 0) ||
+    JSON.stringify(savedReport?.rounds || []) !== JSON.stringify(report.rounds || []) ||
+    savedReport?.qualityLevel !== report.qualityLevel ||
+    savedReport?.qualityLabel !== report.qualityLabel;
+
+  if (ratingWasChanged || shapeWasChanged) {
+    await writeJson("reports", `${reportId}.json`, report);
+    await writeText("reports", `${reportId}.html`, html);
+    const index = await getIndex();
+    const reports = index.reports || [];
+    const found = reports.some((entry) => entry.reportId === reportId);
+    const nextReports = found
+      ? reports.map((entry) => (entry.reportId === reportId ? indexEntryFromReport(report, entry) : entry))
+      : [indexEntryFromReport(report), ...reports];
+    await saveIndex({ reports: nextReports });
+  }
+
   return json({ ok: true, report, html });
 }

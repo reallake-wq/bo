@@ -5,7 +5,7 @@ export default async function handler(request) {
   try {
     const body = await readBody(request);
     const reportId = String(body.reportId || "").trim();
-    const instruction = String(body.instruction || "").trim();
+    const instruction = String(body.instruction || body.inputText || "").trim();
     if (!reportId) return fail("缺少报告ID", 400);
     if (!instruction) return fail("缺少补充信息", 400);
 

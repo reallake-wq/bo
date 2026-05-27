@@ -1,158 +1,38 @@
 import { clip, env } from "./util.mjs";
-import { normalizeRuntimeMode } from "./runtime-mode.mjs";
 
-const INTL_BASE = "https://api.siliconflow.com/v1";
-const CN_BASE = "https://api.siliconflow.cn/v1";
+export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+export const DEEPSEEK_FLASH_MODEL = "deepseek-v4-flash";
+export const DEEPSEEK_PRO_MODEL = "deepseek-v4-pro";
+export const DEEPSEEK_RESEARCH_MODELS = [DEEPSEEK_FLASH_MODEL, DEEPSEEK_PRO_MODEL];
+
+function cleanBaseUrl(value) {
+  return String(value || DEEPSEEK_BASE_URL).replace(/\/+$/, "");
+}
 
 const CHANNELS = [
   {
-    name: "international-primary",
-    baseUrl: INTL_BASE,
-    model: "deepseek-ai/DeepSeek-V4-Pro",
-    keyEnv: "SILICONFLOW_INTL_API_KEY_PRIMARY"
-  },
-  {
-    name: "international-secondary",
-    baseUrl: INTL_BASE,
-    model: "deepseek-ai/DeepSeek-V4-Pro",
-    keyEnv: "SILICONFLOW_INTL_API_KEY_SECONDARY"
-  },
-  {
-    name: "china-primary",
-    baseUrl: CN_BASE,
-    model: "Pro/deepseek-ai/DeepSeek-V3.2",
-    keyEnv: "SILICONFLOW_CN_API_KEY_PRIMARY"
-  },
-  {
-    name: "china-secondary",
-    baseUrl: CN_BASE,
-    model: "Pro/deepseek-ai/DeepSeek-V3.2",
-    keyEnv: "SILICONFLOW_CN_API_KEY_SECONDARY"
+    name: "deepseek-official",
+    label: "DeepSeek Official",
+    baseUrl: cleanBaseUrl(env("DEEPSEEK_API_BASE_URL")),
+    model: DEEPSEEK_PRO_MODEL,
+    keyEnv: "DEEPSEEK_API_KEY"
   }
 ];
 
-export function channelsForRuntime(runtimeMode) {
-  const mode = normalizeRuntimeMode(runtimeMode);
-  const order = new Map(mode.channelOrder.map((name, index) => [name, index]));
-  return [...CHANNELS].sort((a, b) => (order.get(a.name) ?? 99) - (order.get(b.name) ?? 99));
+export function channelsForRuntime() {
+  return [...CHANNELS];
 }
 
-export function configuredChannels(runtimeMode) {
-  return channelsForRuntime(runtimeMode).map((channel, index) => ({
+export function configuredChannels() {
+  return channelsForRuntime().map((channel, index) => ({
     ...channel,
     priority: index + 1,
     configured: Boolean(env(channel.keyEnv))
   }));
 }
 
-let modelCatalogCache;
-
-async function fetchModelCatalog(channel, timeoutMs = 20000) {
-  const apiKey = env(channel.keyEnv);
-  if (!apiKey) return [];
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${channel.baseUrl}/models`, {
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        accept: "application/json"
-      },
-      signal: controller.signal
-    });
-    if (!response.ok) return [];
-    const payload = await response.json();
-    const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-    return rows
-      .map((item) => (typeof item === "string" ? item : item?.id || item?.name || ""))
-      .filter(Boolean);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function rankResearchModel(id) {
-  const value = String(id || "").toLowerCase();
-  const preferred = [
-    "deepseek-ai/deepseek-v4-pro",
-    "moonshotai/kimi-k2.6",
-    "pro/moonshotai/kimi-k2.6",
-    "zai-org/glm-5.1",
-    "pro/zai-org/glm-5.1",
-    "qwen/qwen3.5-397b-a17b",
-    "qwen/qwen3.5-122b-a10b",
-    "minimaxai/minimax-m2.5",
-    "pro/minimaxai/minimax-m2.5",
-    "zai-org/glm-5",
-    "pro/zai-org/glm-5",
-    "qwen/qwen3.6-35b-a3b",
-    "qwen/qwen3.6-27b",
-    "deepseek-ai/deepseek-v3.2",
-    "pro/deepseek-ai/deepseek-v3.2"
-  ];
-  const preferredIndex = preferred.findIndex((item) => value === item);
-  if (preferredIndex >= 0) return 1000 - preferredIndex;
-
-  let score = 0;
-  if (value.includes("qwen")) score += 35;
-  if (value.includes("glm") || value.includes("zai")) score += 34;
-  if (value.includes("kimi") || value.includes("moonshot")) score += 30;
-  if (value.includes("minimax")) score += 26;
-  if (value.includes("deepseek")) score += 20;
-  if (value.includes("reason") || value.includes("thinking") || value.includes("qwq")) score += 18;
-  if (value.includes("pro") || value.includes("plus") || value.includes("max")) score += 8;
-  const size = value.match(/(?:^|[-_])(\d+)b(?:[-_]|$)/)?.[1];
-  if (size) score += Math.min(Number(size), 120) / 3;
-  if (value.includes("397b")) score += 80;
-  if (value.includes("122b")) score += 45;
-  if (value.includes("35b") || value.includes("32b")) score += 16;
-  if (value.includes("7b") || value.includes("8b") || value.includes("9b")) score -= 30;
-  if (value.includes("vl") || value.includes("embedding") || value.includes("rerank")) score -= 140;
-  if (value.includes("image") || value.includes("ocr") || value.includes("captioner")) score -= 140;
-  if (value.includes("omni") || value.includes("coder") || value.includes("lora") || value.includes("flash")) score -= 50;
-  return score;
-}
-
-export async function discoverResearchModels(limit = 6, runtimeMode) {
-  if (modelCatalogCache) return modelCatalogCache.slice(0, limit);
-
-  const discovered = [];
-  for (const channel of channelsForRuntime(runtimeMode)) {
-    const models = await fetchModelCatalog(channel);
-    for (const id of models) {
-      const score = rankResearchModel(id);
-      if (score > 0) discovered.push({ id, score });
-    }
-  }
-
-  const preferredFallback = [
-    "deepseek-ai/DeepSeek-V4-Pro",
-    "Pro/deepseek-ai/DeepSeek-V3.2",
-    "zai-org/GLM-5.1",
-    "Pro/zai-org/GLM-5.1",
-    "Qwen/Qwen3.6-35B-A3B",
-    "moonshotai/Kimi-K2.6",
-    "Pro/moonshotai/Kimi-K2.6",
-    "Qwen/Qwen3-235B-A22B",
-    "Qwen/QwQ-32B",
-    "MiniMaxAI/MiniMax-M1"
-  ];
-
-  const ranked = discovered
-    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-    .map((item) => item.id);
-
-  const seenBase = new Set();
-  modelCatalogCache = [];
-  for (const id of [...ranked, ...preferredFallback]) {
-    const baseId = id.toLowerCase().replace(/^pro\//, "");
-    if (seenBase.has(baseId)) continue;
-    seenBase.add(baseId);
-    modelCatalogCache.push(id);
-  }
-  return modelCatalogCache.slice(0, limit);
+export async function discoverResearchModels(limit = 2) {
+  return DEEPSEEK_RESEARCH_MODELS.slice(0, limit);
 }
 
 function modelsForChannel(channel, options) {
@@ -161,10 +41,153 @@ function modelsForChannel(channel, options) {
   return [channel.model];
 }
 
+async function notifyAttempt(options, payload) {
+  try {
+    await options.onAttempt?.(payload);
+  } catch {
+    // Progress callbacks must never break the model request itself.
+  }
+}
+
+function isStreamResponse(response) {
+  return /text\/event-stream/i.test(response.headers.get("content-type") || "");
+}
+
+function parseStreamDelta(payload) {
+  return payload?.choices?.[0]?.delta?.content ?? payload?.choices?.[0]?.message?.content ?? payload?.choices?.[0]?.text ?? "";
+}
+
+async function readStreamContent(response, { controller, options, attempt, model, channel, startedAt }) {
+  if (!response.body?.getReader) throw new Error("stream response body is not readable");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const firstTokenTimeoutMs = options.firstTokenTimeoutMs ?? 90000;
+  const streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? 45000;
+  const streamMaxMs = options.streamMaxMs ?? options.timeoutMs ?? 240000;
+  const progressEveryMs = options.streamProgressEveryMs ?? 3000;
+  const progressEveryChars = options.streamProgressEveryChars ?? 1200;
+
+  let content = "";
+  let buffer = "";
+  let firstToken = false;
+  let lastProgressAt = 0;
+  let lastProgressChars = 0;
+  let abortReason = "";
+
+  const maxTimer = setTimeout(() => {
+    abortReason = `stream exceeded ${Math.round(streamMaxMs / 1000)}s`;
+    controller.abort();
+  }, streamMaxMs);
+
+  let idleTimer;
+  const armIdle = (ms, reason) => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      abortReason = reason;
+      controller.abort();
+    }, ms);
+  };
+  armIdle(firstTokenTimeoutMs, `no first token within ${Math.round(firstTokenTimeoutMs / 1000)}s`);
+
+  const notifyStreamProgress = async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastProgressAt < progressEveryMs && content.length - lastProgressChars < progressEveryChars) return;
+    lastProgressAt = now;
+    lastProgressChars = content.length;
+    await notifyAttempt(options, {
+      attempt,
+      status: "stream-progress",
+      model,
+      channel,
+      receivedChars: content.length,
+      elapsedMs: now - startedAt,
+      lastOutputAt: new Date(now).toISOString(),
+      error: `streaming, received about ${content.length} chars`
+    });
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split(/\n\n+/);
+      buffer = events.pop() || "";
+      for (const event of events) {
+        const lines = event
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith("data:"));
+        for (const line of lines) {
+          const data = line.replace(/^data:\s*/, "");
+          if (!data || data === "[DONE]") continue;
+          try {
+            const payload = JSON.parse(data);
+            const delta = parseStreamDelta(payload);
+            if (!delta) continue;
+            if (!firstToken) {
+              firstToken = true;
+              await notifyAttempt(options, {
+                attempt,
+                status: "first-token",
+                model,
+                channel,
+                elapsedMs: Date.now() - startedAt,
+                error: "first token received"
+              });
+            }
+            content += delta;
+            armIdle(streamIdleTimeoutMs, `stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s`);
+            await notifyStreamProgress();
+          } catch {
+            // Ignore malformed SSE frames and keep reading.
+          }
+        }
+      }
+    }
+    await notifyStreamProgress(true);
+  } catch (error) {
+    if (abortReason) {
+      const next = new Error(abortReason);
+      next.name = "StreamTimeoutError";
+      throw next;
+    }
+    throw error;
+  } finally {
+    clearTimeout(maxTimer);
+    clearTimeout(idleTimer);
+  }
+
+  if (!content.trim()) throw new Error("stream returned empty content");
+  return content;
+}
+
+async function readJsonContent(response, controller, timeoutMs) {
+  const bodyTimer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const payload = await response.json();
+    return payload?.choices?.[0]?.message?.content || payload?.choices?.[0]?.text || "";
+  } finally {
+    clearTimeout(bodyTimer);
+  }
+}
+
 export async function callModel(messages, options = {}) {
   const errors = [];
   const timeoutMs = options.timeoutMs ?? 120000;
+  const totalTimeoutMs = options.totalTimeoutMs ?? options.maxTotalMs ?? 0;
+  const startedAt = Date.now();
+  const deadline = totalTimeoutMs > 0 ? startedAt + totalTimeoutMs : Number.POSITIVE_INFINITY;
   const allowedChannels = Array.isArray(options.channelNames) && options.channelNames.length ? new Set(options.channelNames) : null;
+  const preferStream = options.stream !== false;
+  const thinking =
+    options.thinking ||
+    (String(env("DEEPSEEK_THINKING_MODE") || "disabled").toLowerCase() === "enabled"
+      ? { type: "enabled" }
+      : { type: "disabled" });
+  let attempt = 0;
+
   for (const channel of channelsForRuntime(options.runtimeMode)) {
     if (allowedChannels && !allowedChannels.has(channel.name)) continue;
     const apiKey = env(channel.keyEnv);
@@ -172,8 +195,31 @@ export async function callModel(messages, options = {}) {
     const models = modelsForChannel(channel, options);
 
     for (const model of models) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        errors.push(`model call total budget exhausted after ${Math.round(totalTimeoutMs / 1000)}s`);
+        throw new Error(errors.join("\n"));
+      }
+
+      attempt += 1;
+      const attemptTimeoutMs = Math.max(3000, Math.min(timeoutMs, remainingMs));
+      await notifyAttempt(options, {
+        attempt,
+        status: "start",
+        model,
+        channel: channel.name,
+        timeoutMs: attemptTimeoutMs,
+        remainingMs: Math.max(0, remainingMs)
+      });
+
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const headerTimeoutMs = preferStream ? Math.min(options.headerTimeoutMs ?? 30000, attemptTimeoutMs) : attemptTimeoutMs;
+      let abortReason = "";
+      const timer = setTimeout(() => {
+        abortReason = `no response headers within ${Math.round(headerTimeoutMs / 1000)}s`;
+        controller.abort();
+      }, headerTimeoutMs);
+
       try {
         const response = await fetch(`${channel.baseUrl}/chat/completions`, {
           method: "POST",
@@ -184,43 +230,95 @@ export async function callModel(messages, options = {}) {
           body: JSON.stringify({
             model,
             messages,
+            thinking,
             temperature: options.temperature ?? 0.25,
-            max_tokens: options.maxTokens ?? 12000
+            max_tokens: options.maxTokens ?? 12000,
+            ...(thinking?.type === "enabled" && options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
+            ...(preferStream ? { stream: true } : {})
           }),
           signal: controller.signal
         });
+        clearTimeout(timer);
 
         if (!response.ok) {
           const text = await response.text();
           errors.push(`${channel.name}/${model}: HTTP ${response.status} ${clip(text, 300)}`);
+          await notifyAttempt(options, {
+            attempt,
+            status: "http-error",
+            model,
+            channel: channel.name,
+            error: `HTTP ${response.status}`
+          });
           continue;
         }
 
-        const payload = await response.json();
-        const content = payload?.choices?.[0]?.message?.content;
+        await notifyAttempt(options, {
+          attempt,
+          status: "headers",
+          model,
+          channel: channel.name,
+          elapsedMs: Date.now() - startedAt,
+          error: "response headers received"
+        });
+
+        const content = preferStream && isStreamResponse(response)
+          ? await readStreamContent(response, {
+              controller,
+              options,
+              attempt,
+              model,
+              channel: channel.name,
+              startedAt
+            })
+          : await readJsonContent(response, controller, attemptTimeoutMs);
+
         if (!content) {
           errors.push(`${channel.name}/${model}: empty response`);
+          await notifyAttempt(options, {
+            attempt,
+            status: "empty",
+            model,
+            channel: channel.name,
+            error: "empty response"
+          });
           continue;
         }
+
+        await notifyAttempt(options, {
+          attempt,
+          status: "success",
+          model,
+          channel: channel.name
+        });
+
         return {
           content,
           model,
           channel: channel.name
         };
       } catch (error) {
-        errors.push(`${channel.name}/${model}: ${error?.message || String(error)}`);
+        const message = abortReason && error?.name === "AbortError" ? abortReason : error?.message || String(error);
+        errors.push(`${channel.name}/${model}: ${message}`);
+        await notifyAttempt(options, {
+          attempt,
+          status: "error",
+          model,
+          channel: channel.name,
+          error: error?.name === "AbortError" ? `timeout after ${Math.round(attemptTimeoutMs / 1000)}s` : error?.message || String(error)
+        });
       } finally {
         clearTimeout(timer);
       }
     }
   }
 
-  throw new Error(errors.length ? errors.join("\n") : "没有可用的硅基流动密钥");
+  throw new Error(errors.length ? errors.join("\n") : "No configured DeepSeek API key. Set DEEPSEEK_API_KEY.");
 }
 
 export function extractJson(text) {
   const raw = String(text || "").trim();
-  if (!raw) throw new Error("模型返回为空");
+  if (!raw) throw new Error("model returned empty content");
   try {
     return JSON.parse(raw);
   } catch {
@@ -233,6 +331,6 @@ export function extractJson(text) {
     if (start >= 0 && end > start) {
       return JSON.parse(raw.slice(start, end + 1));
     }
-    throw new Error("模型返回不是可解析的JSON");
+    throw new Error("model output is not parseable JSON");
   }
 }
