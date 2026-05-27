@@ -21,33 +21,34 @@
       overflow: hidden;
       color: #f8fbff;
       background:
-        radial-gradient(circle at 12% 6%, rgba(82, 160, 255, .36), transparent 24%),
-        radial-gradient(circle at 92% 14%, rgba(255, 217, 128, .34), transparent 26%),
-        linear-gradient(155deg, #07111f 0%, #0e2543 48%, #06101f 100%);
+        radial-gradient(circle at 12% 8%, rgba(65, 132, 255, .42), transparent 25%),
+        radial-gradient(circle at 82% 2%, rgba(255, 213, 118, .34), transparent 25%),
+        radial-gradient(circle at 72% 58%, rgba(0, 122, 255, .20), transparent 32%),
+        linear-gradient(155deg, #06101d 0%, #0d2442 48%, #050b14 100%);
     }
     .poster::before {
       content: "";
       position: absolute;
-      inset: 0;
+      inset: -80px;
       background-image: url("./oac-ai-visual.png");
       background-size: cover;
       background-position: center top;
-      opacity: .18;
-      filter: saturate(1.1) contrast(1.04);
+      opacity: .12;
+      filter: saturate(1.08) contrast(1.08);
     }
     .poster::after {
       content: "";
       position: absolute;
       inset: 0;
       background:
-        linear-gradient(180deg, rgba(7, 17, 31, .18), rgba(7, 17, 31, .72) 54%, rgba(7, 17, 31, .96)),
-        radial-gradient(circle at 50% 36%, rgba(0, 122, 255, .18), transparent 36%);
+        linear-gradient(180deg, rgba(5, 11, 20, .10), rgba(5, 11, 20, .62) 52%, rgba(5, 11, 20, .96)),
+        linear-gradient(90deg, rgba(5, 11, 20, .12), transparent 50%, rgba(5, 11, 20, .18));
     }
     .content {
       position: relative;
       z-index: 2;
       height: 100%;
-      padding: 58px 58px 52px;
+      padding: 54px 56px 52px;
       display: flex;
       flex-direction: column;
       gap: 24px;
@@ -56,20 +57,22 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 24px;
+      gap: 22px;
     }
     .brand-left {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 15px;
+      min-width: 0;
     }
     .mark {
-      width: 86px;
-      height: 86px;
-      border-radius: 28px;
+      width: 78px;
+      height: 78px;
+      border-radius: 24px;
       display: grid;
       place-items: center;
-      font-size: 34px;
+      flex: 0 0 auto;
+      font-size: 31px;
       font-weight: 950;
       color: #07111f;
       background: linear-gradient(135deg, #ffe7ad 0%, #ffffff 44%, #86c8ff 100%);
@@ -77,18 +80,18 @@
     }
     .brand b {
       display: block;
-      font-size: 38px;
-      line-height: 1.1;
+      font-size: 36px;
+      line-height: 1.06;
     }
     .brand span {
       display: block;
       margin-top: 4px;
       color: rgba(226, 239, 255, .72);
-      font-size: 20px;
+      font-size: 19px;
       font-weight: 800;
     }
     .badge {
-      padding: 12px 18px;
+      padding: 11px 17px;
       border-radius: 999px;
       color: #ffe7ad;
       background: rgba(255, 231, 173, .12);
@@ -99,213 +102,234 @@
     }
     .hero {
       display: grid;
-      grid-template-columns: 1.05fr .72fr;
-      gap: 28px;
-      align-items: end;
-      margin-top: 8px;
+      grid-template-columns: 1.02fr .78fr;
+      gap: 24px;
+      align-items: stretch;
+      margin-top: 6px;
     }
     h1 {
       margin: 0;
-      font-size: 78px;
-      line-height: 1.06;
+      font-size: 76px;
+      line-height: 1.04;
       letter-spacing: 0;
     }
     .lead {
-      margin: 22px 0 0;
+      margin: 18px 0 0;
+      max-width: 640px;
       font-size: 29px;
-      line-height: 1.48;
+      line-height: 1.46;
       color: rgba(237, 246, 255, .88);
     }
     .lead strong { color: #ffe7ad; }
-    .promise {
+    .pain-grid {
       display: grid;
-      gap: 13px;
+      gap: 12px;
     }
-    .promise article {
-      padding: 18px 18px 17px;
-      border-radius: 24px;
-      background: rgba(255, 255, 255, .10);
-      border: 1px solid rgba(255, 255, 255, .13);
+    .pain {
+      padding: 17px 18px 16px;
+      border-radius: 23px;
+      background: rgba(255, 255, 255, .11);
+      border: 1px solid rgba(255, 255, 255, .14);
       box-shadow: inset 0 1px rgba(255, 255, 255, .12);
     }
-    .promise small {
+    .pain small {
       display: block;
       color: rgba(226, 239, 255, .64);
       font-size: 17px;
       font-weight: 900;
     }
-    .promise b {
+    .pain b {
       display: block;
-      margin-top: 6px;
+      margin-top: 5px;
       color: #fff;
-      font-size: 28px;
+      font-size: 27px;
       line-height: 1.18;
     }
-    .flow {
-      display: grid;
-      grid-template-columns: 1fr 1.2fr;
-      gap: 18px;
-      padding: 18px;
-      border-radius: 34px;
-      background: rgba(255, 255, 255, .10);
+    .showcase {
+      position: relative;
+      height: 670px;
+      margin-top: 2px;
+      border-radius: 42px;
+      background:
+        radial-gradient(circle at 42% 20%, rgba(46, 133, 255, .28), transparent 34%),
+        rgba(255, 255, 255, .08);
       border: 1px solid rgba(255, 255, 255, .14);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, .28);
-      backdrop-filter: blur(18px);
+      box-shadow: 0 40px 110px rgba(0, 0, 0, .30);
+      overflow: hidden;
     }
-    .panel {
+    .showcase::before {
+      content: "真实系统界面";
+      position: absolute;
+      top: 26px;
+      left: 30px;
+      z-index: 5;
+      padding: 9px 14px;
+      border-radius: 999px;
+      color: #07111f;
+      background: linear-gradient(135deg, #ffe7ad, #8bceff);
+      font-size: 20px;
+      font-weight: 950;
+    }
+    .phone {
+      position: absolute;
+      width: 350px;
+      height: 620px;
+      padding: 12px;
+      border-radius: 42px;
+      background: linear-gradient(180deg, #1a263a, #07111f);
+      box-shadow: 0 36px 90px rgba(0, 0, 0, .46);
+      border: 1px solid rgba(255, 255, 255, .20);
+      overflow: hidden;
+    }
+    .phone img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      object-position: top center;
+      border-radius: 32px;
+    }
+    .phone.home {
+      left: 86px;
+      top: 38px;
+      transform: rotate(-5deg);
+    }
+    .phone.report {
+      right: 96px;
+      top: 16px;
+      transform: rotate(5deg);
+      width: 372px;
+      height: 646px;
+    }
+    .phone-note {
+      position: absolute;
+      z-index: 6;
+      left: 52px;
+      bottom: 34px;
+      width: 410px;
+      padding: 18px 20px;
       border-radius: 26px;
-      padding: 25px 26px;
-      background: rgba(255, 255, 255, .95);
-      color: #101828;
+      background: rgba(7, 17, 31, .78);
+      border: 1px solid rgba(255, 255, 255, .14);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .32);
     }
-    .panel.dark {
-      background: linear-gradient(135deg, rgba(10, 37, 70, .98), rgba(13, 74, 128, .94));
+    .phone-note b {
+      display: block;
+      color: #ffe7ad;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    .phone-note span {
+      display: block;
+      margin-top: 6px;
+      color: rgba(226, 239, 255, .80);
+      font-size: 18px;
+      line-height: 1.36;
+    }
+    .value {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 18px;
+    }
+    .value-card,
+    .output-card {
+      border-radius: 32px;
+      padding: 28px 30px;
+      background: rgba(255, 255, 255, .94);
+      color: #111827;
+    }
+    .output-card {
+      background: linear-gradient(135deg, rgba(12, 43, 80, .98), rgba(17, 82, 140, .94));
       color: #fff;
       border: 1px solid rgba(125, 190, 255, .24);
     }
     .chip {
       display: inline-flex;
       align-items: center;
-      padding: 8px 12px;
+      padding: 8px 13px;
       border-radius: 999px;
       font-size: 18px;
       font-weight: 950;
       color: #0a66c2;
       background: rgba(10, 132, 255, .12);
     }
-    .dark .chip {
+    .output-card .chip {
       color: #ffe7ad;
       background: rgba(255, 231, 173, .12);
     }
-    .panel h2 {
-      margin: 17px 0 12px;
-      font-size: 32px;
-      line-height: 1.24;
+    .value h2,
+    .output-card h2 {
+      margin: 16px 0 10px;
+      font-size: 34px;
+      line-height: 1.22;
     }
-    .panel p {
+    .value p,
+    .output-card p {
       margin: 0;
-      font-size: 22px;
-      line-height: 1.5;
-      color: rgba(16, 24, 40, .72);
+      font-size: 21px;
+      line-height: 1.48;
+      color: rgba(17, 24, 39, .72);
     }
-    .dark p { color: rgba(235, 246, 255, .82); }
-    .outcomes {
+    .output-card p { color: rgba(235, 246, 255, .82); }
+    .outputs {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-      margin-top: 18px;
+      gap: 10px;
+      margin-top: 16px;
     }
-    .outcomes div {
-      padding: 16px;
-      border-radius: 20px;
+    .outputs div {
+      padding: 14px 15px;
+      border-radius: 19px;
       background: rgba(255, 255, 255, .11);
       border: 1px solid rgba(255, 255, 255, .13);
-    }
-    .outcomes small {
-      display: block;
-      color: rgba(226, 239, 255, .72);
-      font-size: 16px;
-      font-weight: 900;
-    }
-    .outcomes b {
-      display: block;
-      margin-top: 8px;
-      color: #fff;
-      font-size: 25px;
-      line-height: 1.18;
-    }
-    .crew-title {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 24px;
-    }
-    .crew-title h2 {
-      margin: 0;
-      font-size: 34px;
-    }
-    .crew-title p {
-      margin: 0;
-      max-width: 520px;
-      color: rgba(226, 239, 255, .72);
-      font-size: 20px;
-      line-height: 1.38;
-      text-align: right;
+      font-size: 24px;
+      font-weight: 950;
+      line-height: 1.12;
     }
     .crew {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 13px;
+      gap: 12px;
     }
     .crew article {
-      min-height: 176px;
-      padding: 20px 15px;
-      border-radius: 26px;
+      min-height: 148px;
+      padding: 18px 14px;
+      border-radius: 25px;
       background: rgba(255, 255, 255, .10);
       border: 1px solid rgba(255, 255, 255, .13);
     }
     .crew i {
       display: grid;
       place-items: center;
-      width: 44px;
-      height: 44px;
+      width: 42px;
+      height: 42px;
       border-radius: 15px;
-      margin-bottom: 13px;
+      margin-bottom: 11px;
       font-style: normal;
       color: #07111f;
       background: linear-gradient(135deg, #ffe7ad, #8bceff);
       font-weight: 950;
-      font-size: 21px;
+      font-size: 20px;
     }
     .crew b {
       display: block;
-      font-size: 23px;
-      line-height: 1.15;
-    }
-    .crew strong {
-      display: block;
-      margin-top: 5px;
-      color: #ffe7ad;
-      font-size: 16px;
-      line-height: 1.25;
+      color: #fff;
+      font-size: 22px;
+      line-height: 1.12;
     }
     .crew span {
       display: block;
-      margin-top: 8px;
-      font-size: 16px;
-      line-height: 1.34;
-      color: rgba(226, 239, 255, .70);
-    }
-    .trust {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-    }
-    .trust div {
-      min-height: 146px;
-      padding: 20px 16px;
-      border-radius: 24px;
-      background: rgba(255, 255, 255, .94);
-      color: #0f172a;
-    }
-    .trust b {
-      display: block;
-      font-size: 26px;
-      color: #0b5ed7;
-    }
-    .trust span {
-      display: block;
-      margin-top: 8px;
-      font-size: 17px;
-      line-height: 1.34;
-      color: rgba(15, 23, 42, .68);
+      margin-top: 5px;
+      color: #ffe7ad;
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.25;
     }
     .bottom {
       margin-top: auto;
       display: grid;
       grid-template-columns: 1.1fr .9fr;
       gap: 16px;
-      align-items: stretch;
     }
     .quote,
     .cta {
@@ -314,28 +338,24 @@
       background: rgba(255, 255, 255, .10);
       border: 1px solid rgba(255, 255, 255, .13);
     }
-    .quote b {
+    .quote b,
+    .cta b {
       display: block;
       color: #ffe7ad;
       font-size: 30px;
       line-height: 1.25;
     }
+    .cta b { color: #fff; }
     .quote span,
     .cta span {
       display: block;
-      margin-top: 8px;
+      margin-top: 7px;
       color: rgba(226, 239, 255, .74);
-      font-size: 19px;
-      line-height: 1.38;
+      font-size: 18px;
+      line-height: 1.34;
     }
     .cta {
-      background: linear-gradient(135deg, rgba(255, 231, 173, .20), rgba(0, 122, 255, .16));
-    }
-    .cta b {
-      display: block;
-      color: #fff;
-      font-size: 28px;
-      line-height: 1.25;
+      background: linear-gradient(135deg, rgba(255, 231, 173, .18), rgba(0, 122, 255, .18));
     }
   </style>
 </head>
@@ -350,62 +370,61 @@
             <span>Opportunity Advisory Crew</span>
           </div>
         </div>
-        <div class="badge">销售 / 售前 / 渠道的会前作战系统</div>
+        <div class="badge">销售 / 售前的客户作战系统</div>
       </div>
 
       <section class="hero">
         <div>
-          <h1>销售最痛的，不是没线索</h1>
-          <p class="lead">是线索来了，却看不透<strong>客户是谁、有没有预算、谁说了算、痛点真不真、方案能不能落地</strong>。任何一项不清楚，售前投入都可能打水漂。</p>
+          <h1>客户还没吃透，方案已经要了</h1>
+          <p class="lead">行业不熟、资料太散、时间太紧，客户一问业务细节就容易露怯。传统售前只会讲产品，真正难的是<strong>结合客户现状给出咨询式方案</strong>。</p>
         </div>
-        <div class="promise">
-          <article><small>明天就要拜访</small><b>客户资料还没摸清</b></article>
-          <article><small>销售催着要方案</small><b>预算、决策链、痛点都模糊</b></article>
-          <article><small>售前最怕投入</small><b>忙一圈，最后不成交</b></article>
+        <div class="pain-grid">
+          <article class="pain"><small>见客户前</small><b>来不及研究行业和客户</b></article>
+          <article class="pain"><small>沟通现场</small><b>客户觉得你不懂他的业务</b></article>
+          <article class="pain"><small>出方案时</small><b>只会套产品，接不住真实问题</b></article>
+          <article class="pain"><small>投入售前</small><b>方案做了很多，商机未必成立</b></article>
         </div>
       </section>
 
-      <section class="flow">
-        <article class="panel">
-          <span class="chip">OAC 的答案</span>
-          <h2>先判断这条商机值不值得投入</h2>
-          <p>把目标客户的公开资料、财务线索、风险信息和我方能力放在一起研判，先给出跟进优先级，再决定投入多少销售/售前资源。</p>
+      <section class="showcase">
+        <div class="phone home"><img src="./oac-app-home-mobile.png" alt="OAC 首页界面截图" /></div>
+        <div class="phone report"><img src="./oac-report-mobile.png" alt="OAC 报告界面截图" /></div>
+        <div class="phone-note">
+          <b>不是多给一堆资料，而是给出拜访判断</b>
+          <span>从客户画像、痛点机会到方案、问卷、风险边界，直接服务下一次沟通。</span>
+        </div>
+      </section>
+
+      <section class="value">
+        <article class="value-card">
+          <span class="chip">能力跃迁</span>
+          <h2>把产品型售前，升级成咨询型售前</h2>
+          <p>OAC 先研究客户行业、经营压力和可验证线索，再结合“我的企业能力”，输出更像顾问的判断、方案和问题清单。</p>
         </article>
-        <article class="panel dark">
-          <span class="chip">输出很完整</span>
-          <h2>手机可读、证据可追溯的商机作战简报</h2>
-          <p>从“客户是谁”一路推到“从哪里切、问什么、准备什么方案、有哪些预算和落地风险”。</p>
-          <div class="outcomes">
-            <div><small>跟进判断</small><b>A/B/C 评级</b></div>
-            <div><small>行动建议</small><b>下一步打法</b></div>
-            <div><small>方案方向</small><b>痛点 / 价值 / 成效</b></div>
-            <div><small>现场准备</small><b>拜访问卷</b></div>
+        <article class="output-card">
+          <span class="chip">输出结果</span>
+          <h2>一份手机可读的作战简报</h2>
+          <p>先判断值不值得跟，再告诉团队从哪里切、问什么、准备什么、哪些风险不能承诺。</p>
+          <div class="outputs">
+            <div>A/B/C 评级</div>
+            <div>痛点机会</div>
+            <div>方案建议</div>
+            <div>拜访问卷</div>
           </div>
         </article>
       </section>
 
-      <div class="crew-title">
-        <h2>不是一个 AI 助手，是一组参谋在协同</h2>
-        <p>每个参谋负责一个关键环节，避免“搜到一堆资料，却不知道怎么推进”。</p>
-      </div>
       <section class="crew">
-        <article><i>核</i><b>闻舟</b><strong>客户核对参谋</strong><span>核对主体，避免集团、子公司、同名企业混淆。</span></article>
-        <article><i>搜</i><b>探海</b><strong>公开情报参谋</strong><span>扩展官网、公告、招聘、专利、招投标等来源。</span></article>
-        <article><i>验</i><b>明镜</b><strong>证据核验参谋</strong><span>把来源分成高置信、中置信和弱线索。</span></article>
-        <article><i>判</i><b>衡策</b><strong>方案策略参谋</strong><span>判断预算、痛点、机会和推进风险。</span></article>
-        <article><i>写</i><b>简锋</b><strong>简报撰写参谋</strong><span>生成作战简报，并支持会后继续分析。</span></article>
-      </section>
-
-      <section class="trust">
-        <div><b>证据驱动</b><span>关键判断挂来源角标，不把模型输出当事实。</span></div>
-        <div><b>会后迭代</b><span>粘贴会议纪要，自动生成第二轮推进建议。</span></div>
-        <div><b>适配多行业</b><span>先定义我的企业，再研究客户机会。</span></div>
-        <div><b>移动优先</b><span>报告按手机阅读设计，适合旅途和拜访现场。</span></div>
+        <article><i>核</i><b>闻舟</b><span>客户核对参谋</span></article>
+        <article><i>搜</i><b>探海</b><span>公开情报参谋</span></article>
+        <article><i>验</i><b>明镜</b><span>证据核验参谋</span></article>
+        <article><i>判</i><b>衡策</b><span>方案策略参谋</span></article>
+        <article><i>写</i><b>简锋</b><span>简报撰写参谋</span></article>
       </section>
 
       <section class="bottom">
         <div class="quote">
-          <b>从“我知道一个客户名”到“我知道怎么推进”</b>
+          <b>从“我不熟这个客户”到“我知道怎么聊”</b>
           <span>适合会前准备、线索筛选、售前投入判断、渠道协同和客户复盘。</span>
         </div>
         <div class="cta">
