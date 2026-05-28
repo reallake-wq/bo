@@ -136,7 +136,14 @@ async function api(url: string, options: RequestInit = {}) {
     ...options,
     headers: options.body instanceof FormData ? options.headers : { "content-type": "application/json", ...(options.headers || {}) }
   });
-  const payload = await res.json();
+  const raw = await res.text();
+  let payload: any = {};
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    const preview = raw.replace(/\s+/g, " ").slice(0, 160);
+    throw new Error(`服务返回了非 JSON 响应，通常是后台函数超时、路由异常或部署错误。响应片段：${preview}`);
+  }
   if (!res.ok || payload.ok === false) throw new Error(payload.error || `请求失败：${res.status}`);
   return payload;
 }
@@ -1303,7 +1310,7 @@ function renderRoundInput(reportId: string, report: any) {
         </div>
       </div>
     </details>`;
-  root.querySelector("#addRoundButton")?.addEventListener("click", () => addReportRound(reportId));
+  root.querySelector("#addRoundButton")?.addEventListener("click", () => queueReportRoundJob(reportId));
   refreshIcons();
 }
 
@@ -1337,6 +1344,50 @@ function mountReportFrame(html: string) {
   frame?.addEventListener("load", resize);
   window.setTimeout(resize, 120);
   window.setTimeout(resize, 600);
+}
+
+async function queueReportRoundJob(reportId: string) {
+  const input = (document.querySelector<HTMLTextAreaElement>("#roundInputText")?.value || "").trim();
+  const status = document.querySelector("#roundInputStatus");
+  const button = document.querySelector<HTMLButtonElement>("#addRoundButton");
+  let attachmentText = "";
+  const file = (document.querySelector<HTMLInputElement>("#roundInputFile")?.files || [])[0];
+  if (file) {
+    try {
+      attachmentText = await file.text();
+    } catch {
+      attachmentText = "";
+    }
+  }
+  const finalInput = [input, attachmentText ? `附件《${file?.name || "文字附件"}》内容：\n${attachmentText}` : ""].filter(Boolean).join("\n\n");
+  if (!finalInput.trim()) {
+    if (status) status.textContent = "请先粘贴会议纪要或客户反馈。";
+    return;
+  }
+  if (button) button.disabled = true;
+  if (status) status.textContent = "已提交下一轮判断，正在创建后台任务...";
+  try {
+    const data = await api("/.netlify/functions/create-report-round-job", {
+      method: "POST",
+      body: JSON.stringify({ reportId, inputText: finalInput })
+    });
+    activeJobs[data.jobId] = mergeJobSnapshot(activeJobs[data.jobId], data.job || {}, data.jobId);
+    saveJobSnapshot(data.jobId, activeJobs[data.jobId]);
+    rememberJob(data.jobId);
+    await fetch("/.netlify/functions/run-report-round-job-background", {
+      method: "POST",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jobId: data.jobId })
+    });
+    if (status) status.textContent = "下一轮判断已进入任务中心。你可以关闭页面，完成后再打开报告。";
+    closeReportView("tasks");
+    startPolling();
+  } catch (error: any) {
+    if (status) status.textContent = `生成失败：${error.message}`;
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function addReportRound(reportId: string) {

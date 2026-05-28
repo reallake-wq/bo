@@ -17,7 +17,11 @@ export default async function handler() {
     const jobs = rows
       .map((row) => ({ ...(row.value || {}), jobId: (row.value && row.value.jobId) || String(row.key || "").replace(/\.json$/, "") }))
       .filter((job) => job.jobId && !job.dismissedAt && isRecentOrActive(job))
-      .map((job) => decorateJob(job))
+      .map((job) => {
+        const decorated = decorateJob(job);
+        delete decorated.inputText;
+        return decorated;
+      })
       .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || "") - Date.parse(a.updatedAt || a.createdAt || ""))
       .slice(0, 60);
     return json({ ok: true, jobs });
