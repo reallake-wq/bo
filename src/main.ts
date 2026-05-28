@@ -148,14 +148,18 @@ function activeJobIds() {
   } catch {
     ids = [];
   }
+  const blocked = dismissedJobIdSet();
+  return Array.from(new Set(ids.filter(Boolean))).filter((id) => !blocked.has(id));
+}
+
+function dismissedJobIdSet() {
   let dismissed: string[] = [];
   try {
     dismissed = JSON.parse(localStorage.getItem(LS_DISMISSED) || "[]");
   } catch {
     dismissed = [];
   }
-  const blocked = new Set(dismissed);
-  return Array.from(new Set(ids.filter(Boolean))).filter((id) => !blocked.has(id));
+  return new Set(dismissed);
 }
 
 function saveActiveJobIds(ids: string[]) {
@@ -263,7 +267,7 @@ function mergeJobSnapshot(previous: any = {}, incoming: any = {}, jobId = "") {
   };
 }
 
-function dismissJob(jobId: string) {
+async function dismissJob(jobId: string) {
   const dismissed = new Set(JSON.parse(localStorage.getItem(LS_DISMISSED) || "[]"));
   dismissed.add(jobId);
   localStorage.setItem(LS_DISMISSED, JSON.stringify(Array.from(dismissed).slice(0, 100)));
@@ -273,6 +277,11 @@ function dismissJob(jobId: string) {
   localStorage.setItem(LS_JOB_SNAPSHOTS, JSON.stringify(snapshots));
   delete activeJobs[jobId];
   renderTaskCenter();
+  try {
+    await api("/.netlify/functions/dismiss-report-job", { method: "POST", body: JSON.stringify({ jobId }) });
+  } catch {
+    // The local clear should still feel immediate. A later successful clear will hide it globally.
+  }
 }
 
 function forgetMissingJob(jobId: string) {
@@ -839,6 +848,20 @@ async function cancelJob(jobId: string) {
 }
 
 async function pollJobs() {
+  try {
+    const remote = await api("/.netlify/functions/list-report-jobs");
+    const blocked = dismissedJobIdSet();
+    const remoteJobs = Array.isArray(remote.jobs) ? remote.jobs : [];
+    for (const job of remoteJobs) {
+      if (!job?.jobId || blocked.has(job.jobId)) continue;
+      activeJobs[job.jobId] = mergeJobSnapshot(activeJobs[job.jobId] || loadJobSnapshot(job.jobId), job, job.jobId);
+      saveJobSnapshot(job.jobId, activeJobs[job.jobId]);
+    }
+    if (remoteJobs.length) saveActiveJobIds([...remoteJobs.map((job: any) => job.jobId), ...activeJobIds()]);
+  } catch {
+    // Keep local polling working if the cloud task list is temporarily unavailable.
+  }
+
   const ids = activeJobIds();
   if (!ids.length) {
     if (pollTimer) window.clearInterval(pollTimer);
