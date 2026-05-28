@@ -217,6 +217,12 @@ export async function updateJob(jobId, patch) {
 async function updateJobNow(jobId, patch) {
   const current = await readJson("jobs", `${jobId}.json`, null);
   if (!current) throw new Error(`任务不存在：${jobId}`);
+  const currentTerminal = ["done", "error", "cancelled"].includes(String(current.status || ""));
+  const incomingTerminal = ["done", "error", "cancelled"].includes(String(patch.status || ""));
+  const isDismissPatch = Boolean(patch.dismissedAt);
+  if ((currentTerminal || current.cancelRequested) && !incomingTerminal && !isDismissPatch) {
+    return decorateJob(current);
+  }
   const currentHasIdentity = hasRunnableJobIdentity({ ...current, jobId: current.jobId || jobId });
   const terminalPatchStatus = ["done", "error", "cancelled"].includes(String(patch.status || ""));
   if (!currentHasIdentity && !terminalPatchStatus) {
