@@ -1,11 +1,15 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, extname, join, normalize } from "node:path";
+import { dirname, extname, isAbsolute, join, normalize, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 8888);
+const staticRoot = process.env.OAC_DIST_DIR
+  ? normalize(isAbsolute(process.env.OAC_DIST_DIR) ? process.env.OAC_DIST_DIR : resolve(root, process.env.OAC_DIST_DIR))
+  : join(root, "dist");
+const startedAt = new Date().toISOString();
 
 async function loadEnv() {
   const envPath = join(root, ".env");
@@ -100,12 +104,11 @@ async function handleFunction(req, res, url) {
 }
 
 async function handleStatic(req, res, url) {
-  const dist = join(root, "dist");
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === "/") pathname = "/index.html";
-  const candidate = normalize(join(dist, pathname));
-  const safe = candidate.startsWith(normalize(dist));
-  const file = safe && existsSync(candidate) ? candidate : join(dist, "index.html");
+  const candidate = normalize(join(staticRoot, pathname));
+  const safe = candidate.startsWith(normalize(staticRoot));
+  const file = safe && existsSync(candidate) ? candidate : join(staticRoot, "index.html");
   try {
     const data = await readFile(file);
     res.writeHead(200, { "content-type": contentType(file), "cache-control": "no-store" });
@@ -120,6 +123,19 @@ await mkdir(join(root, "local-data"), { recursive: true });
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://localhost:${port}`);
+  if (url.pathname === "/__health") {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({
+      ok: true,
+      app: "oac-local",
+      port,
+      root,
+      staticRoot,
+      staticIndexExists: existsSync(join(staticRoot, "index.html")),
+      startedAt
+    }));
+    return;
+  }
   if (url.pathname.startsWith("/.netlify/functions/")) {
     await handleFunction(req, res, url);
     return;
@@ -128,6 +144,10 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", async () => {
-  await writeFile(join(root, "local-server-ready.txt"), `http://localhost:${port}\n`, "utf8");
+  try {
+    await writeFile(join(root, "local-server-ready.txt"), `http://localhost:${port}\n`, "utf8");
+  } catch {
+    // The Codex sandbox may forbid writing this marker; the server itself can still run.
+  }
   console.log(`nb-bo local server ready: http://localhost:${port}`);
 });

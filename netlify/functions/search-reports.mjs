@@ -6,6 +6,8 @@ import { ratingIndex } from "../lib/opportunity-rating.mjs";
 import { resolveRatingIndex } from "../lib/rating-resolver.mjs";
 import { auditReport } from "../lib/source-audit.mjs";
 import { applySensitiveVerification } from "../lib/sensitive-verification.mjs";
+import { fail } from "../lib/http.mjs";
+import { withOacRequestContext } from "../lib/auth.mjs";
 
 function periodDays(period) {
   if (period === "7d") return 7;
@@ -34,6 +36,8 @@ function dedupeLatestByCompany(reports) {
 }
 
 export default async function handler(request) {
+  try {
+    return await withOacRequestContext(request, async () => {
   const url = new URL(request.url);
   const query = url.searchParams.get("q") || "";
   const period = url.searchParams.get("period") || "30d";
@@ -133,7 +137,7 @@ export default async function handler(request) {
       .filter((report) => (days ? withinDays(report.generatedAt, days) : true))
       .map((report) => ({
         ...report,
-        opportunityRating: report.opportunityRating || { status: "not_rated", label: "鏆備笉璇勭骇" },
+        opportunityRating: report.opportunityRating || { status: "not_rated", label: "暂不评级" },
         qualityText: qualityStatusText(report),
         matchScore: query ? scoreMatch(report, query) : 1
       }))
@@ -152,5 +156,9 @@ export default async function handler(request) {
       .sort((a, b) => b.matchScore - a.matchScore)
   ).slice(0, 200);
   return json({ ok: true, period, rating, profileId, reports });
+    });
+  } catch (error) {
+    return fail(error?.message || "读取报告列表失败", error?.status || 500);
+  }
 }
 

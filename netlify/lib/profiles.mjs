@@ -1,6 +1,6 @@
 import { callModel, extractJson, DEEPSEEK_PRO_MODEL } from "./ai.mjs";
 import { deleteObject, listJson, readJson, writeJson } from "./store.mjs";
-import { id, nowIso, normalizeText } from "./util.mjs";
+import { clip, id, nowIso, normalizeText } from "./util.mjs";
 
 const PROFILE_NAMESPACE = "profiles";
 const KNOWN_PROFILE_DRAFTS = [
@@ -29,6 +29,32 @@ function normalizeList(value) {
 
 function firstText(...values) {
   return values.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function registrationBase(candidate = {}) {
+  const registration = candidate.tianyanchaRegistration || candidate.tianyanchaSource?.rawData || {};
+  const base = registration._base || registration.base || registration.data?.base || {};
+  return { ...registration, ...base };
+}
+
+function candidateContext(candidate = null) {
+  if (!candidate) return {};
+  const base = registrationBase(candidate);
+  const fields = {
+    standardName: candidate.standardName || candidate.name || "",
+    verification: candidate.scoreBreakdown?.tianyanchaApi ? "天眼查工商登记核验" : candidate.reason || "",
+    creditCode: firstText(base.creditCode, base.creditNo, base.taxNumber),
+    status: firstText(base.regStatus, base.status),
+    legalPerson: firstText(base.legalPersonName, base.legalPerson),
+    registeredCapital: firstText(base.regCapital, base.registeredCapital),
+    establishedAt: firstText(base.estiblishTime, base.establishTime, base.fromTime),
+    industry: firstText(base.industry, base.industryAll?.categoryMiddle, base.industryAll?.categoryBig, candidate.industry),
+    website: firstText(base.websiteList, candidate.website),
+    businessScope: firstText(base.businessScope, base.scope),
+    address: firstText(base.regLocation, base.regLocationHalfWidth),
+    sourceReason: candidate.reason || ""
+  };
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => String(value || "").trim()));
 }
 
 export function normalizeProfile(input = {}) {
@@ -86,19 +112,22 @@ function knownProfile(companyName) {
   return found ? normalizeProfile({ ...found.profile, companyName }) : null;
 }
 
-async function draftWithModel(companyName) {
+async function draftWithModel(companyName, candidate = null) {
+  const context = candidateContext(candidate);
   const messages = [
     {
       role: "system",
       content:
-        "你是资深商业研究员和售前产品经理。请根据企业名称快速生成“我的企业”极简初稿，只返回严格 JSON。companyName 必须原样使用用户输入的企业名称。只允许填写主营业务、核心产品/服务、关键词；不要生成目标客户、典型场景、优势、交付边界、案例或具体客户。无法确认时宁可保守写成可编辑表述，不要编造。"
+        "你是资深商业研究员和售前产品经理。请根据企业名称和已核验的工商登记信息，生成“我的企业”极简初稿，只返回严格 JSON。companyName 必须使用已核验主体名称。只允许填写主营业务、核心产品/服务、关键词；不要生成目标客户、典型场景、优势、交付边界、案例或具体客户。优先依据经营范围、行业、官网和企业名称保守归纳，无法确认时宁可留得宽一些，不要编造。"
     },
     {
       role: "user",
       content: `企业名称：${companyName}
+已核验信息：
+${clip(JSON.stringify(context, null, 2), 2800)}
 返回 JSON：
 {
-  "companyName": "${companyName}",
+  "companyName": "${context.standardName || companyName}",
   "mainBusiness": "主营业务，一句话；如果不确定，写成保守描述",
   "coreProducts": ["核心产品或服务"],
   "keywords": ["关键词"]
@@ -142,7 +171,7 @@ export async function createProfile(companyName, candidate = null) {
   const sameProfiles = (await listProfiles()).filter((profile) => normalizeText(profile.companyName) === normalizeText(name));
   let draft;
   try {
-    draft = knownProfile(name) || (await draftWithModel(name));
+    draft = knownProfile(name) || (await draftWithModel(name, candidate));
   } catch (error) {
     draft = {
       ...fallbackProfile(name),
@@ -166,7 +195,9 @@ export async function createProfile(companyName, candidate = null) {
           industry: candidate.industry || "",
           confidence: candidate.confidence || "",
           reason: candidate.reason || "",
-          sourceUrls: arr(candidate.sourceUrls).slice(0, 8)
+          sourceUrls: arr(candidate.sourceUrls).slice(0, 8),
+          tianyanchaRegistration: candidate.tianyanchaRegistration || null,
+          scoreBreakdown: candidate.scoreBreakdown || null
         }
       : null,
     sourceUrls: arr(candidate?.sourceUrls).slice(0, 8)

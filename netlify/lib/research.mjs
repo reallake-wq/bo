@@ -1,11 +1,14 @@
 import { callModel, extractJson } from "./ai.mjs";
 import { clip, env, uniqBy } from "./util.mjs";
-import { evaluateSourceQuality, TOPIC_NAMES } from "./report-quality.mjs";
+import { evaluateSourceQuality, TOPIC_NAMES } from "./report-quality.mjs?v=oac-insight-20260531a";
 import { DEEPSEEK_FLASH_MODEL, DEEPSEEK_PRO_MODEL } from "./ai.mjs";
+import { collectTianyanchaEvidence, hasTianyanchaKey, resolveTianyanchaCandidateDetailed } from "./tianyancha.mjs";
+import { sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260531a";
 
 const SEARCH_RESULT_LIMIT = 10;
-const TOPIC_READ_LIMIT = 24;
-const RESCUE_READ_LIMIT = 60;
+const TOPIC_READ_LIMIT = 40;
+const RESCUE_READ_LIMIT = 100;
+const SOURCE_POOL_TARGET = 60;
 const SEARCH_TIMEOUT_MS = 12000;
 const MODEL_PLANNING_TIMEOUT_MS = 60000;
 
@@ -799,6 +802,13 @@ export async function readSource(url) {
   return clip(text, 9000);
 }
 
+async function readSourceWithDeadline(url, timeoutMs = 18000) {
+  return Promise.race([
+    readSource(url),
+    new Promise((resolve) => setTimeout(() => resolve(""), timeoutMs))
+  ]);
+}
+
 function formatCny(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) return "未在已读取公开来源中取得";
@@ -1013,10 +1023,15 @@ function buildResearchPlan(company) {
   const stock = companyStockInfo(company);
   const domain = websiteDomain(company);
   const site = domain ? `site:${domain}` : name;
+  const year = new Date().getFullYear();
+  const lastYear = year - 1;
   const local = [name, region, "工厂 园区 产能 产品 客户 研发 测试"].filter(Boolean).join(" ");
   const subject = [name, region, "工商 注册资本 参保人数 专利 软件著作权"].filter(Boolean).join(" ");
 
   return [
+    { topic: TOPIC_FINANCE, query: `${name} ${year} ${lastYear} 最新 财务 营收 净利润 现金流 融资 IPO 辅导 扩产 投资 招聘`, limit: 12 },
+    { topic: TOPIC_FINANCE, query: `${name} ${year} ${lastYear} 年报 半年报 三季报 一季报 业绩 经营情况 研发投入 员工`, limit: 12 },
+    { topic: TOPIC_SUBJECT, query: `${name} ${year} ${lastYear} 融资 增资 扩产 项目 投产 招聘 订单 客户`, limit: 12 },
     stock ? { topic: TOPIC_FINANCE, query: `${stock.code} ${name} 年报 营业收入 归母净利润 研发投入 现金流`, limit: 12 } : null,
     stock ? { topic: TOPIC_FINANCE, query: `${stock.code} ${name} 巨潮资讯 ${stock.market} 年度报告 半年度报告`, limit: 12 } : null,
     stock ? { topic: TOPIC_FINANCE, query: `${stock.code} ${name} 东方财富 同花顺 新浪财经 F10 财务指标`, limit: 12 } : null,
@@ -1035,10 +1050,25 @@ function buildResearchPlan(company) {
     { topic: TOPIC_FINANCE, query: `${site} annual report results guidance investor relations`, limit: 8 },
     { topic: TOPIC_MARKET, query: `${name} 产品线 主机厂 客户 供应商 项目 量产`, limit: 8 },
     { topic: TOPIC_MARKET, query: `${name} 客户 供应链 供应商 采购 中标 招标 合作`, limit: 10 },
+    { topic: TOPIC_MARKET, query: `${name} 招标人 采购人 采购单位 采购公告 采购意向 中标公告 成交供应商 政府采购`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} 作为采购人 招标公告 采购公告 供应商 成交 中标单位 项目预算`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} site:ccgp.gov.cn OR site:cebpubservice.com OR site:chinabidding.com.cn OR site:bidcenter.com.cn 采购 招标 中标`, limit: 10 },
     { topic: TOPIC_MARKET, query: `${name} 微信 公众号 新闻 产品 客户 交付`, limit: 10 },
+    { topic: TOPIC_MARKET, query: `${name} 客户案例 项目案例 标杆案例 交付 实施 上线 解决方案`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} 生态伙伴 渠道伙伴 能力中心 平台 交付 运维 投标 售前`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} 生态 合作伙伴 伙伴网络 联合方案 工业软件 平台集成`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} 交付 实施 服务 运维 客户成功 项目管理 上线`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} 能力中心 生态伙伴 工业互联网 宁波 项目交付`, limit: 12 },
+    { topic: TOPIC_MARKET, query: `${name} 产品手册 服务商 产品名称 价格区间 部署周期`, limit: 12 },
     { topic: TOPIC_MARKET, query: `${name} new energy electric drive inverter thermal turbo customer project`, limit: 8 },
     { topic: TOPIC_MARKET, query: `${industry} 行业报告 市场 压力 质量 交付 成本`, limit: 8 },
     { topic: TOPIC_DIGITAL, query: `${name} 数字化 AI 智能制造 MES ERP PLM QMS APS`, limit: 8 },
+    { topic: TOPIC_DIGITAL, query: `${name} MES APS ERP SAP WMS LIMS SCADA 数据采集 工业互联网`, limit: 12 },
+    { topic: TOPIC_DIGITAL, query: `${name} HolliCube 工业互联网 平台 实时数据 AIOps 可观测性`, limit: 12 },
+    { topic: TOPIC_DIGITAL, query: `${name} AIOps 运维 可观测 工业数据 实时数据库 数据治理`, limit: 12 },
+    { topic: TOPIC_DIGITAL, query: `${name} ERP SAP WMS LIMS 集成 对接 MES APS 生产执行`, limit: 12 },
+    { topic: TOPIC_DIGITAL, query: `${name} HolliMES HolliEMS QMS WMS EAM 产品手册 部署周期`, limit: 12 },
+    { topic: TOPIC_DIGITAL, query: `${name} 蒙牛 乳业 MES 数字化工厂 客户案例`, limit: 10 },
     { topic: TOPIC_DIGITAL, query: `${name} digital transformation AI agent copilot MES ERP PLM QMS case`, limit: 8 },
     { topic: TOPIC_DIGITAL, query: `${name} SAP DELMIA Apriso Andonix Microsoft Copilot 制造`, limit: 8 },
     { topic: TOPIC_DIGITAL, query: `${name} 招聘 IT 数据 工业互联网 质量 工艺 设备`, limit: 8 },
@@ -1077,15 +1107,24 @@ function buildRescuePlan(company, missingTopics = []) {
   const region = company.region || "";
   const industry = company.industry || "";
   const aiNeeds = String(company.aiNeeds || company.userContext?.aiNeeds || "").trim();
+  const year = new Date().getFullYear();
+  const lastYear = year - 1;
   const topics = missingTopics.length ? missingTopics : TOPIC_NAMES;
   return topics.flatMap((topic) =>
     [
+      { topic, query: `${name} ${year} ${lastYear} 最新 经营 财务 业绩 融资 IPO 扩产 招聘 数字化`, limit: 12 },
       { topic, query: `${name} ${region} ${topic} 官方 新闻 年报 案例 报告`, limit: 10 },
       { topic, query: `${name} ${industry} ${topic} digital AI annual report press release case`, limit: 10 },
       { topic, query: `${name} ${region} 政府 公示 项目 招投标 专利 商标 招聘 公众号`, limit: 10 },
       { topic, query: `${name} site:aiqicha.baidu.com OR site:qcc.com OR site:tianyancha.com OR site:shuidi.cn`, limit: 10 },
       { topic, query: `${name} 招聘 IT MES ERP PLM 研发 工艺 质量 设备`, limit: 10 },
       { topic, query: `${name} 专利 商标 软件著作权 研发 技术`, limit: 10 },
+      { topic, query: `${name} 招标人 采购人 采购单位 采购公告 采购意向 中标公告 成交供应商 政府采购`, limit: 12 },
+      { topic, query: `${name} 作为采购人 招标公告 采购公告 供应商 成交 中标单位 项目预算`, limit: 12 },
+      { topic, query: `${name} 客户案例 标杆案例 项目交付 解决方案 实施 上线`, limit: 12 },
+      { topic, query: `${name} 生态 合作伙伴 联合方案 平台集成 渠道伙伴`, limit: 12 },
+      { topic, query: `${name} AIOps 可观测 运维 工业数据 MES APS ERP SAP WMS LIMS`, limit: 12 },
+      { topic, query: `${name} 产品手册 服务商 HolliMES HolliEMS QMS WMS EAM 价格区间 部署周期`, limit: 12 },
       aiNeeds ? { topic, query: `${name} ${aiNeeds} ${topic} AI 智能体 数字化 需求 场景`, limit: 10 } : null
     ].filter(Boolean)
   );
@@ -1108,6 +1147,12 @@ function trustedWeakSourceUrl(url = "") {
 function priorityScore(item) {
   const text = `${item.title || ""} ${item.url || ""} ${item.query || ""} ${item.topic || ""}`.toLowerCase();
   let score = trustedDomainScore(item.url);
+  const family = sourceFamilyOf(item, item.url, item.sourceType);
+  score += Math.round(Math.min(1, Math.max(0, Number(item.tavilyScore || 0))) * 30);
+  if (/official_product|customer_case|digital_capability|tender_project|patent_ip/.test(family)) score += 28;
+  if (/hiring_org|industry_context/.test(family)) score += 13;
+  if (/hollicube|holli|holly|hollimes|holliems|aiops|数字工业操作系统|工业操作系统|客户案例|项目案例|标杆案例|蒙牛|乳业数字化工厂|生态伙伴|合作伙伴|伙伴网络|能力中心|联合方案|产品手册|服务商|部署周期|价格区间|解决方案/.test(text)) score += 45;
+  if (/erp|sap|wms|lims|mes|aps|集成|对接|实施|上线|交付|运维|客户成功|可观测|实时数据库|工业数据/.test(text)) score += 24;
   if (text.includes("official") || text.includes("官网") || text.includes("newsroom") || text.includes("press")) score += 30;
   if (text.includes("annual") || text.includes("report") || text.includes("年报") || text.includes("investor")) score += 28;
   if (text.includes("工商") || text.includes("专利") || text.includes("软件著作权") || text.includes("supplier")) score += 18;
@@ -1115,6 +1160,11 @@ function priorityScore(item) {
   if (text.includes("factory") || text.includes("plant") || text.includes("工厂") || text.includes("园区")) score += 14;
   if (text.includes(".pdf")) score += 6;
   return score;
+}
+
+function isBusinessInsightCandidate(item = {}) {
+  const text = `${item.title || ""} ${item.snippet || ""} ${item.url || ""} ${item.query || ""} ${item.topic || ""}`.toLowerCase();
+  return /hollicube|holli|holly|hollimes|holliems|aiops|mes|aps|erp|sap|wms|lims|eam|qms|scada|客户案例|项目案例|标杆案例|蒙牛|乳业|工业互联网|工业软件|数字化工厂|智能工厂|解决方案|售前|投标|交付|实施|上线|运维|客户成功|生态伙伴|合作伙伴|伙伴网络|能力中心|联合方案|集成|对接|可观测|实时数据库|工业数据|产品手册|服务商|价格区间|部署周期|产品介绍|成功案例|customer case|case study|implementation|solution|platform|ecosystem|partner|integration/.test(text);
 }
 
 function confidenceForUrl(url) {
@@ -1128,8 +1178,11 @@ function confidenceForUrl(url) {
 
 function classifySource(item = {}) {
   const url = String(item.url || "").toLowerCase();
-  const text = `${item.title || ""} ${item.query || ""} ${item.topic || ""}`.toLowerCase();
+  const text = `${item.title || ""} ${item.snippet || ""} ${item.url || ""}`.toLowerCase();
   if (item.sourceType === "财务硬来源" || /cninfo|sse\.com\.cn|szse\.cn|eastmoney|10jqka|finance\.sina|stockstar|cnstock|cfi\.cn/.test(url)) return "财务硬来源";
+  if (/招投标|招标|投标|中标|采购|供应商|政府采购|bid|tender|procurement/.test(text)) return "企业公开来源";
+  if (/专利|软著|软件著作权|商标|知识产权|patent|trademark|copyright/.test(text)) return "企业公开来源";
+  if (/案例|客户案例|项目案例|标杆|交付|实施|上线|解决方案|mes|erp|aps|wms|lims|scada|工业互联网|holl(?:i|y)cube/.test(text)) return "企业公开来源";
   if (/行业报告|行业|market|research|report/.test(text) && !/公司简介|官网/.test(text)) return "行业背景来源";
   if (/qcc|aiqicha|shuidi|tianyancha|qixin|qichamao|gov\.cn/.test(url)) return "主体核对来源";
   return "企业公开来源";
@@ -1148,12 +1201,14 @@ function sourceRelevance(item, company = {}, text = "") {
   const normalized = haystack.toLowerCase();
   const exactNameHit = name && haystack.includes(name);
   const coreHit = core && core.length >= 4 && haystack.includes(core);
+  const shortCore = core && core.length >= 4 ? core.slice(0, 3) : "";
+  const brandContextHit = Boolean(shortCore && haystack.includes(shortCore) && /holli|holly|hollicube|mes|aps|erp|wms|lims|aiops|工业互联网|工业软件|数字化工厂|客户案例|解决方案|智能制造|数字工业操作系统/i.test(haystack));
   const stockHit = stock?.code && normalized.includes(stock.code);
   const industryHit = industry && haystack.includes(industry);
   const regionHit = region && haystack.includes(region);
   const financeHard = sourceType === "财务硬来源";
   const badTitle = /汉字|字典|词典|拼音|笔顺|康熙|说文解字|意思|读音/.test(`${item.title || ""} ${item.url || ""}`);
-  const companySpecific = Boolean(exactNameHit || coreHit || stockHit || (financeHard && stock?.code && String(item.url || "").includes(stock.code)));
+  const companySpecific = Boolean(exactNameHit || coreHit || brandContextHit || stockHit || (financeHard && stock?.code && String(item.url || "").includes(stock.code)));
   const queryText = `${item.query || ""}`;
   const queryCompanyHit = Boolean((name && queryText.includes(name)) || (core && core.length >= 4 && queryText.includes(core)));
   const weakSourceHit = Boolean(!companySpecific && trustedWeakSourceUrl(item.url) && (industryHit || regionHit));
@@ -1167,6 +1222,7 @@ function sourceRelevance(item, company = {}, text = "") {
   let score = 0;
   if (exactNameHit) score += 55;
   if (coreHit) score += 35;
+  if (brandContextHit) score += 28;
   if (stockHit) score += 45;
   if (financeHard && (exactNameHit || coreHit || stockHit)) score += 28;
   if (industryHit) score += 12;
@@ -1176,7 +1232,7 @@ function sourceRelevance(item, company = {}, text = "") {
   const isIndustryBackground = !companySpecific && sourceType === "行业背景来源" && industryHit;
   const relevant = score >= 18 || isIndustryBackground || weakSourceHit || genericWeakHit;
   const reason = companySpecific
-    ? `命中${[exactNameHit || coreHit ? "企业名称" : "", stockHit ? `股票代码${stock.code}` : "", financeHard ? "财务硬来源" : ""].filter(Boolean).join("、")}`
+    ? `命中${[exactNameHit || coreHit ? "企业名称" : "", brandContextHit ? "集团/品牌业务线索" : "", stockHit ? `股票代码${stock.code}` : "", financeHard ? "财务硬来源" : ""].filter(Boolean).join("、")}`
     : isIndustryBackground
       ? `行业背景来源，命中行业关键词“${industry}”`
       : weakSourceHit || genericWeakHit
@@ -1187,6 +1243,7 @@ function sourceRelevance(item, company = {}, text = "") {
     relevanceScore: score,
     relevanceReason: reason,
     sourceType: weakSourceHit || genericWeakHit ? "线索来源" : sourceType,
+    sourceFamily: sourceFamilyOf({ ...item, text }, item.url, weakSourceHit || genericWeakHit ? "线索来源" : sourceType),
     confidence: weakSourceHit || genericWeakHit ? "低" : "",
     domain: domainOf(item.url),
     isCompanySpecific: companySpecific,
@@ -1341,12 +1398,84 @@ async function expandPlanWithModels(company, existingSources = [], options = {})
 }
 
 export async function collectSources(company, onProgress = async () => {}, options = {}) {
+  const checkpoint = options.checkpoint || {};
   const plan = buildResearchPlan(company);
   const seed = seedSources(company);
-  const found = [...seed];
-  const sources = [];
-  const readUrls = new Set();
-  const usedModels = [];
+  const found = uniqBy([...seed, ...arr(checkpoint.candidateSources), ...arr(checkpoint.foundCandidates)], (source) => source.url);
+  const sources = Array.isArray(checkpoint.sources) ? [...checkpoint.sources] : [];
+  const readUrls = new Set(sources.map((source) => source.url).filter(Boolean));
+  const usedModels = [...arr(checkpoint.usedModels)];
+  const completedSourceTopics = new Set(arr(checkpoint.completedSourceTopics));
+  let expanded = checkpoint.expandedPlan || null;
+
+  const checkpointSources = async (stage, extra = {}) => {
+    const candidateSources = uniqBy(found, (source) => source.url).slice(0, 800);
+    const quality = evaluateSourceQuality(sources);
+    const patch = {
+      stage,
+      sources,
+      candidateSources,
+      foundCandidates: candidateSources,
+      expandedPlan: expanded,
+      completedSourceTopics: [...completedSourceTopics],
+      usedModels,
+      quality,
+      ...extra
+    };
+    await options.onCheckpoint?.(patch);
+    if (options.shouldYield?.()) await options.onYield?.(patch);
+  };
+
+  if (checkpoint.sourceCollectionDone && sources.length) {
+    Object.defineProperty(sources, "usedModels", {
+      value: uniqBy(usedModels.filter(Boolean), (item) => `${item.channel}|${item.model}|${item.purpose}`),
+      enumerable: false
+    });
+    return sources;
+  }
+
+  if (!checkpoint.tianyanchaDone && hasTianyanchaKey()) {
+    await ensureNotCancelled(options);
+    await onProgress(14, "天眼查企业事实核验", {
+      phaseKey: "resolve",
+      detail: "正在读取天眼查结构化数据，补充工商、股权、董监高、风险、经营与知识产权线索。",
+      foundCount: uniqBy(found, (source) => source.url).length,
+      sourceCount: evaluateSourceQuality(sources).verifiedSourceCount
+    });
+    const tyc = await collectTianyanchaEvidence(company, {
+      topics: {
+        subject: TOPIC_SUBJECT,
+        finance: TOPIC_FINANCE,
+        market: TOPIC_MARKET,
+        pain: TOPIC_PAIN
+      }
+    });
+    for (const item of arr(tyc.evidence)) {
+      if (readUrls.has(item.url)) continue;
+      readUrls.add(item.url);
+      found.push(item);
+      sources.push(item);
+    }
+    const quality = evaluateSourceQuality(sources);
+    await onProgress(15, "天眼查企业事实核验", {
+      phaseKey: "resolve",
+      detail: `天眼查已补充 ${arr(tyc.evidence).length} 条结构化企业证据；当前可校验证据 ${quality.verifiedSourceCount} 条。`,
+      foundCount: uniqBy(found, (source) => source.url).length,
+      sourceCount: quality.verifiedSourceCount,
+      qualityLevel: quality.qualityLevel
+    });
+    await checkpointSources("tianyancha", {
+      tianyanchaDone: true,
+      tianyanchaDiagnostics: tyc.diagnostics || []
+    });
+  } else if (checkpoint.tianyanchaDone) {
+    await onProgress(15, "天眼查企业事实核验", {
+      phaseKey: "resolve",
+      detail: "已从断点恢复天眼查结构化企业证据。",
+      foundCount: uniqBy(found, (source) => source.url).length,
+      sourceCount: evaluateSourceQuality(sources).verifiedSourceCount
+    });
+  }
 
   await ensureNotCancelled(options);
   await onProgress(16, "检索规划", {
@@ -1354,32 +1483,46 @@ export async function collectSources(company, onProgress = async () => {}, optio
     detail: "正在调用模型生成检索规划。该步骤不会跳过；若模型不可用会停止任务并展示原因。",
     foundCount: uniqBy(found, (source) => source.url).length
   });
-  const expanded = await expandPlanWithModels(company, seed, {
-    runtimeMode: company.runtimeMode || options.runtimeMode,
-    timeoutMs: MODEL_PLANNING_TIMEOUT_MS * 6,
-    onProgress: async (state) => {
-      await onProgress(16 + Math.round((Number(state.completed || 0) / Math.max(Number(state.total || 1), 1)) * 3), `检索规划：${state.currentSegment || ""}`, {
-        phaseKey: "plan",
-        detail: `正在规划 ${state.currentSegment || "检索主题"}，已完成 ${state.completed || 0}/${state.total || 0}。`,
-        completed: state.completed,
-        total: state.total,
-        foundCount: uniqBy(found, (source) => source.url).length,
-        currentModel: state.currentModel || ""
+  if (!expanded) {
+    expanded = await expandPlanWithModels(company, seed, {
+      runtimeMode: company.runtimeMode || options.runtimeMode,
+      timeoutMs: MODEL_PLANNING_TIMEOUT_MS * 6,
+      onProgress: async (state) => {
+        await onProgress(16 + Math.round((Number(state.completed || 0) / Math.max(Number(state.total || 1), 1)) * 3), `检索规划：${state.currentSegment || ""}`, {
+          phaseKey: "plan",
+          detail: `正在规划 ${state.currentSegment || "检索主题"}，已完成 ${state.completed || 0}/${state.total || 0}。`,
+          completed: state.completed,
+          total: state.total,
+          foundCount: uniqBy(found, (source) => source.url).length,
+          currentModel: state.currentModel || ""
+        });
+      }
+    });
+    usedModels.push(...expanded.models);
+    found.push(...expanded.candidateUrls);
+    await checkpointSources("plan", {
+      plan,
+      expandedPlan: expanded,
+      progressLabel: "检索规划已保存"
+    });
+  } else {
+    await onProgress(19, "检索规划", {
+      phaseKey: "plan",
+      detail: "已从断点恢复检索规划，继续读取来源。",
+      foundCount: uniqBy(found, (source) => source.url).length,
+      currentModel: arr(expanded.models).map((item) => `${item.model}（${item.channel}）`).join(" / ")
       });
-    }
-  });
-  usedModels.push(...expanded.models);
-  found.push(...expanded.candidateUrls);
+  }
   await ensureNotCancelled(options);
   await onProgress(19, "检索规划", {
     phaseKey: "plan",
-    detail: `已用 ${expanded.modelCount} 次模型规划扩展 ${expanded.queries.length} 组检索词和 ${expanded.candidateUrls.length} 个候选 URL。`,
+    detail: `已用 ${expanded.modelCount || arr(expanded.models).length} 次模型规划扩展 ${arr(expanded.queries).length} 组检索词和 ${arr(expanded.candidateUrls).length} 个候选 URL。`,
     foundCount: uniqBy(found, (source) => source.url).length,
-    currentModel: expanded.models.map((item) => `${item.model}（${item.channel}）`).join(" / ")
+    currentModel: arr(expanded.models).map((item) => `${item.model}（${item.channel}）`).join(" / ")
   });
 
   const stock = companyStockInfo(company);
-  if (stock) {
+  if (stock && !checkpoint.financeDone) {
     const financeSeeds = financialHardSources(company);
     await onProgress(20, "上市公司财务采集", {
       phaseKey: "finance",
@@ -1394,7 +1537,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
       await ensureNotCancelled(options);
       if (readUrls.has(item.url)) return;
       readUrls.add(item.url);
-      const text = await readSource(item.url);
+      const text = await readSourceWithDeadline(item.url);
       const relevance = sourceRelevance(item, company, text);
       financeRead += 1;
       if (relevance.relevant) {
@@ -1418,6 +1561,16 @@ export async function collectSources(company, onProgress = async () => {}, optio
         sourceCount: quality.verifiedSourceCount,
         qualityLevel: quality.qualityLevel
       });
+      if (financeRead % 3 === 0 || financeRead === financeSeeds.length) {
+        await checkpointSources("finance", { financeRead, financeDone: financeRead === financeSeeds.length });
+      }
+    });
+    await checkpointSources("finance", { financeDone: true });
+  } else if (stock && checkpoint.financeDone) {
+    await onProgress(28, "上市公司财务采集", {
+      phaseKey: "finance",
+      detail: "已从断点恢复上市公司财务来源读取结果，继续分主题检索。",
+      sourceCount: evaluateSourceQuality(sources).verifiedSourceCount
     });
   }
 
@@ -1426,8 +1579,17 @@ export async function collectSources(company, onProgress = async () => {}, optio
     const topic = TOPIC_NAMES[topicIndex];
     const topicStart = 30 + topicIndex * 8;
     const topicEnd = topicStart + 7;
-    const topicFound = [...seed.filter((item) => item.topic === topic), ...expanded.candidateUrls.filter((item) => item.topic === topic)];
-    const topicPlan = [...plan.filter((item) => item.topic === topic), ...expanded.queries.filter((item) => item.topic === topic)];
+    if (completedSourceTopics.has(topic)) {
+      await onProgress(topicEnd, `专题完成：${topic}`, {
+        phaseKey: "read",
+        detail: `已从断点恢复“${topic}”来源读取结果，跳过重复读取。`,
+        foundCount: uniqBy(found, (source) => source.url).length,
+        sourceCount: evaluateSourceQuality(sources).verifiedSourceCount
+      });
+      continue;
+    }
+    const topicFound = [...seed.filter((item) => item.topic === topic), ...arr(expanded.candidateUrls).filter((item) => item.topic === topic)];
+    const topicPlan = [...plan.filter((item) => item.topic === topic), ...arr(expanded.queries).filter((item) => item.topic === topic)];
     if (topicPlan.length < 5) topicPlan.push(...buildRescuePlan(company, [topic]).slice(0, 5 - topicPlan.length));
 
     await onProgress(topicStart, `分主题检索：${topic}`, {
@@ -1469,7 +1631,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
       await ensureNotCancelled(options);
       if (readUrls.has(item.url)) return;
       readUrls.add(item.url);
-      const text = await readSource(item.url);
+      const text = await readSourceWithDeadline(item.url);
       const relevance = sourceRelevance({ ...item, topic }, company, text);
       if (relevance.relevant) {
         sources.push({
@@ -1493,9 +1655,14 @@ export async function collectSources(company, onProgress = async () => {}, optio
         sourceCount: quality.verifiedSourceCount,
         qualityLevel: quality.qualityLevel
       });
+      if (topicRead % 5 === 0 || topicRead === topicCandidates.length) {
+        await checkpointSources(`topic:${topic}`, { currentTopic: topic, topicRead });
+      }
     });
 
     const topicQuality = evaluateSourceQuality(sources);
+    completedSourceTopics.add(topic);
+    await checkpointSources(`topic:${topic}:done`, { currentTopic: topic });
     await onProgress(topicEnd, `专题完成：${topic}`, {
       phaseKey: "read",
       detail: `本专题完成；累计可校验 ${topicQuality.verifiedSourceCount} 条、可读 ${topicQuality.readableSourceCount} 条、覆盖 ${topicQuality.topicCoverageCount} 类主题。`,
@@ -1506,17 +1673,50 @@ export async function collectSources(company, onProgress = async () => {}, optio
   }
 
   let quality = evaluateSourceQuality(sources);
-  const financeCorpus = sources.filter((source) => source.topic === TOPIC_FINANCE || source.sourceType === "财务硬来源").map((source) => source.text || "").join(" ");
-  const financeMetricHits = ["营业收入", "净利润", "现金流", "研发", "员工", "资产负债", "毛利"].filter((term) => financeCorpus.includes(term)).length;
-  const annualMetricCount = Array.isArray(company.annualReportEvidence?.metrics) ? company.annualReportEvidence.metrics.length : 0;
-  const needsFinanceSupplement = Boolean(stock && financeMetricHits < 3);
-  const needsAnnualMetricSupplement = Boolean(company.annualReportEvidence && annualMetricCount < 4);
-  for (let round = 1; round <= 3 && (quality.verifiedSourceCount < 15 || needsFinanceSupplement || needsAnnualMetricSupplement); round += 1) {
+  const financeMetricHitCount = () => {
+    const financeCorpus = sources
+      .filter((source) => source.topic === TOPIC_FINANCE || source.sourceType === "财务硬来源")
+      .map((source) => source.text || "")
+      .join(" ");
+    return ["营业收入", "净利润", "现金流", "研发", "员工", "资产负债", "毛利"].filter((term) => financeCorpus.includes(term)).length;
+  };
+  const annualMetricHitCount = () => (Array.isArray(company.annualReportEvidence?.metrics) ? company.annualReportEvidence.metrics.length : 0);
+  const businessSignalCount = () => sources.filter((source) =>
+    /official_product|customer_case|digital_capability|tender_project|patent_ip|hiring_org/.test(sourceFamilyOf(source, source.url, source.sourceType))
+  ).length;
+  const businessCoverageCount = () => {
+    const corpus = sources
+      .filter((source) => /official_product|customer_case|digital_capability|tender_project|patent_ip|hiring_org|industry_context/.test(sourceFamilyOf(source, source.url, source.sourceType)))
+      .map((source) => `${source.title || ""} ${source.snippet || ""} ${source.query || ""} ${source.text || ""}`)
+      .join("\n")
+      .toLowerCase();
+    return [
+      /产品|平台|系统|solution|platform|hollicube|holli|工业软件|工业互联网/.test(corpus),
+      /客户案例|项目案例|标杆|蒙牛|案例|case study|customer case/.test(corpus),
+      /交付|实施|上线|运维|客户成功|implementation|delivery/.test(corpus),
+      /生态|合作伙伴|伙伴网络|联合方案|ecosystem|partner/.test(corpus),
+      /mes|aps|erp|sap|wms|lims|scada|集成|对接|integration/.test(corpus),
+      /aiops|可观测|实时数据库|工业数据|数据治理|智能问答|ai|人工智能/.test(corpus),
+      /投标|招标|中标|采购|售前|tender|bid|procurement/.test(corpus),
+      /招聘|岗位|组织|团队|工程师|career|job/.test(corpus),
+      /专利|软著|软件著作权|知识产权|patent|copyright/.test(corpus)
+    ].filter(Boolean).length;
+  };
+  const needsMoreEvidence = () =>
+    quality.verifiedSourceCount < SOURCE_POOL_TARGET ||
+    businessSignalCount() < 20 ||
+    businessCoverageCount() < 6 ||
+    Boolean(stock && financeMetricHitCount() < 3) ||
+    Boolean(company.annualReportEvidence && annualMetricHitCount() < 4);
+  for (let round = 1; round <= 3 && needsMoreEvidence(); round += 1) {
     const rescueFound = [];
-    const rescuePlan = buildRescuePlan(company, quality.missingTopics).slice(0, 18);
+    const scarceEvidence = quality.verifiedSourceCount < 8;
+    const hasFinancialGap = Boolean(stock && financeMetricHitCount() < 3) || Boolean(company.annualReportEvidence && annualMetricHitCount() < 4);
+    const rescuePlanLimit = scarceEvidence || hasFinancialGap ? 18 : 12;
+    const rescuePlan = buildRescuePlan(company, quality.missingTopics).slice(0, rescuePlanLimit);
     await onProgress(68 + round, `第 ${round}/3 轮证据扩容`, {
       phaseKey: "search",
-      detail: `当前可引用证据 ${quality.verifiedSourceCount} 条，目标 15 条；开始围绕缺口主题扩展检索渠道。`,
+      detail: `当前可引用证据 ${quality.verifiedSourceCount} 条，最低门槛 15 条，证据池目标 ${SOURCE_POOL_TARGET} 条；开始围绕缺口主题扩展检索渠道。`,
       sourceCount: quality.verifiedSourceCount,
       foundCount: quality.verifiedSourceCount
     });
@@ -1544,6 +1744,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
       }
     );
     usedModels.push(...rescueExpanded.models.map((item) => ({ ...item, purpose: "补充检索规划" })));
+    await checkpointSources(`rescue:${round}:plan`, { rescueRound: round });
     await onProgress(72, `第 ${round}/3 轮多模型补充检索规划`, {
       phaseKey: "search",
       detail: `已调用 ${rescueExpanded.modelCount} 次补充模型规划，扩展 ${rescueExpanded.queries.length} 组检索词和 ${rescueExpanded.candidateUrls.length} 个候选来源。`,
@@ -1570,7 +1771,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
     });
     rescueFound.push(...deterministicRescue.flat());
 
-    const rescueQueries = rescueExpanded.queries.slice(0, 24);
+    const rescueQueries = rescueExpanded.queries.slice(0, scarceEvidence || hasFinancialGap ? 24 : 16);
     let modelRescueDone = 0;
     const modelRescue = await mapLimit(rescueQueries, 3, async (item) => {
       await ensureNotCancelled(options);
@@ -1589,14 +1790,23 @@ export async function collectSources(company, onProgress = async () => {}, optio
     rescueFound.push(...modelRescue.flat());
 
     const seen = new Set(sources.map((source) => source.url));
+    const businessBackfill = uniqBy(found, (item) => item.url)
+      .filter((item) => !seen.has(item.url) && isBusinessInsightCandidate(item))
+      .sort((a, b) => priorityScore(b) - priorityScore(a))
+      .slice(0, 40);
+    rescueFound.push(...businessBackfill);
+    const rescueReadTarget =
+      scarceEvidence || hasFinancialGap
+        ? RESCUE_READ_LIMIT
+        : Math.max(12, Math.min(RESCUE_READ_LIMIT, SOURCE_POOL_TARGET + 8 - quality.verifiedSourceCount));
     const rescueCandidates = uniqBy(rescueFound, (item) => item.url)
       .filter((item) => !seen.has(item.url))
       .sort((a, b) => priorityScore(b) - priorityScore(a))
-      .slice(0, RESCUE_READ_LIMIT);
+      .slice(0, rescueReadTarget);
     let rescueRead = 0;
     await mapLimit(rescueCandidates, 4, async (item) => {
       await ensureNotCancelled(options);
-      const text = await readSource(item.url);
+      const text = await readSourceWithDeadline(item.url);
       const relevance = sourceRelevance(item, company, text);
       if (relevance.relevant) {
         sources.push({
@@ -1618,8 +1828,12 @@ export async function collectSources(company, onProgress = async () => {}, optio
         foundCount: quality.verifiedSourceCount,
         sourceCount: quality.verifiedSourceCount
       });
+      if (rescueRead % 5 === 0 || rescueRead === rescueCandidates.length) {
+        await checkpointSources(`rescue:${round}:read`, { rescueRound: round, rescueRead });
+      }
     });
     quality = evaluateSourceQuality(sources);
+    await checkpointSources(`rescue:${round}:done`, { rescueRound: round });
   }
 
   const finalSources = uniqBy(sources, (source) => source.url);
@@ -1627,6 +1841,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
     value: uniqBy(usedModels.filter(Boolean), (item) => `${item.channel}|${item.model}|${item.purpose}`),
     enumerable: false
   });
+  await checkpointSources("sources:done", { sources: finalSources, sourceCollectionDone: true });
   return finalSources;
 }
 
@@ -1636,9 +1851,14 @@ function coreName(name) {
     .replace(/[（）()·\-\s]/g, "");
 }
 
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function cleanCandidateName(value, query = "") {
   const legalSuffix = "(?:股份有限公司|有限责任公司|集团有限公司|有限公司)";
   const queryText = String(query || "").trim();
+  const escapedQueryText = escapeRegExp(queryText);
   const queryCompanyMatch = queryText.match(new RegExp(`^[\\u4e00-\\u9fa5A-Za-z0-9（）()·-]{2,60}${legalSuffix}$`));
   let name = cleanTitle(value)
     .replace(/^(公司别称|公司名称|企业名称|企业简称|主体名称)[：:，,\s]*/g, "")
@@ -1650,7 +1870,7 @@ function cleanCandidateName(value, query = "") {
     .replace(/[《》【】[\]{}]/g, "")
     .trim();
   if (queryCompanyMatch && name.includes(queryText)) return queryText;
-  const queryDerived = queryText && name.match(new RegExp(`${queryText}${legalSuffix}`))?.[0];
+  const queryDerived = queryText && name.match(new RegExp(`${escapedQueryText}[\\u4e00-\\u9fa5A-Za-z0-9（）()·-]{0,24}?${legalSuffix}`))?.[0];
   if (queryDerived) return queryDerived;
   const match = name.match(new RegExp(`[\\u4e00-\\u9fa5A-Za-z0-9][\\u4e00-\\u9fa5A-Za-z0-9（）()·-]{2,60}?${legalSuffix}`));
   if (match) name = match[0];
@@ -1688,7 +1908,29 @@ function candidateNameMatchesQuery(name, query, stockCode = "", sources = []) {
   return false;
 }
 
+async function resolveTianyanchaCandidateSafely(query, region, industry) {
+  try {
+    return await resolveTianyanchaCandidateDetailed(query, region, industry);
+  } catch (error) {
+    const configured = hasTianyanchaKey();
+    return {
+      candidate: null,
+      diagnostic: {
+        provider: "tianyancha",
+        status: configured ? "api_failed" : "missing_key",
+        configured,
+        message: configured ? "天眼查核验接口暂时不可用" : "生产环境尚未配置天眼查核验",
+        error: clip(error?.message || "tianyancha_resolve_failed", 220)
+      }
+    };
+  }
+}
+
 export async function resolveCandidates(query, region = "", industry = "", aiNeeds = "") {
+  const tycResolved = await resolveTianyanchaCandidateSafely(query, region, industry);
+  const tycCandidate = tycResolved.candidate;
+  const tianyanchaDiagnostic = tycResolved.diagnostic;
+  const hasStrongTycCandidate = Boolean(tycCandidate && Number(tycCandidate.confidence || 0) >= 90);
   const stockCode = extractStockCode(query, region, industry, aiNeeds);
   const searchQuery = `${query} ${region} ${industry} ${stockCode} 官网 工商 公司简介 股票代码`;
   const results = await searchWeb(searchQuery, 12, TOPIC_SUBJECT, 7000);
@@ -1749,6 +1991,7 @@ export async function resolveCandidates(query, region = "", industry = "", aiNee
         relatedSources.find((source) => !/\.pdf(?:$|\?)/i.test(source.url) && !nonOfficialDirectory.test(source.url) && /(\u5b98\u7f51|official|www\.|\.com)/i.test(`${source.title} ${source.url}`))?.url ||
         relatedSources.find((source) => !/\.pdf(?:$|\?)/i.test(source.url) && trustedDomainScore(source.url) >= 18 && !nonOfficialDirectory.test(source.url))?.url ||
         "";
+      const searchConfidence = Math.max(55, Math.min(hasStrongTycCandidate ? 88 : 95, score));
       return {
         name: item.name,
         standardName: item.name,
@@ -1757,7 +2000,7 @@ export async function resolveCandidates(query, region = "", industry = "", aiNee
         stockCode,
         listingMarket: stockCode ? stockExchange(stockCode).market : "",
         website: displayWebsite,
-        confidence: Math.max(55, Math.min(95, score)),
+        confidence: searchConfidence,
         reason: `根据公开搜索结果抽取候选主体；匹配来源 ${relatedSources.length} 条。${stockCode ? `股票代码 ${stockCode} 已作为强匹配信号。` : ""}`,
         scoreBreakdown: {
           nameMatch: item.name.includes(query) || query.includes(coreName(item.name)),
@@ -1774,7 +2017,26 @@ export async function resolveCandidates(query, region = "", industry = "", aiNee
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, 5);
 
-  if (candidates.length) return { candidates, model: "search-resolve", channel: "search" };
+  const mergedCandidates = hasStrongTycCandidate
+    ? [
+        {
+          ...tycCandidate,
+          confidence: Math.max(Number(tycCandidate.confidence || 0), 96),
+          reason: "企业主体已通过天眼查工商登记核验。"
+        }
+      ]
+    : uniqBy([tycCandidate, ...candidates].filter(Boolean), (item) => coreName(item.standardName || item.name))
+        .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
+        .slice(0, 5);
+
+  if (mergedCandidates.length) {
+    return {
+      candidates: mergedCandidates,
+      model: hasStrongTycCandidate ? "tianyancha-primary-resolve" : tycCandidate ? "tianyancha-search-resolve" : "search-resolve",
+      channel: hasStrongTycCandidate ? "tianyancha-mcp-primary+search-supplement" : tycCandidate ? "tianyancha-mcp+search" : "search",
+      tianyanchaDiagnostic
+    };
+  }
   const fallbackWebsite = results.find((item) => trustedDomainScore(item.url) >= 0)?.url || "";
   return {
     candidates: [
@@ -1792,6 +2054,7 @@ export async function resolveCandidates(query, region = "", industry = "", aiNee
       }
     ],
     model: results.length ? "search-fallback" : "fallback",
-    channel: results.length ? "search-fallback" : "fallback"
+    channel: results.length ? "search-fallback" : "fallback",
+    tianyanchaDiagnostic
   };
 }

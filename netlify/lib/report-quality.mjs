@@ -1,5 +1,5 @@
 import { normalizeText, clip, uniqBy } from "./util.mjs";
-import { canonicalSourceUrl } from "./source-audit.mjs";
+import { canonicalSourceUrl, sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260531a";
 
 export const RECENT_REPORT_DAYS = 7;
 export const FORMAL_SOURCE_MIN = 15;
@@ -43,9 +43,10 @@ export function withinDays(dateValue, days = RECENT_REPORT_DAYS) {
 }
 
 export function normalizeReportSources(sources = [], max = 32) {
-  return uniqBy(
-    sources
-      .map((source) => ({
+  return diversifyReportSources(
+    uniqBy(
+      sources
+        .map((source) => ({
         title: String(source.title || source.url || "资料来源").replace(/\s+/g, " ").trim().slice(0, 140),
         url: cleanUrl(source.url),
         confidence: source.confidence || "中",
@@ -53,6 +54,11 @@ export function normalizeReportSources(sources = [], max = 32) {
         query: source.query || "",
         topic: source.topic || "",
         sourceType: source.sourceType || "",
+        provider: source.provider || "",
+        structuredProvider: source.structuredProvider || "",
+        structuredTool: source.structuredTool || "",
+        isStructuredEvidence: Boolean(source.isStructuredEvidence),
+        sourceFamily: sourceFamilyOf(source, source.url, source.sourceType),
         domain: source.domain || "",
         relevanceReason: source.relevanceReason || "",
         relevanceScore: source.relevanceScore ?? "",
@@ -60,10 +66,12 @@ export function normalizeReportSources(sources = [], max = 32) {
         readable: Boolean(source.readable || String(source.text || "").length > 200),
         evidenceTier: source.evidenceTier || evidenceTierOf(source),
         text: source.text || ""
-      }))
-      .filter((source) => isHttpUrl(source.url)),
-    (source) => source.url
-  ).slice(0, max);
+        }))
+        .filter((source) => isHttpUrl(source.url)),
+      (source) => source.url
+    ),
+    max
+  );
 }
 
 export function evidenceTierOf(source = {}) {
@@ -79,16 +87,88 @@ export function buildEvidencePool(sources = []) {
   const high = normalized.filter((source) => evidenceTierOf(source) === "high");
   const medium = normalized.filter((source) => evidenceTierOf(source) === "medium");
   const weak = normalized.filter((source) => evidenceTierOf(source) === "weak");
+  const familyCounts = normalized.reduce((acc, source) => {
+    const family = source.sourceFamily || sourceFamilyOf(source, source.url, source.sourceType);
+    acc[family] = (acc[family] || 0) + 1;
+    return acc;
+  }, {});
   return {
     highConfidenceCount: high.length,
     mediumConfidenceCount: medium.length,
     weakClueCount: weak.length,
     totalEvidenceCount: normalized.length,
     label: `高置信 ${high.length} 条｜中置信 ${medium.length} 条｜弱线索 ${weak.length} 条`,
+    familyCounts,
     highConfidenceSourceIds: high.map((source, index) => source.sourceId || index + 1).slice(0, 20),
     mediumConfidenceSourceIds: medium.map((source, index) => source.sourceId || index + 1).slice(0, 20),
     weakClueSourceIds: weak.map((source, index) => source.sourceId || index + 1).slice(0, 20)
   };
+}
+
+function reportSourceScore(source = {}) {
+  let score = 0;
+  if (source.isCompanySpecific) score += 40;
+  if (source.readable) score += 10;
+  if (source.confidence === "高") score += 12;
+  if (source.confidence === "中高") score += 8;
+  if (/official_product|customer_case|digital_capability|tender_project|patent_ip/.test(source.sourceFamily || "")) score += 26;
+  if (/hiring_org|industry_context/.test(source.sourceFamily || "")) score += 14;
+  if (source.sourceFamily === "subject_registry") score += 2;
+  score += Math.min(20, Number(source.relevanceScore || 0));
+  return score;
+}
+
+function diversifyReportSources(sources = [], max = 32) {
+  const sorted = [...sources]
+    .map((source) => ({ ...source, sourceFamily: sourceFamilyOf(source, source.url, source.sourceType) }))
+    .sort((a, b) => reportSourceScore(b) - reportSourceScore(a));
+  const priority = [
+    "finance_budget",
+    "official_product",
+    "customer_case",
+    "digital_capability",
+    "tender_project",
+    "patent_ip",
+    "hiring_org",
+    "industry_context",
+    "risk_legal",
+    "subject_registry",
+    "general_web"
+  ];
+  const chosen = [];
+  const used = new Set();
+  const registryCap = max >= 100
+    ? Math.ceil(max * 0.25)
+    : Math.min(8, Math.max(3, Math.ceil(max * 0.18)));
+  const nonRegistryTotal = sorted.filter((source) => source.sourceFamily !== "subject_registry").length;
+  const take = (family, target) => {
+    for (const source of sorted) {
+      if (chosen.length >= max) return;
+      if (source.sourceFamily !== family || used.has(source.url)) continue;
+      if (family === "subject_registry" && nonRegistryTotal > 0 && chosen.filter((item) => item.sourceFamily === "subject_registry").length >= registryCap) continue;
+      chosen.push(source);
+      used.add(source.url);
+      if (chosen.filter((item) => item.sourceFamily === family).length >= target) return;
+    }
+  };
+  for (const family of priority.filter((family) => family !== "subject_registry" && family !== "general_web")) take(family, Math.max(3, Math.ceil(max / 10)));
+  take("subject_registry", registryCap);
+  take("general_web", Math.max(2, Math.ceil(max / 12)));
+  for (const source of sorted) {
+    if (chosen.length >= max) break;
+    if (used.has(source.url)) continue;
+    if (source.sourceFamily === "subject_registry" && nonRegistryTotal > 0 && chosen.filter((item) => item.sourceFamily === "subject_registry").length >= registryCap) continue;
+    chosen.push(source);
+    used.add(source.url);
+  }
+  for (const source of sorted) {
+    if (chosen.length >= max) break;
+    if (used.has(source.url)) continue;
+    if (source.sourceFamily === "subject_registry" && nonRegistryTotal > 0 && chosen.filter((item) => item.sourceFamily === "subject_registry").length >= registryCap) continue;
+    chosen.push(source);
+    used.add(source.url);
+  }
+  return chosen;
 }
 
 function hasPainEvidenceSignal(source = {}) {

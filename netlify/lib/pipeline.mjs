@@ -1,11 +1,11 @@
-import { collectSources } from "./research.mjs";
-import { appendPostVisitRound, generateStructuredReport, improveStructuredReport, normalizeReportShape, renderReportHtml } from "./report.mjs";
-import { getIndex, readJson, saveIndex, writeJson, writeText } from "./store.mjs";
-import { id, normalizeText, nowIso, slugify, scoreMatch } from "./util.mjs";
+import { collectSources } from "./research.mjs?v=oac-insight-20260531a";
+import { appendPostVisitRound, generateStructuredReport, improveStructuredReport, normalizeReportShape, renderReportHtml } from "./report.mjs?v=oac-insight-20260531a";
+import { getIndex, getTenantContext, readJson, saveIndex, writeJson, writeText } from "./store.mjs";
+import { clip, id, normalizeText, nowIso, slugify, scoreMatch } from "./util.mjs";
 import { ratingIndex } from "./opportunity-rating.mjs";
 import { resolveOpportunityRating } from "./rating-resolver.mjs";
 import { JobCancelledError, decorateJob, normalizePhase } from "./job-progress.mjs";
-import { auditReport, auditSources } from "./source-audit.mjs";
+import { auditReport, auditSources } from "./source-audit.mjs?v=oac-insight-20260531a";
 import { readAnnualReportEvidence } from "./annual-report.mjs";
 import { getProfile, profileSnapshot } from "./profiles.mjs";
 import {
@@ -13,6 +13,8 @@ import {
   mergeSensitiveVerifications,
   verifySensitiveInformation
 } from "./sensitive-verification.mjs";
+import { applyFreshnessGuardrails } from "./evidence-freshness.mjs";
+import { contextFromJob, recordSuccessfulUsage } from "./auth.mjs";
 import {
   RECENT_REPORT_DAYS,
   buildDiagnosticReport,
@@ -22,7 +24,7 @@ import {
   formatQualityWarnings,
   primaryCompanyName,
   withinDays
-} from "./report-quality.mjs";
+} from "./report-quality.mjs?v=oac-insight-20260531a";
 
 function sameSellerProfile(report, company = {}) {
   const profileId = company.sellerProfileId || company.profileId || "";
@@ -139,13 +141,69 @@ class JobNeedsResumeError extends Error {
 
 async function saveCheckpoint(jobId, patch = {}) {
   const current = await readJson("jobs", `${jobId}.json`, {});
+  const checkpointRef = current.checkpointRef || current.checkpoint?.ref || `${jobId}.json`;
+  const savedCheckpoint = checkpointRef ? await readJson("checkpoints", checkpointRef, null) : null;
   const checkpoint = {
-    ...(current.checkpoint || {}),
-    ...patch,
+    ...(savedCheckpoint || current.checkpoint || {}),
+    ...compactCheckpointPatch(patch),
     lastCheckpointAt: nowIso()
   };
-  await updateJob(jobId, { checkpoint });
+  await writeJson("checkpoints", checkpointRef, checkpoint);
+  const checkpointMeta = {
+    ref: checkpointRef,
+    stage: checkpoint.stage || "",
+    analysisStage: checkpoint.analysisStage || "",
+    analysisIndex: checkpoint.analysisIndex ?? null,
+    sourceCount: Array.isArray(checkpoint.sources) ? checkpoint.sources.length : undefined,
+    topicBriefCount: Array.isArray(checkpoint.topicBriefs) ? checkpoint.topicBriefs.filter(Boolean).length : undefined,
+    qualityLevel: checkpoint.quality?.qualityLevel || "",
+    lastCheckpointAt: checkpoint.lastCheckpointAt
+  };
+  await updateJob(jobId, { checkpoint: checkpointMeta, checkpointRef });
   return checkpoint;
+}
+
+function compactCheckpointSource(source = {}) {
+  const out = { ...source };
+  if (out.text) out.text = clip(out.text, 6000);
+  if (out.content) out.content = clip(out.content, 6000);
+  if (out.readableText) out.readableText = clip(out.readableText, 6000);
+  if (out.snippet) out.snippet = clip(out.snippet, 900);
+  delete out.html;
+  delete out.rawHtml;
+  delete out.markdown;
+  return out;
+}
+
+function compactSourceArray(value) {
+  return Array.isArray(value) ? value.map((item) => compactCheckpointSource(item)) : value;
+}
+
+function compactCheckpointPatch(patch = {}) {
+  const out = { ...patch };
+  out.sources = compactSourceArray(out.sources);
+  if (out.sourceAudit) {
+    out.sourceAudit = { ...out.sourceAudit };
+    for (const key of ["sources", "removedSources", "hiddenSources", "candidates"]) {
+      if (Array.isArray(out.sourceAudit[key])) out.sourceAudit[key] = compactSourceArray(out.sourceAudit[key]);
+    }
+  }
+  if (out.sensitiveVerification) {
+    out.sensitiveVerification = { ...out.sensitiveVerification };
+    if (Array.isArray(out.sensitiveVerification.supplementalSources)) {
+      out.sensitiveVerification.supplementalSources = compactSourceArray(out.sensitiveVerification.supplementalSources);
+    }
+  }
+  return out;
+}
+
+async function loadCheckpoint(job = {}) {
+  const ref = job.checkpointRef || job.checkpoint?.ref || "";
+  if (ref) {
+    const checkpoint = await readJson("checkpoints", ref, null);
+    if (checkpoint) return checkpoint;
+  }
+  return job.checkpoint || {};
 }
 
 function restoreSourcesFromCheckpoint(checkpoint = {}) {
@@ -226,7 +284,31 @@ async function updateJobNow(jobId, patch) {
   const currentHasIdentity = hasRunnableJobIdentity({ ...current, jobId: current.jobId || jobId });
   const terminalPatchStatus = ["done", "error", "cancelled"].includes(String(patch.status || ""));
   if (!currentHasIdentity && !terminalPatchStatus) {
-    throw new Error(`任务身份信息缺失：${jobId}`);
+    const updatedAt = nowIso();
+    const failed = {
+      ...current,
+      jobId: current.jobId || jobId,
+      status: "error",
+      error: "job identity missing",
+      errorAt: current.errorAt || updatedAt,
+      finishedAt: current.finishedAt || updatedAt,
+      updatedAt,
+      stage: "任务身份信息缺失",
+      detail: "该任务缺少目标客户或我的企业绑定信息，已停止续跑。请清除后重新创建任务。",
+      steps: [
+        ...(Array.isArray(current.steps) ? current.steps : []).slice(-119),
+        {
+          at: updatedAt,
+          phaseKey: "error",
+          phaseLabel: "异常",
+          stage: "任务身份信息缺失",
+          progress: current.progress ?? 0,
+          detail: "后台收到无身份任务的进度更新，已终止该任务，避免生成空壳报告。"
+        }
+      ]
+    };
+    await writeJson("jobs", `${jobId}.json`, failed);
+    return decorateJob(failed);
   }
   const identity = jobIdentityFrom({ ...current, jobId: current.jobId || jobId }, { ...patch, jobId });
   const phase = normalizePhase({ ...current, ...patch });
@@ -295,9 +377,11 @@ async function assertJobNotCancelled(jobId) {
 export async function createJob(company, reason = "generate", runtimeMode = null, sellerProfile = null) {
   const jobId = id("job", primaryCompanyName(company));
   const now = nowIso();
+  const oacContext = getTenantContext();
   const sellerSnapshot = sellerProfile ? profileSnapshot(sellerProfile) : company.sellerProfileSnapshot || null;
   const jobCompany = {
     ...company,
+    tenantId: oacContext?.tenantId || company.tenantId || "",
     sellerProfileId: sellerSnapshot?.profileId || company.sellerProfileId || company.profileId || "",
     sellerProfileName: sellerSnapshot?.companyName || company.sellerProfileName || "",
     sellerProfileSnapshot: sellerSnapshot,
@@ -348,6 +432,19 @@ export async function createJob(company, reason = "generate", runtimeMode = null
         }
       ],
       companyKey: companyKey(jobCompany),
+      tenantId: oacContext?.tenantId || company.tenantId || "",
+      tenantName: oacContext?.tenantName || company.tenantName || "",
+      userId: oacContext?.userId || company.userId || "",
+      licenseId: oacContext?.licenseId || company.licenseId || "",
+      oacContext: oacContext
+        ? {
+            tenantId: oacContext.tenantId,
+            tenantName: oacContext.tenantName,
+            userId: oacContext.userId,
+            licenseId: oacContext.licenseId,
+            mode: oacContext.mode || "web"
+          }
+        : null,
       sellerProfileId: jobCompany.sellerProfileId,
       sellerProfileName: jobCompany.sellerProfileName,
       sellerProfileSnapshot: sellerSnapshot,
@@ -380,7 +477,7 @@ export async function runReportJob(jobId) {
   }
   const runtimeMode = job.runtimeMode || job.company?.runtimeMode || null;
   const annualReportEvidence = await readAnnualReportEvidence(job.company?.annualReportId);
-  const checkpoint = job.checkpoint || {};
+  const checkpoint = await loadCheckpoint(job);
   const sellerProfile = job.sellerProfileSnapshot || job.company?.sellerProfileSnapshot || (job.sellerProfileId ? await getProfile(job.sellerProfileId) : null);
   const company = annualReportEvidence
     ? {
@@ -425,20 +522,47 @@ export async function runReportJob(jobId) {
   let sensitiveVerification = checkpoint.sensitiveVerification || null;
 
   if (!sources || !sourceAudit || !quality) {
-    collectedSources = await collectSources(
-    company,
-    async (progress, stage, meta = {}) => {
-      await updateJob(jobId, { status: "running", progress, stage, ...meta });
-      await assertJobNotCancelled(jobId);
-    },
-    {
-      runtimeMode,
-      shouldCancel: async () => {
-        const current = await readJson("jobs", `${jobId}.json`, {});
-        return Boolean(current?.cancelRequested || current?.status === "cancelled");
-      }
+    try {
+      collectedSources = await collectSources(
+        company,
+        async (progress, stage, meta = {}) => {
+          await updateJob(jobId, { status: "running", progress, stage, ...meta });
+          await assertJobNotCancelled(jobId);
+        },
+        {
+          runtimeMode,
+          checkpoint,
+          shouldYield: () => shouldYieldWorker(workerStartedAt),
+          onCheckpoint: async (patch) => {
+            await saveCheckpoint(jobId, {
+              ...patch,
+              stage: patch.stage || "source-checkpoint"
+            });
+          },
+          onYield: async (patch = {}) => {
+            await saveCheckpoint(jobId, {
+              ...patch,
+              stage: patch.stage || "source-yield"
+            });
+            await updateJob(jobId, {
+              status: "needs_resume",
+              phaseKey: patch.phaseKey || "read",
+              progress: Math.max(30, Math.min(78, Number(patch.progress || job.progress || 65))),
+              stage: "等待续跑",
+              detail: "已保存资料检索/读取进度，后台函数接近本次运行预算，将从断点继续。"
+            });
+            throw new JobNeedsResumeError();
+          },
+          shouldCancel: async () => {
+            const current = await readJson("jobs", `${jobId}.json`, {});
+            return Boolean(current?.cancelRequested || current?.status === "cancelled");
+          }
+        }
+      );
+    } catch (error) {
+      if (error?.name === "JobNeedsResumeError") return null;
+      throw error;
     }
-  );
     sourceAudit = auditSources(collectedSources, { company, max: 200, min: 15 });
     sources = sourceAudit.sources;
   Object.defineProperty(sources, "usedModels", {
@@ -536,6 +660,30 @@ export async function runReportJob(jobId) {
             });
           },
           onYield: async () => {
+            let current = await readJson("jobs", `${jobId}.json`, {});
+            if (!current.checkpoint && !current.checkpointRef) {
+              await saveCheckpoint(jobId, {
+                stage: "analysis-yield",
+                sources,
+                sourceAudit,
+                quality,
+                sensitiveVerification,
+                usedModels: checkpoint.usedModels || sources.usedModels || [],
+                analysisStage: "yield"
+              });
+              current = await readJson("jobs", `${jobId}.json`, {});
+            }
+            if (!current.checkpoint && !current.checkpointRef) {
+              await updateJob(jobId, {
+                status: "error",
+                phaseKey: "analysis",
+                progress: 100,
+                stage: "断点保存失败",
+                detail: "后台函数接近运行预算，但断点没有保存成功。系统已停止本次续跑，避免任务假装可恢复。",
+                error: "checkpoint missing before needs_resume"
+              });
+              throw new Error("断点保存失败，无法进入自动续跑");
+            }
             await updateJob(jobId, {
               status: "needs_resume",
               phaseKey: "analysis",
@@ -577,6 +725,10 @@ export async function runReportJob(jobId) {
   const baseReport = {
     ...structured,
     reportId,
+    tenantId: job.tenantId || job.oacContext?.tenantId || "",
+    tenantName: job.tenantName || job.oacContext?.tenantName || "",
+    userId: job.userId || job.oacContext?.userId || "",
+    licenseId: job.licenseId || job.oacContext?.licenseId || "",
     companyName: company.name || company.query || standardName,
     standardName,
     targetCompanyName: standardName,
@@ -628,7 +780,7 @@ export async function runReportJob(jobId) {
   }
   baseReport.sensitiveVerification = sensitiveVerification;
   let verifiedBaseReport = applySensitiveVerification(baseReport, sensitiveVerification);
-  const auditedBaseReport = auditReport(verifiedBaseReport);
+  const auditedBaseReport = applyFreshnessGuardrails(auditReport(verifiedBaseReport), { company });
   const report = normalizeReportShape({
     ...auditedBaseReport,
     opportunityRating: resolveOpportunityRating(auditedBaseReport)
@@ -675,6 +827,14 @@ export async function runReportJob(jobId) {
     reports: mergeIndexReports(index.reports || [], entry)
   });
 
+  if (!job.usageCharged) {
+    await recordSuccessfulUsage(contextFromJob(job), {
+      type: "first_report",
+      jobId,
+      reportId
+    }).catch(() => null);
+  }
+
   await updateJob(jobId, {
     status: "done",
     progress: 100,
@@ -686,6 +846,7 @@ export async function runReportJob(jobId) {
         : `${report.qualityLabel}已生成，可校验来源 ${report.sourceCount} 条。`,
     reportId,
     report,
+    usageCharged: true,
     foundCount: sources.length,
     sourceCount: report.sourceCount,
     qualityLevel: report.qualityLevel
@@ -725,7 +886,7 @@ export async function improveReport(reportId, userInput) {
     { ...improved, sensitiveVerification },
     sensitiveVerification
   );
-  const auditedImproved = auditReport(verifiedImproved);
+  const auditedImproved = applyFreshnessGuardrails(auditReport(verifiedImproved), { company: current });
   const report = appendPostVisitRound(current, {
     ...auditedImproved,
     opportunityRating: resolveOpportunityRating(auditedImproved)

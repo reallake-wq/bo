@@ -1,6 +1,53 @@
 // @ts-nocheck
 import "./styles.css";
-import { createIcons, icons } from "lucide";
+import {
+  BadgeCheck,
+  BadgePlus,
+  Ban,
+  BatteryMedium,
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Clock3,
+  Copy,
+  Download,
+  FileText,
+  Gauge,
+  KeyRound,
+  Layers3,
+  Link,
+  ListChecks,
+  LoaderCircle,
+  LogIn,
+  LogOut,
+  MessageSquarePlus,
+  MonitorSmartphone,
+  Network,
+  OctagonX,
+  PanelTop,
+  Paperclip,
+  PauseCircle,
+  PlayCircle,
+  PlugZap,
+  Plus,
+  PlusCircle,
+  Presentation,
+  RefreshCw,
+  Search,
+  SearchCheck,
+  ServerCog,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Timer,
+  Trash2,
+  TriangleAlert,
+  UsersRound,
+  X,
+  createIcons
+} from "lucide";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const LS_STARTED = "nbBoV2Started";
@@ -9,6 +56,10 @@ const LS_PROFILE = "nbBoSelectedProfileId";
 const LS_JOBS = "nbBoActiveJobIds";
 const LS_DISMISSED = "nbBoDismissedJobIds";
 const LS_JOB_SNAPSHOTS = "nbBoJobSnapshots";
+const LS_OAC_ACCESS = "oacAccessToken";
+const LS_OAC_REFRESH = "oacRefreshToken";
+const LS_OAC_ME = "oacMe";
+const LS_OAC_DEVICE = "oacDeviceId";
 const PAGE_SIZE = 12;
 const PRODUCT_NAME_CN = "商机参谋团";
 const PRODUCT_NAME_EN = "Opportunity Advisory Crew";
@@ -25,6 +76,54 @@ const WORKERS: Record<string, any> = {
   report: { name: "成章", role: "简报撰写参谋", verb: "正在生成作战简报" }
 };
 
+const appIconSet = {
+  BadgeCheck,
+  BadgePlus,
+  Ban,
+  BatteryMedium,
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  Clock3,
+  Copy,
+  Download,
+  FileText,
+  Gauge,
+  KeyRound,
+  Layers3,
+  Link,
+  ListChecks,
+  LoaderCircle,
+  LogIn,
+  LogOut,
+  MessageSquarePlus,
+  MonitorSmartphone,
+  Network,
+  OctagonX,
+  PanelTop,
+  Paperclip,
+  PauseCircle,
+  PlayCircle,
+  PlugZap,
+  Plus,
+  PlusCircle,
+  Presentation,
+  RefreshCw,
+  Search,
+  SearchCheck,
+  ServerCog,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Timer,
+  Trash2,
+  TriangleAlert,
+  UsersRound,
+  X
+};
+
 let profiles: any[] = [];
 let selectedProfileId = localStorage.getItem(LS_PROFILE) || "";
 let activeJobs: Record<string, any> = {};
@@ -35,14 +134,19 @@ let annualReportSummary: any = null;
 let profileCandidates: any[] = [];
 let profileStatus = "";
 let pollTimer: number | undefined;
+let pollingJobs = false;
+let pollAgainAfterCurrent = false;
+let taskSyncWarning = "";
 let reportHtml = "";
+let authMe: any = null;
+let authError = "";
 
 function icon(name: string) {
   return `<i data-lucide="${escapeHtml(name)}" aria-hidden="true"></i>`;
 }
 
 function refreshIcons() {
-  createIcons({ icons });
+  createIcons({ icons: appIconSet });
 }
 
 function escapeHtml(value: any) {
@@ -98,6 +202,47 @@ function joinList(value: any) {
   return arr(value).join("\n");
 }
 
+function firstValue(...values: any[]) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "");
+}
+
+function tycBase(candidate: any) {
+  const registration = candidate?.tianyanchaRegistration || candidate?.tianyanchaSource?.rawData || {};
+  const base = registration?._base || registration?.base || registration?.data?.base || {};
+  return { ...registration, ...base };
+}
+
+function candidateVerification(candidate: any) {
+  const base = tycBase(candidate);
+  const verified = Boolean(candidate?.scoreBreakdown?.tianyanchaApi || candidate?.tianyanchaSource || base?.creditCode || base?.name);
+  const fields = [
+    ["登记状态", firstValue(base.regStatus, base.status)],
+    ["法定代表人", firstValue(base.legalPersonName, base.legalPerson, base.legalPersonNameAlias)],
+    ["注册资本", firstValue(base.regCapital, base.registeredCapital)],
+    ["成立时间", firstValue(base.estiblishTime, base.establishTime, base.fromTime)],
+    ["所属行业", firstValue(base.industry, base.industryAll?.categoryMiddle, base.industryAll?.categoryBig)],
+    ["人员规模", firstValue(base.staffNumRange, base.socialStaffNum ? `${base.socialStaffNum}人` : "")],
+    ["官网", firstValue(base.websiteList, candidate.website)]
+  ].filter(([, value]) => value);
+  return {
+    verified,
+    creditCode: firstValue(base.creditCode, base.creditNo, base.taxNumber),
+    address: firstValue(base.regLocation, base.regLocationHalfWidth),
+    fields: fields.slice(0, 6)
+  };
+}
+
+function tianyanchaDiagnosticNotice(diagnostic: any) {
+  if (!diagnostic || String(diagnostic.status || "").startsWith("verified")) return "";
+  const copy: Record<string, string> = {
+    missing_key: "天眼查核验暂未启用，当前候选来自公开网页搜索。",
+    api_failed: "天眼查核验暂时不可用，当前候选来自公开网页搜索。",
+    empty: "天眼查未返回可用登记信息，当前候选来自公开网页搜索。",
+    mismatch: "天眼查返回主体与输入名称不一致，当前候选来自公开网页搜索。"
+  };
+  return copy[diagnostic.status] || "天眼查核验未完成，当前候选来自公开网页搜索。";
+}
+
 function fmtTime(value: any) {
   if (!value) return "-";
   const time = new Date(value);
@@ -132,9 +277,12 @@ function withMode(url: string) {
 }
 
 async function api(url: string, options: RequestInit = {}) {
+  const token = localStorage.getItem(LS_OAC_ACCESS) || sessionStorage.getItem(LS_OAC_ACCESS) || "";
+  const headers: Record<string, string> = options.body instanceof FormData ? { ...((options.headers as any) || {}) } : { "content-type": "application/json", ...((options.headers as any) || {}) };
+  if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(withMode(url), {
     ...options,
-    headers: options.body instanceof FormData ? options.headers : { "content-type": "application/json", ...(options.headers || {}) }
+    headers
   });
   const raw = await res.text();
   let payload: any = {};
@@ -146,6 +294,177 @@ async function api(url: string, options: RequestInit = {}) {
   }
   if (!res.ok || payload.ok === false) throw new Error(payload.error || `请求失败：${res.status}`);
   return payload;
+}
+
+function saveAuth(payload: any, persist = true) {
+  const storage = persist ? localStorage : sessionStorage;
+  if (payload.accessToken) storage.setItem(LS_OAC_ACCESS, payload.accessToken);
+  if (payload.refreshToken) storage.setItem(LS_OAC_REFRESH, payload.refreshToken);
+  if (payload.me) {
+    authMe = payload.me;
+    localStorage.setItem(LS_OAC_ME, JSON.stringify(payload.me));
+  }
+}
+
+function clearAuth() {
+  authMe = null;
+  for (const store of [localStorage, sessionStorage]) {
+    store.removeItem(LS_OAC_ACCESS);
+    store.removeItem(LS_OAC_REFRESH);
+  }
+  localStorage.removeItem(LS_OAC_ME);
+}
+
+function authToken() {
+  return localStorage.getItem(LS_OAC_ACCESS) || sessionStorage.getItem(LS_OAC_ACCESS) || "";
+}
+
+function refreshToken() {
+  return localStorage.getItem(LS_OAC_REFRESH) || sessionStorage.getItem(LS_OAC_REFRESH) || "";
+}
+
+async function refreshAuthFromStored() {
+  const token = refreshToken();
+  if (!token) return false;
+  const persist = Boolean(localStorage.getItem(LS_OAC_REFRESH));
+  try {
+    const payload = await api("/.netlify/functions/auth-refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken: token })
+    });
+    saveAuth(payload, persist);
+    return true;
+  } catch {
+    clearAuth();
+    return false;
+  }
+}
+
+function oacDeviceId() {
+  let deviceId = localStorage.getItem(LS_OAC_DEVICE) || "";
+  if (!deviceId) {
+    const random = globalThis.crypto?.getRandomValues ? Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), (n) => n.toString(16).padStart(2, "0")).join("") : `${Date.now()}${Math.random()}`;
+    deviceId = `dev_${random}`;
+    localStorage.setItem(LS_OAC_DEVICE, deviceId);
+  }
+  return deviceId;
+}
+
+function oacDeviceName() {
+  const platform = navigator.platform || "Browser";
+  const touch = navigator.maxTouchPoints ? "移动设备" : "电脑";
+  return `${touch}｜${platform}`;
+}
+
+async function loadAuth() {
+  const params = new URLSearchParams(window.location.search);
+  const sso = params.get("sso");
+  if (sso) {
+    const payload = await api("/.netlify/functions/auth-sso-exchange", {
+      method: "POST",
+      body: JSON.stringify({ code: sso })
+    });
+    saveAuth(payload, false);
+    params.delete("sso");
+    window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+    return true;
+  }
+  if (!authToken()) {
+    if (await refreshAuthFromStored()) return true;
+    try {
+      authMe = JSON.parse(localStorage.getItem(LS_OAC_ME) || "null");
+    } catch {
+      authMe = null;
+    }
+    return false;
+  }
+  try {
+    const payload = await api("/.netlify/functions/auth-me");
+    authMe = payload.me;
+    localStorage.setItem(LS_OAC_ME, JSON.stringify(authMe));
+    return true;
+  } catch (error) {
+    if (await refreshAuthFromStored()) return true;
+    throw error;
+  }
+}
+
+function licenseStatusText() {
+  const license = authMe?.license || {};
+  const remain = Number(license.remainingUses ?? 0);
+  const remaining = remain < 0 ? "不限次数" : `剩余 ${remain} 次`;
+  return `${authMe?.tenantName || "未授权"}｜${remaining}`;
+}
+
+function licenseQuotaDetails() {
+  const license = authMe?.license || {};
+  const quotaTotal = Number(license.quotaTotal ?? 0);
+  const quotaUsed = Number(license.quotaUsed ?? 0);
+  const remainingUses = Number(license.remainingUses ?? 0);
+  const maxDevices = Number(license.maxDevices ?? 3);
+  const devices = arr(license.activatedUsers);
+  return {
+    tenantName: authMe?.tenantName || license.tenantName || "当前授权",
+    status: String(license.status || "active"),
+    totalText: quotaTotal < 0 ? "不限次数" : `${quotaTotal} 次`,
+    usedText: `${quotaUsed} 次`,
+    remainingText: remainingUses < 0 ? "不限次数" : `${remainingUses} 次`,
+    deviceText: `${devices.length}/${maxDevices < 0 ? "不限" : maxDevices}`,
+    expiresText: license.expiresAt ? String(license.expiresAt) : "未设置到期时间",
+    licenseId: String(license.licenseId || "")
+  };
+}
+
+function licenseUsagePanelHtml() {
+  const detail = licenseQuotaDetails();
+  const statusMap: Record<string, string> = {
+    active: "正常",
+    paused: "已暂停",
+    revoked: "已吊销",
+    expired: "已过期"
+  };
+  return `
+    <div class="license-usage-head">
+      <div>
+        <b>我的授权</b>
+        <span>${escapeHtml(detail.tenantName)}</span>
+      </div>
+      <button id="closeLicensePanel" class="icon-only" type="button" aria-label="关闭">${icon("X")}</button>
+    </div>
+    <div class="license-usage-grid">
+      <article><small>剩余次数</small><strong>${escapeHtml(detail.remainingText)}</strong></article>
+      <article><small>已用 / 总量</small><strong>${escapeHtml(detail.usedText)} / ${escapeHtml(detail.totalText)}</strong></article>
+      <article><small>设备绑定</small><strong>${escapeHtml(detail.deviceText)}</strong></article>
+      <article><small>授权状态</small><strong>${escapeHtml(statusMap[detail.status] || detail.status)}</strong></article>
+    </div>
+    <p class="license-usage-note">到期：${escapeHtml(detail.expiresText)}。生成首轮报告或新增一轮拜访分析成功后，会扣减 1 次；查看历史报告不扣次数。</p>
+    <button id="refreshLicensePanel" type="button">${icon("RefreshCw")}刷新授权状态</button>`;
+}
+
+async function refreshAuthMeQuiet() {
+  try {
+    const payload = await api("/.netlify/functions/auth-me");
+    authMe = payload.me;
+    localStorage.setItem(LS_OAC_ME, JSON.stringify(authMe));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openLicenseUsagePanel() {
+  await refreshAuthMeQuiet();
+  const panel = document.querySelector<HTMLElement>("#licenseUsagePanel");
+  const stripText = document.querySelector<HTMLElement>("#licenseStripText");
+  if (stripText) stripText.innerHTML = `${icon("ShieldCheck")}${escapeHtml(licenseStatusText())}`;
+  if (!panel) return;
+  panel.innerHTML = licenseUsagePanelHtml();
+  panel.hidden = false;
+  panel.querySelector("#closeLicensePanel")?.addEventListener("click", () => {
+    panel.hidden = true;
+  });
+  panel.querySelector("#refreshLicensePanel")?.addEventListener("click", openLicenseUsagePanel);
+  refreshIcons();
 }
 
 function activeJobIds() {
@@ -189,20 +508,61 @@ function loadJobSnapshot(jobId: string) {
   return jobSnapshots()[jobId] || null;
 }
 
+function compactProfileSnapshot(profile: any = null) {
+  if (!profile) return null;
+  return {
+    profileId: profile.profileId || "",
+    companyName: profile.companyName || "",
+    mainBusiness: profile.mainBusiness || profile.summary || "",
+    coreProducts: arr(profile.coreProducts || profile.coreOfferings).slice(0, 8)
+  };
+}
+
+function compactCompanySnapshot(company: any = null) {
+  if (!company) return null;
+  return {
+    name: company.name || "",
+    standardName: company.standardName || "",
+    companyName: company.companyName || "",
+    query: company.query || "",
+    region: company.region || "",
+    industry: company.industry || "",
+    stockCode: company.stockCode || "",
+    sellerProfileId: company.sellerProfileId || "",
+    sellerProfileName: company.sellerProfileName || "",
+    sellerProfileSnapshot: compactProfileSnapshot(company.sellerProfileSnapshot)
+  };
+}
+
+function compactJobIdentity(identity: any = null) {
+  if (!identity) return null;
+  return {
+    jobId: identity.jobId || "",
+    targetCompanyName: identity.targetCompanyName || "",
+    standardName: identity.standardName || "",
+    companyName: identity.companyName || "",
+    sellerProfileId: identity.sellerProfileId || "",
+    sellerProfileName: identity.sellerProfileName || "",
+    sellerProfileSnapshot: compactProfileSnapshot(identity.sellerProfileSnapshot),
+    region: identity.region || "",
+    industry: identity.industry || ""
+  };
+}
+
 function saveJobSnapshot(jobId: string, job: any) {
   if (!jobId || !job) return;
   const snapshots = jobSnapshots();
   snapshots[jobId] = {
     ...(snapshots[jobId] || {}),
     jobId,
-    jobIdentity: job.jobIdentity || snapshots[jobId]?.jobIdentity || null,
-    company: job.company || snapshots[jobId]?.company || null,
+    jobIdentity: compactJobIdentity(job.jobIdentity || snapshots[jobId]?.jobIdentity),
+    company: compactCompanySnapshot(job.company || snapshots[jobId]?.company),
     targetCompanyName: job.targetCompanyName || snapshots[jobId]?.targetCompanyName || "",
     standardName: job.standardName || snapshots[jobId]?.standardName || "",
     companyName: job.companyName || snapshots[jobId]?.companyName || "",
     sellerProfileId: job.sellerProfileId || snapshots[jobId]?.sellerProfileId || "",
     sellerProfileName: job.sellerProfileName || snapshots[jobId]?.sellerProfileName || "",
-    sellerProfileSnapshot: job.sellerProfileSnapshot || snapshots[jobId]?.sellerProfileSnapshot || null,
+    sellerProfileSnapshot: compactProfileSnapshot(job.sellerProfileSnapshot || snapshots[jobId]?.sellerProfileSnapshot),
     reportId: job.reportId || snapshots[jobId]?.reportId || "",
     status: job.status || snapshots[jobId]?.status || "",
     stage: job.stage || snapshots[jobId]?.stage || "",
@@ -211,7 +571,11 @@ function saveJobSnapshot(jobId: string, job: any) {
     phaseKey: job.phaseKey || snapshots[jobId]?.phaseKey || "",
     updatedAt: job.updatedAt || snapshots[jobId]?.updatedAt || ""
   };
-  localStorage.setItem(LS_JOB_SNAPSHOTS, JSON.stringify(snapshots));
+  try {
+    localStorage.setItem(LS_JOB_SNAPSHOTS, JSON.stringify(snapshots));
+  } catch {
+    localStorage.setItem(LS_JOB_SNAPSHOTS, JSON.stringify({ [jobId]: snapshots[jobId] }));
+  }
 }
 
 function firstText(...values: any[]) {
@@ -223,6 +587,8 @@ function firstText(...values: any[]) {
 }
 
 function mergeJobSnapshot(previous: any = {}, incoming: any = {}, jobId = "") {
+  previous = previous || {};
+  incoming = incoming || {};
   const savedIdentity = incoming.jobIdentity || previous.jobIdentity || {};
   const company = { ...(previous.company || {}), ...(incoming.company || {}) };
   const report = { ...(previous.report || {}), ...(incoming.report || {}) };
@@ -407,8 +773,46 @@ function homeTabHtml() {
       </div>
 
       <div class="ios-section-title">
+        <b>谁会直接受益</b>
+        <span>从“临时查资料”变成“可复制的客户作战能力”。</span>
+      </div>
+      <div class="ios-value-grid">
+        ${[
+          ["老板", "看清商机质量", "减少盲目投入，把销售、售前和交付的判断沉淀成团队能力。"],
+          ["销售", "知道值不值得跟", "先判断预算、决策链、风险和推进打法，不再靠感觉跑客户。"],
+          ["售前", "拿到方案切入点", "围绕客户现状和痛点组织方案，不再只拿标准产品去硬推。"],
+          ["交付", "提前看到落地风险", "粗看架构、数据、系统接入和交付边界，避免后期失控。"]
+        ].map(([role, title, body]) => `<article><span>${role}</span><b>${title}</b><p>${body}</p></article>`).join("")}
+      </div>
+
+      <div class="ios-section-title">
+        <b>为什么值得买</b>
+        <span>不是多一个生成器，而是把客户拜访前的判断能力产品化。</span>
+      </div>
+      <div class="ios-roi-grid">
+        ${[
+          ["少浪费售前", "先筛掉低价值、预算不清或决策链不明的线索，把方案资源用在更可能成交的客户上。"],
+          ["提高命中率", "把客户业务、痛点假设、切入话题和必问问题整理成作战卡，第一次见面就不显外行。"],
+          ["沉淀团队打法", "每轮拜访反馈都会刷新判断、方案和问题清单，把个人经验变成可复用的组织资产。"]
+        ].map(([title, body]) => `<article><b>${title}</b><p>${body}</p></article>`).join("")}
+      </div>
+
+      <div class="ios-section-title">
+        <b>管理层为什么会买单</b>
+        <span>买的不是一份报告，而是销售、售前、交付的判断标准。</span>
+      </div>
+      <div class="ios-outcome-grid">
+        ${[
+          ["线索分级", "把“想跟就跟”变成有预算、决策链、痛点和风险依据的优先级判断。"],
+          ["投入管控", "让售前资源先投向高价值客户，低确定性机会先做轻量验证。"],
+          ["打法复制", "优秀客户经理的会前准备方式沉淀成团队统一作战流程。"],
+          ["复盘闭环", "会后纪要会刷新评级、方案和下一步动作，避免拜访信息散落在聊天记录里。"]
+        ].map(([title, body]) => `<article><b>${title}</b><p>${body}</p></article>`).join("")}
+      </div>
+
+      <div class="ios-section-title">
         <b>参谋分工</b>
-        <span>不是一段泛泛总结，而是多人协作式的拜访准备。</span>
+        <span>不是一段普通摘要，而是多人协作式的拜访准备。</span>
       </div>
       <div class="ios-worker-list">
         ${[
@@ -444,6 +848,1024 @@ function workbenchPage() {
       <section id="reportsTab" class="tab-pane"></section>
       <section id="profilesTab" class="tab-pane"></section>
     </main>`;
+}
+
+function isAdminRoute() {
+  return window.location.pathname.split("/").filter(Boolean)[0]?.toLowerCase() === "admin";
+}
+
+function renderLoginOnlyGate(message = authError) {
+  renderLoginOnlyGateClean(message);
+}
+
+function integrationGuideHtml() {
+  return `
+    <div class="integration-head">
+      <span>${icon("PlugZap")}</span>
+      <div>
+        <b>OAC 服务能力开放</b>
+        <p>企业开通 License 后，可以直接使用 OAC 网页，也可以把“商机挖掘、任务生成、报告获取”能力接入原有 CRM、数字劳动力平台、OA 或销售工作台。</p>
+      </div>
+    </div>
+
+    <div class="integration-grid">
+      <article>
+        <b>${icon("PanelTop")}方式一：嵌入企业平台</b>
+        <p>适合企业已有统一入口，希望销售/售前无需再次输入授权码。</p>
+        <ol>
+          <li>OAC 为企业开通租户 License，并发放企业后端专用 Master API Key。</li>
+          <li>企业后端携带 Master API Key 和员工 userId 向 OAC 换取一次性登录 code。</li>
+          <li>企业前端用 iframe 或新页面打开 OAC 的 SSO 地址。</li>
+        </ol>
+        <pre>POST /.netlify/functions/auth-enterprise-session
+Headers:
+  x-master-api-key: oac_master_xxx
+Body:
+{
+  "userId": "zhangsan",
+  "userName": "张三",
+  "department": "华东销售"
+}</pre>
+        <pre>返回：
+{
+  "ssoUrl": "https://your-oac-site/sso?code=一次性code",
+  "expiresIn": 300
+}</pre>
+      </article>
+
+      <article>
+        <b>${icon("ServerCog")}方式二：后端 API 调用</b>
+        <p>适合企业希望把 OAC 当成后台服务，由自己的系统发起任务、查询进度、读取报告。</p>
+        <pre>POST /api/v1/report-jobs
+Headers:
+  x-oac-license-key: oac_lic_xxx
+  x-oac-user-id: zhangsan
+Body:
+{
+  "sellerProfileId": "我的企业ID",
+  "targetCompanyName": "目标客户名称",
+  "knownNeeds": "已掌握的客户需求，可选"
+}</pre>
+        <pre>GET /api/v1/report-jobs/{jobId}
+GET /api/v1/reports/{reportId}</pre>
+      </article>
+    </div>
+
+    <div class="integration-notes">
+      <b>${icon("ShieldCheck")}安全与隔离</b>
+      <span>每个 License 对应独立租户数据；企业只能访问自己租户下的任务、我的企业和报告。</span>
+      <span>Master API Key 只放企业后端，不进入浏览器前端。</span>
+      <span>任务成功生成报告后才扣次数；失败、取消、只查看报告不扣次数。</span>
+    </div>
+  `;
+}
+
+function renderAdminPage(message = "") {
+  app.innerHTML = `
+    <main class="auth-shell">
+      <section class="auth-card admin-license-card">
+        <div class="app-mark"><strong>${PRODUCT_ACRONYM}</strong></div>
+        <p class="eyebrow">License 管理后台</p>
+        <h1>授权管理</h1>
+        <p>管理员在这里开通、暂停、启用或吊销授权。出于安全原因，已创建的授权码不保存明文；如果客户遗失授权码，请重置并发放新的 License Key。</p>
+        ${message ? `<div class="notice error">${escapeHtml(message)}</div>` : ""}
+        <div class="auth-form">
+          <input id="adminSecretInput" placeholder="请输入管理员密钥" type="password" />
+          <div class="admin-actions">
+            <button id="loadLicensesButton" type="button">${icon("ListChecks")}查看已开通</button>
+            <button id="backToLoginButton" type="button">${icon("LogIn")}返回登录</button>
+          </div>
+        </div>
+
+        <div class="admin-divider"></div>
+
+        <div class="auth-form">
+          <b class="admin-subtitle">开通新 License</b>
+          <input id="tenantNameInput" placeholder="租户 / 企业名称" />
+          <input id="tenantIdInput" placeholder="租户ID，可选；演示旧数据可填 internal-demo" />
+          <input id="quotaTotalInput" type="number" placeholder="留空表示不限次数；也可填 30、100" />
+          <input id="expiresAtInput" placeholder="到期日，可选：2026-12-31" />
+          <label class="inline-check"><input id="createMasterKeyInput" type="checkbox" /> 同时生成企业对接 Master Key</label>
+          <button id="createLicenseButton" type="button">${icon("BadgePlus")}创建授权</button>
+          <pre id="createdLicenseOutput"></pre>
+          <div id="createdLicenseActions" class="license-share-actions"></div>
+          <div id="adminLicenseList" class="license-admin-list"></div>
+        </div>
+      </section>
+    </main>`;
+  document.querySelector("#createLicenseButton")?.addEventListener("click", createLicenseFromAdminPageClean);
+  document.querySelector("#loadLicensesButton")?.addEventListener("click", () => loadLicensesFromAdminPageClean(true));
+  document.querySelector("#backToLoginButton")?.addEventListener("click", () => {
+    window.history.pushState({}, "", "/");
+    clearAuth();
+    renderAuthGate();
+  });
+  refreshIcons();
+}
+
+function renderAuthGate(message = authError) {
+  renderLoginOnlyGateClean(message);
+}
+
+function renderLoginOnlyGateClean(message = authError) {
+  const presetLicense = new URLSearchParams(window.location.search).get("license") || "";
+  app.innerHTML = `
+    <main class="auth-shell">
+      <section class="auth-card">
+        <div class="app-mark"><strong>${PRODUCT_ACRONYM}</strong></div>
+        <p class="eyebrow">${PRODUCT_NAME_CN}｜${PRODUCT_NAME_EN}</p>
+        <h1>输入授权码</h1>
+        <p>请输入已开通的 OAC 授权码。系统会为当前团队保留独立的我的企业、任务和作战简报。</p>
+        <form id="licenseLoginForm" class="auth-form">
+          <input id="licenseKeyInput" placeholder="例如 OAC-ABCD-2345" autocomplete="one-time-code" value="${escapeHtml(presetLicense)}" />
+          <input id="licenseUserInput" placeholder="使用者名称，可选" autocomplete="name" />
+          <button class="primary" type="submit">${icon("ShieldCheck")}进入系统</button>
+        </form>
+        ${message ? `<div class="notice error">${escapeHtml(message)}</div>` : ""}
+        <section class="auth-value-strip" aria-label="OAC 价值说明">
+          <article>
+            <span>${icon("Clock3")}</span>
+            <b>会前少熬夜</b>
+            <p>把客户、行业、预算、决策链和风险压缩成可行动简报。</p>
+          </article>
+          <article>
+            <span>${icon("Presentation")}</span>
+            <b>售前不再只推产品</b>
+            <p>从客户现状和痛点出发，生成可交流的方案路径。</p>
+          </article>
+          <article>
+            <span>${icon("ShieldCheck")}</span>
+            <b>结论有证据</b>
+            <p>天眼查、搜索、年报和网页证据分层，减少拍脑袋。</p>
+          </article>
+        </section>
+        <button id="integrationGuideButton" class="auth-secondary-action" type="button">${icon("Network")}查看企业系统对接方式</button>
+        <section id="integrationGuidePanel" class="integration-guide" hidden>
+          ${integrationGuideHtml()}
+        </section>
+      </section>
+    </main>`;
+  document.querySelector("#licenseLoginForm")?.addEventListener("submit", loginWithLicenseV2);
+  document.querySelector("#integrationGuideButton")?.addEventListener("click", () => {
+    const panel = document.querySelector<HTMLElement>("#integrationGuidePanel");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    refreshIcons();
+  });
+  refreshIcons();
+}
+
+function renderLoginOnlyGateV2(message = authError) {
+  renderLoginOnlyGateClean(message);
+}
+
+async function loginWithLicense(event: Event) {
+  event.preventDefault();
+  const licenseKey = (document.querySelector<HTMLInputElement>("#licenseKeyInput")?.value || "").trim();
+  const userId = (document.querySelector<HTMLInputElement>("#licenseUserInput")?.value || "").trim() || "web-user";
+  if (!licenseKey) {
+    renderAuthGate("请输入授权码");
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/auth-license-login", {
+      method: "POST",
+      body: JSON.stringify({ licenseKey, userId, deviceId: oacDeviceId(), deviceName: oacDeviceName() })
+    });
+    saveAuth(payload, true);
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("license")) {
+      params.delete("license");
+      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+    }
+    authError = "";
+    await bootstrap();
+  } catch (error: any) {
+    authError = error.message || "授权失败";
+    renderAuthGate(authError);
+  }
+}
+
+async function createLicenseFromGate() {
+  const adminSecret = (document.querySelector<HTMLInputElement>("#adminSecretInput")?.value || "").trim();
+  const tenantName = (document.querySelector<HTMLInputElement>("#tenantNameInput")?.value || "").trim();
+  const tenantId = (document.querySelector<HTMLInputElement>("#tenantIdInput")?.value || "").trim();
+  const quotaTotal = Number((document.querySelector<HTMLInputElement>("#quotaTotalInput")?.value || "100").trim() || 100);
+  const expiresAt = (document.querySelector<HTMLInputElement>("#expiresAtInput")?.value || "").trim();
+  const createMasterKey = Boolean((document.querySelector<HTMLInputElement>("#createMasterKeyInput") as any)?.checked);
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!adminSecret || !tenantName) {
+    if (output) output.textContent = "请填写管理员密钥和租户名称。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "POST",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ tenantName, tenantId, quotaTotal, expiresAt, createMasterKey })
+    });
+    if (output) {
+      output.textContent = [
+        `License Key（只显示一次）：${payload.licenseKey}`,
+        payload.masterKey ? `Master Key（只显示一次）：${payload.masterKey}` : "",
+        `租户：${payload.license?.tenantName}`,
+        `次数：${payload.license?.quotaTotal}`
+      ].filter(Boolean).join("\n");
+    }
+  } catch (error: any) {
+    if (output) output.textContent = `创建失败：${error.message}`;
+  }
+}
+
+function renderAuthGateAdmin(message = authError) {
+  app.innerHTML = `
+    <main class="auth-shell">
+      <section class="auth-card">
+        <div class="app-mark"><strong>${PRODUCT_ACRONYM}</strong></div>
+        <p class="eyebrow">${PRODUCT_NAME_CN}｜${PRODUCT_NAME_EN}</p>
+        <h1>请输入授权码</h1>
+        <p>OAC 已启用租户隔离。授权成功后，只能看到当前租户下的我的企业、任务和报告。</p>
+        <form id="licenseLoginForm" class="auth-form">
+          <input id="licenseKeyInput" placeholder="OAC License Key" autocomplete="off" />
+          <input id="licenseUserInput" placeholder="使用者名称，可选" autocomplete="name" />
+          <button class="primary" type="submit">${icon("ShieldCheck")}进入系统</button>
+        </form>
+        ${message ? `<div class="notice error">${escapeHtml(message)}</div>` : ""}
+        <details class="admin-box" open>
+          <summary>${icon("KeyRound")}管理员开通与管理 License</summary>
+          <div class="auth-form">
+            <input id="adminSecretInput" placeholder="请输入管理员密钥" type="password" />
+            <input id="tenantNameInput" placeholder="租户 / 企业名称" />
+            <input id="tenantIdInput" placeholder="租户ID，可选；演示旧数据可填 internal-demo" />
+            <input id="quotaTotalInput" type="number" placeholder="留空表示不限次数；也可填 30、100" />
+            <input id="expiresAtInput" placeholder="到期日，可选：2026-12-31" />
+            <label class="inline-check"><input id="createMasterKeyInput" type="checkbox" /> 同时生成企业对接 Master Key</label>
+            <div class="admin-actions">
+              <button id="createLicenseButton" type="button">${icon("BadgePlus")}创建授权</button>
+              <button id="loadLicensesButton" type="button">${icon("ListChecks")}查看已开通</button>
+            </div>
+            <pre id="createdLicenseOutput"></pre>
+            <div id="adminLicenseList" class="license-admin-list"></div>
+          </div>
+        </details>
+      </section>
+    </main>`;
+  document.querySelector("#licenseLoginForm")?.addEventListener("submit", loginWithLicenseV2);
+  document.querySelector("#createLicenseButton")?.addEventListener("click", createLicenseFromGateV2);
+  document.querySelector("#loadLicensesButton")?.addEventListener("click", () => loadLicensesFromGateV2(true));
+  refreshIcons();
+}
+
+function renderAdminPageV2(message = "") {
+  app.innerHTML = `
+    <main class="auth-shell">
+      <section class="auth-card admin-license-card">
+        <div class="app-mark"><strong>${PRODUCT_ACRONYM}</strong></div>
+        <p class="eyebrow">License 管理后台</p>
+        <h1>授权管理</h1>
+        <p>在这里为客户或演示团队开通授权、查看设备绑定、暂停或吊销 License。授权码明文只显示一次，遗失后请重置。</p>
+        ${message ? `<div class="notice error">${escapeHtml(message)}</div>` : ""}
+        <div class="auth-form">
+          <label class="form-field">
+            <span>管理员密钥</span>
+            <input id="adminSecretInput" name="oac-admin-secret-${Date.now()}" placeholder="请输入管理员密钥" type="password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" spellcheck="false" />
+          </label>
+          <div class="admin-actions">
+            <button id="loadLicensesButton" type="button">${icon("ListChecks")}查看已开通</button>
+            <button id="backToLoginButton" type="button">${icon("LogIn")}返回登录</button>
+          </div>
+        </div>
+
+        <div class="admin-divider"></div>
+
+        <div class="auth-form">
+          <b class="admin-subtitle">开通新 License</b>
+          <label class="form-field">
+            <span>租户 / 企业名称</span>
+            <input id="tenantNameInput" placeholder="例如：某某集团华东销售团队" autocomplete="off" />
+          </label>
+          <label class="form-field">
+            <span>可使用次数</span>
+            <input id="quotaTotalInput" type="number" placeholder="留空表示不限次数；也可填 30、100" />
+            <small>成功生成首轮报告或新增一轮拜访分析才扣 1 次；失败、取消、只查看报告不扣次数。</small>
+          </label>
+          <label class="form-field">
+            <span>最多绑定设备数</span>
+            <input id="maxDevicesInput" type="number" value="3" placeholder="例如 3" />
+            <small>同一个授权码可绑定几台浏览器设备，适合现场给领导或团队发放。</small>
+          </label>
+          <label class="form-field">
+            <span>到期日，可选</span>
+            <input id="expiresAtInput" placeholder="例如：2026-12-31" autocomplete="off" />
+          </label>
+          <details class="admin-advanced">
+            <summary>${icon("Settings2")}高级对接设置</summary>
+            <label class="form-field">
+              <span>租户ID，可选</span>
+              <input id="tenantIdInput" placeholder="一般留空；演示旧数据可填 internal-demo" autocomplete="off" />
+            </label>
+            <label class="inline-check"><input id="createMasterKeyInput" type="checkbox" /> 同时生成企业后端对接 Master Key</label>
+          </details>
+          <button id="createLicenseButton" type="button">${icon("BadgePlus")}创建授权</button>
+          <pre id="createdLicenseOutput"></pre>
+          <div id="adminLicenseList" class="license-admin-list"></div>
+        </div>
+      </section>
+    </main>`;
+  document.querySelector("#createLicenseButton")?.addEventListener("click", createLicenseFromAdminPage);
+  document.querySelector("#loadLicensesButton")?.addEventListener("click", () => loadLicensesFromAdminPage(true));
+  document.querySelector("#backToLoginButton")?.addEventListener("click", () => {
+    window.history.pushState({}, "", "/");
+    clearAuth();
+    renderAuthGate();
+  });
+  refreshIcons();
+}
+
+function renderAdminPageClean(message = "") {
+  app.innerHTML = `
+    <main class="auth-shell">
+      <section class="auth-card admin-license-card">
+        <div class="app-mark"><strong>${PRODUCT_ACRONYM}</strong></div>
+        <p class="eyebrow">License 管理后台</p>
+        <h1>授权管理</h1>
+        <p>这里用于开通、暂停、启用、吊销和查看授权使用情况。管理员密钥只在本次请求中使用，不会保存在页面里。</p>
+        ${message ? `<div class="notice error">${escapeHtml(message)}</div>` : ""}
+        <div class="auth-form">
+          <label class="form-field">
+            <span>管理员密钥</span>
+            <input data-admin-secret-input class="secret-input" type="password" placeholder="请输入管理员密钥" autocomplete="new-password" autocapitalize="off" data-lpignore="true" data-1p-ignore="true" spellcheck="false" readonly />
+            <small>密钥不会在页面中展示，也不会写入浏览器本地存储。</small>
+          </label>
+          <div class="admin-actions">
+            <button id="loadLicensesButton" type="button">${icon("ListChecks")}查看已开通</button>
+            <button id="backToLoginButton" type="button">${icon("LogIn")}返回授权登录</button>
+          </div>
+        </div>
+
+        <div class="admin-divider"></div>
+
+        <div class="auth-form">
+          <b class="admin-subtitle">开通新 License</b>
+          <label class="form-field">
+            <span>租户 / 企业名称</span>
+            <input id="tenantNameInput" placeholder="例如：某某集团华东销售团队" autocomplete="off" />
+          </label>
+          <label class="inline-check quota-toggle">
+            <input id="quotaUnlimitedInput" type="checkbox" checked />
+            <span>不限制使用次数</span>
+          </label>
+          <label class="form-field" id="quotaLimitField" hidden>
+            <span>限制次数</span>
+            <input id="quotaLimitInput" type="number" min="1" placeholder="例如 30、100" autocomplete="off" />
+            <small>成功完成首轮报告或新增一轮拜访分析才扣 1 次；失败、取消、只查看报告不扣次数。</small>
+          </label>
+          <label class="form-field">
+            <span>最多绑定设备数</span>
+            <input id="maxDevicesInput" type="number" value="3" min="1" placeholder="例如 3" autocomplete="off" />
+            <small>同一个授权码最多可绑定几台浏览器设备，适合现场给团队或领导演示。</small>
+          </label>
+          <label class="form-field">
+            <span>到期日，可选</span>
+            <input id="expiresAtInput" placeholder="例如：2026-12-31" autocomplete="off" />
+          </label>
+          <details class="admin-advanced">
+            <summary>${icon("Settings2")}高级对接设置</summary>
+            <label class="form-field">
+              <span>租户 ID，可选</span>
+              <input id="tenantIdInput" placeholder="一般留空；需要指定历史演示租户时再填写" autocomplete="off" />
+            </label>
+            <label class="inline-check"><input id="createMasterKeyInput" type="checkbox" /> 同时生成企业后端对接 Master Key</label>
+          </details>
+          <button id="createLicenseButton" type="button">${icon("BadgePlus")}创建授权</button>
+          <pre id="createdLicenseOutput"></pre>
+          <div id="adminLicenseList" class="license-admin-list"></div>
+        </div>
+      </section>
+    </main>`;
+  const secretInput = document.querySelector<HTMLInputElement>("[data-admin-secret-input]");
+  if (secretInput) {
+    secretInput.value = "";
+    secretInput.addEventListener("focus", () => secretInput.removeAttribute("readonly"), { once: true });
+    setTimeout(() => { secretInput.value = ""; }, 60);
+  }
+  wireAdminQuotaToggle();
+  document.querySelector("#createLicenseButton")?.addEventListener("click", createLicenseFromAdminPage);
+  document.querySelector("#loadLicensesButton")?.addEventListener("click", () => loadLicensesFromAdminPage(true));
+  document.querySelector("#backToLoginButton")?.addEventListener("click", () => {
+    window.history.pushState({}, "", "/");
+    clearAuth();
+    renderAuthGate();
+  });
+  refreshIcons();
+}
+
+function wireAdminQuotaToggle() {
+  const unlimitedInput = document.querySelector<HTMLInputElement>("#quotaUnlimitedInput");
+  const limitField = document.querySelector<HTMLElement>("#quotaLimitField");
+  const limitInput = document.querySelector<HTMLInputElement>("#quotaLimitInput");
+  const sync = () => {
+    const unlimited = Boolean(unlimitedInput?.checked);
+    if (limitField) {
+      limitField.hidden = unlimited;
+      limitField.style.display = unlimited ? "none" : "grid";
+    }
+    if (limitInput) {
+      limitInput.disabled = unlimited;
+      if (unlimited) limitInput.value = "";
+    }
+  };
+  unlimitedInput?.addEventListener("change", sync);
+  sync();
+}
+
+function quotaLabelClean(value: any) {
+  const total = Number(value);
+  return Number.isFinite(total) && total < 0 ? "不限次数" : `${Number.isFinite(total) ? total : 0} 次`;
+}
+
+function statusLabelClean(status: any) {
+  const value = String(status || "active");
+  if (value === "paused") return "已暂停";
+  if (value === "revoked") return "已吊销";
+  if (value === "expired") return "已过期";
+  return "正常";
+}
+
+async function createLicenseFromAdminPageClean() {
+  const adminSecret = adminSecretValue();
+  const tenantName = (document.querySelector<HTMLInputElement>("#tenantNameInput")?.value || "").trim();
+  const tenantId = (document.querySelector<HTMLInputElement>("#tenantIdInput")?.value || "").trim();
+  const quotaTotal = Number((document.querySelector<HTMLInputElement>("#quotaTotalInput")?.value || "-1").trim() || -1);
+  const maxDevices = Number((document.querySelector<HTMLInputElement>("#maxDevicesInput")?.value || "3").trim() || 3);
+  const expiresAt = (document.querySelector<HTMLInputElement>("#expiresAtInput")?.value || "").trim();
+  const createMasterKey = Boolean((document.querySelector<HTMLInputElement>("#createMasterKeyInput") as any)?.checked);
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!adminSecret || !tenantName) {
+    if (output) output.textContent = "请填写管理员密钥和租户名称。";
+    return;
+  }
+  if (!Number.isFinite(quotaTotal) || !Number.isFinite(maxDevices)) {
+    if (output) output.textContent = "可使用次数和设备数都必须是数字；-1 表示不限制。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "POST",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ tenantName, tenantId, quotaTotal, maxDevices, expiresAt, createMasterKey })
+    });
+    if (output) {
+      output.textContent = [
+        `License Key（只显示一次）：${payload.licenseKey}`,
+        payload.masterKey ? `Master Key（只显示一次）：${payload.masterKey}` : "",
+        `租户：${payload.license?.tenantName || tenantName}`,
+        `可使用次数：${quotaLabelClean(payload.license?.quotaTotal)}`,
+        `设备数：最多 ${Number(payload.license?.maxDevices ?? maxDevices) < 0 ? "不限" : payload.license?.maxDevices ?? maxDevices} 台`
+      ].filter(Boolean).join("\n");
+    }
+    await loadLicensesFromAdminPageClean(false);
+  } catch (error: any) {
+    if (output) output.textContent = `创建失败：${error.message}`;
+  }
+}
+
+async function loadLicensesFromAdminPageClean(showMessage = true) {
+  const adminSecret = adminSecretValue();
+  const list = document.querySelector("#adminLicenseList");
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!adminSecret) {
+    if (output) output.textContent = "请先输入管理员密钥。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "GET",
+      headers: { "x-admin-secret": adminSecret }
+    });
+    renderLicenseAdminListClean(payload.licenses || []);
+    if (showMessage && output) output.textContent = `已加载 ${payload.licenses?.length || 0} 个授权。`;
+  } catch (error: any) {
+    if (list) list.innerHTML = `<div class="notice error">读取失败：${escapeHtml(error.message || "未知错误")}</div>`;
+  }
+}
+
+function renderLicenseAdminListClean(licenses: any[]) {
+  const list = document.querySelector("#adminLicenseList");
+  if (!list) return;
+  if (!licenses.length) {
+    list.innerHTML = `<div class="license-empty">还没有开通任何 License。</div>`;
+    return;
+  }
+  list.innerHTML = licenses.map((license) => {
+    const status = String(license.status || "active");
+    const remaining = Number(license.remainingUses);
+    const devices = arr(license.activatedUsers);
+    const maxDevices = Number(license.maxDevices ?? 3);
+    const pauseOrActive = status === "paused"
+      ? `<button type="button" data-admin-clean-action="active" data-license-id="${escapeHtml(license.licenseId)}">${icon("PlayCircle")}启用</button>`
+      : `<button type="button" data-admin-clean-action="paused" data-license-id="${escapeHtml(license.licenseId)}">${icon("PauseCircle")}暂停</button>`;
+    const rotate = status === "revoked" ? "" : `<button type="button" data-admin-clean-rotate="${escapeHtml(license.licenseId)}">${icon("RefreshCw")}重置授权码</button>`;
+    const revoke = status === "revoked" ? "" : `<button class="danger" type="button" data-admin-clean-action="revoked" data-license-id="${escapeHtml(license.licenseId)}">${icon("Ban")}吊销</button>`;
+    const remove = `<button class="danger" type="button" data-admin-clean-delete="${escapeHtml(license.licenseId)}">${icon("Trash2")}删除</button>`;
+    return `
+      <article class="license-admin-row">
+        <div>
+          <b>${escapeHtml(license.tenantName || license.tenantId || "未命名租户")}</b>
+          <span>${escapeHtml(license.licenseId || "")}</span>
+          <small>状态：${statusLabelClean(status)}｜已用 ${Number(license.quotaUsed || 0)}｜剩余 ${remaining < 0 ? "不限" : remaining}｜总量 ${quotaLabelClean(license.quotaTotal)}｜设备 ${devices.length}/${maxDevices < 0 ? "不限" : maxDevices}${license.expiresAt ? `｜到期 ${escapeHtml(license.expiresAt)}` : ""}</small>
+          <small>授权码：已加密保存，不能反查明文；如需重新发放，请点“重置授权码”。</small>
+          ${licenseBoundProfilesHtml(license)}
+          ${devices.length ? `<div class="bound-devices">${devices.map((device: any) => `<span>${icon("MonitorSmartphone")}${escapeHtml(device.deviceName || "浏览器设备")}｜${escapeHtml(device.userId || "用户")}｜${escapeHtml(fmtTime(device.lastSeenAt))}</span>`).join("")}</div>` : `<div class="bound-devices empty">还没有设备使用此授权码登录。</div>`}
+        </div>
+        <div class="license-row-actions">${pauseOrActive}${rotate}${revoke}${remove}</div>
+      </article>`;
+  }).join("");
+  list.querySelectorAll("[data-admin-clean-action]").forEach((button) => button.addEventListener("click", updateLicenseStatusFromAdminPageClean));
+  list.querySelectorAll("[data-admin-clean-rotate]").forEach((button) => button.addEventListener("click", rotateLicenseKeyFromAdminPageClean));
+  list.querySelectorAll("[data-admin-clean-delete]").forEach((button) => button.addEventListener("click", deleteLicenseFromAdminPageClean));
+  refreshIcons();
+}
+
+async function updateLicenseStatusFromAdminPageClean(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.licenseId || "";
+  const status = button.dataset.adminCleanAction || "";
+  const adminSecret = adminSecretValue();
+  if (!licenseId || !status || !adminSecret) return;
+  if (status === "revoked" && !confirm("吊销后该 License 将不能继续使用，确认吊销？")) return;
+  await api("/.netlify/functions/admin-licenses", {
+    method: "PATCH",
+    headers: { "x-admin-secret": adminSecret },
+    body: JSON.stringify({ licenseId, patch: { status } })
+  });
+  await loadLicensesFromAdminPageClean(false);
+}
+
+async function rotateLicenseKeyFromAdminPageClean(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.adminCleanRotate || "";
+  const adminSecret = adminSecretValue();
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!licenseId || !adminSecret) return;
+  if (!confirm("重置后旧授权码会立刻失效，新授权码只显示一次，确认继续？")) return;
+  const payload = await api("/.netlify/functions/admin-licenses", {
+    method: "PATCH",
+    headers: { "x-admin-secret": adminSecret },
+    body: JSON.stringify({ licenseId, action: "rotateKey" })
+  });
+  if (output) output.textContent = `新的 License Key（只显示一次）：${payload.licenseKey}\n请立即发给客户或妥善保存；刷新后无法再次查看明文。`;
+  await loadLicensesFromAdminPageClean(false);
+}
+
+async function deleteLicenseFromAdminPageClean(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.adminCleanDelete || "";
+  const adminSecret = adminSecretValue();
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!licenseId || !adminSecret) return;
+  if (!confirm("删除后该 License、授权索引和相关登录会话都会被清除，确认删除？")) return;
+  try {
+    await api("/.netlify/functions/admin-licenses", {
+      method: "DELETE",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ licenseId })
+    });
+    if (output) output.textContent = "已删除 License。";
+    await loadLicensesFromAdminPageClean(false);
+  } catch (error: any) {
+    if (output) output.textContent = `删除失败：${error.message}`;
+  }
+}
+
+async function loginWithLicenseV2(event: Event) {
+  event.preventDefault();
+  const licenseKey = (document.querySelector<HTMLInputElement>("#licenseKeyInput")?.value || "").trim();
+  const userId = (document.querySelector<HTMLInputElement>("#licenseUserInput")?.value || "").trim() || "web-user";
+  if (!licenseKey) {
+    renderLoginOnlyGateClean("请输入授权码");
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/auth-license-login", {
+      method: "POST",
+      body: JSON.stringify({ licenseKey, userId, deviceId: oacDeviceId(), deviceName: oacDeviceName() })
+    });
+    saveAuth(payload, true);
+    authError = "";
+    await bootstrap();
+  } catch (error: any) {
+    authError = error.message || "授权失败";
+    renderLoginOnlyGateClean(authError);
+  }
+}
+
+function adminSecretValueV2() {
+  return (document.querySelector<HTMLInputElement>("#adminSecretInput")?.value || "").trim();
+}
+
+function quotaLabelV2(value: any) {
+  const total = Number(value);
+  return Number.isFinite(total) && total < 0 ? "不限次数" : `${Number.isFinite(total) ? total : 0} 次`;
+}
+
+function statusLabelV2(status: any) {
+  const value = String(status || "active");
+  if (value === "paused") return "已暂停";
+  if (value === "revoked") return "已吊销";
+  if (value === "expired") return "已过期";
+  return "正常";
+}
+
+function adminSecretValue() {
+  return (
+    document.querySelector<HTMLInputElement>("[data-admin-secret-input]")?.value ||
+    document.querySelector<HTMLInputElement>("#adminSecretInput")?.value ||
+    ""
+  ).trim();
+}
+
+function quotaLabel(value: any) {
+  const total = Number(value);
+  return Number.isFinite(total) && total < 0 ? "不限次数" : `${Number.isFinite(total) ? total : 0} 次`;
+}
+
+function statusLabel(status: any) {
+  const value = String(status || "active");
+  if (value === "paused") return "已暂停";
+  if (value === "revoked") return "已吊销";
+  if (value === "expired") return "已过期";
+  return "正常";
+}
+
+function licenseBoundProfilesHtml(license: any) {
+  const profiles = arr(license.boundProfiles);
+  if (!profiles.length) return `<div class="bound-profiles empty">${icon("UsersRound")}暂未创建绑定的企业资料。</div>`;
+  return `<div class="bound-profiles">
+    ${profiles.map((profile: any) => {
+      const products = arr(profile.coreProducts).slice(0, 3).join("、");
+      return `<article class="bound-profile-card">
+        <b>${icon("UsersRound")}${escapeHtml(profile.companyName || "未命名企业")}</b>
+        <small>${escapeHtml(profile.mainBusiness || "主营业务待补充")}</small>
+        ${products ? `<span>${escapeHtml(products)}</span>` : ""}
+        ${profile.updatedAt ? `<em>更新：${escapeHtml(fmtTime(profile.updatedAt))}</em>` : ""}
+      </article>`;
+    }).join("")}
+  </div>`;
+}
+
+async function createLicenseFromAdminPage() {
+  const adminSecret = adminSecretValue();
+  const tenantName = (document.querySelector<HTMLInputElement>("#tenantNameInput")?.value || "").trim();
+  const tenantId = (document.querySelector<HTMLInputElement>("#tenantIdInput")?.value || "").trim();
+  const unlimitedQuota = Boolean((document.querySelector<HTMLInputElement>("#quotaUnlimitedInput") as any)?.checked);
+  const quotaRaw = (document.querySelector<HTMLInputElement>("#quotaLimitInput")?.value || "").trim();
+  const quotaTotal = unlimitedQuota ? -1 : Number(quotaRaw);
+  const maxDevicesRaw = (document.querySelector<HTMLInputElement>("#maxDevicesInput")?.value || "").trim();
+  const maxDevices = maxDevicesRaw === "" ? 3 : Number(maxDevicesRaw);
+  const expiresAt = (document.querySelector<HTMLInputElement>("#expiresAtInput")?.value || "").trim();
+  const createMasterKey = Boolean((document.querySelector<HTMLInputElement>("#createMasterKeyInput") as any)?.checked);
+  const output = document.querySelector("#createdLicenseOutput");
+  const actions = document.querySelector("#createdLicenseActions");
+  if (actions) actions.innerHTML = "";
+  if (!adminSecret || !tenantName) {
+    if (output) output.textContent = "请填写管理员密钥和租户名称。";
+    return;
+  }
+  if (!unlimitedQuota && !quotaRaw) {
+    if (output) output.textContent = "请选择“不限制使用次数”，或填写一个可使用次数。";
+    return;
+  }
+  if (!Number.isFinite(quotaTotal)) {
+    if (output) output.textContent = "可使用次数请填写数字。";
+    return;
+  }
+  if (!Number.isFinite(maxDevices)) {
+    if (output) output.textContent = "最多绑定设备数请填写数字。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "POST",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ tenantName, tenantId, quotaTotal, maxDevices, expiresAt, createMasterKey })
+    });
+    const licenseKey = payload.licenseKey || "";
+    const loginUrl = licenseLoginUrl(licenseKey);
+    if (output) {
+      output.textContent = [
+        `授权码（只显示一次）：${licenseKey}`,
+        `登录链接：${loginUrl}`,
+        payload.masterKey ? `Master Key（只显示一次）：${payload.masterKey}` : "",
+        `租户：${payload.license?.tenantName}`,
+        `次数：${quotaLabel(payload.license?.quotaTotal)}`,
+        `设备：最多 ${Number(payload.license?.maxDevices ?? 3) < 0 ? "不限" : payload.license?.maxDevices} 台`
+      ].filter(Boolean).join("\n");
+    }
+    if (actions && licenseKey) {
+      renderLicenseShareActions(actions, licenseKey, loginUrl);
+    }
+    await loadLicensesFromAdminPage(false);
+  } catch (error: any) {
+    if (output) output.textContent = `创建失败：${error.message}`;
+  }
+}
+
+function licenseLoginUrl(licenseKey: string) {
+  return `${window.location.origin}/?license=${encodeURIComponent(licenseKey || "")}`;
+}
+
+function renderLicenseShareActions(container: Element | null, licenseKey: string, loginUrl = licenseLoginUrl(licenseKey)) {
+  if (!container || !licenseKey) return;
+  container.innerHTML = `
+    <button type="button" data-copy-text="${escapeHtml(licenseKey)}">${icon("Copy")}复制授权码</button>
+    <button type="button" data-copy-text="${escapeHtml(loginUrl)}">${icon("Link")}复制登录链接</button>
+  `;
+  container.querySelectorAll("[data-copy-text]").forEach((button) => {
+    button.addEventListener("click", copyAdminShareText);
+  });
+  refreshIcons();
+}
+
+async function copyAdminShareText(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const text = button.dataset.copyText || "";
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!text) return;
+  try {
+    await navigator.clipboard?.writeText(text);
+    if (output) output.textContent = `${output.textContent || ""}\n\n已复制。`;
+  } catch {
+    window.prompt("复制下面内容", text);
+  }
+}
+
+async function loadLicensesFromAdminPage(showMessage = true) {
+  const adminSecret = adminSecretValue();
+  const list = document.querySelector("#adminLicenseList");
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!adminSecret) {
+    if (output) output.textContent = "请先输入管理员密钥。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "GET",
+      headers: { "x-admin-secret": adminSecret }
+    });
+    renderLicenseAdminList(payload.licenses || []);
+    if (showMessage && output) output.textContent = `已加载 ${payload.licenses?.length || 0} 个授权。`;
+  } catch (error: any) {
+    if (list) list.innerHTML = `<div class="notice error">读取失败：${escapeHtml(error.message || "未知错误")}</div>`;
+  }
+}
+
+function renderLicenseAdminList(licenses: any[]) {
+  const list = document.querySelector("#adminLicenseList");
+  if (!list) return;
+  if (!licenses.length) {
+    list.innerHTML = `<div class="license-empty">还没有开通任何 License。</div>`;
+    return;
+  }
+  list.innerHTML = licenses.map((license) => {
+    const remaining = Number(license.remainingUses);
+    const remainingText = remaining < 0 ? "不限" : `${remaining}`;
+    const status = String(license.status || "active");
+    const quotaText = quotaLabel(license.quotaTotal);
+    const deviceCount = arr(license.activatedUsers).length;
+    const maxDevices = Number(license.maxDevices ?? 3);
+    const maxDeviceText = maxDevices < 0 ? "不限" : `${maxDevices}`;
+    const pauseOrActive = status === "paused"
+      ? `<button type="button" data-admin-license-action="active" data-license-id="${escapeHtml(license.licenseId)}">${icon("PlayCircle")}启用</button>`
+      : `<button type="button" data-admin-license-action="paused" data-license-id="${escapeHtml(license.licenseId)}">${icon("PauseCircle")}暂停</button>`;
+    const rotate = status === "revoked"
+      ? ""
+      : `<button type="button" data-admin-license-rotate="${escapeHtml(license.licenseId)}">${icon("RefreshCw")}生成新分享链接</button>`;
+    const revoke = status === "revoked"
+      ? ""
+      : `<button class="danger" type="button" data-admin-license-action="revoked" data-license-id="${escapeHtml(license.licenseId)}">${icon("Ban")}吊销</button>`;
+    const remove = `<button class="danger" type="button" data-admin-license-delete="${escapeHtml(license.licenseId)}">${icon("Trash2")}删除</button>`;
+    return `
+      <article class="license-admin-row">
+        <div class="license-admin-main">
+          <b>${escapeHtml(license.tenantName || license.tenantId || "未命名租户")}</b>
+          <span>${escapeHtml(license.licenseId || "")}</span>
+          <div class="license-admin-meta">
+            <em>${icon("ShieldCheck")}${statusLabel(status)}</em>
+            <em>${icon("Gauge")}已用 ${Number(license.quotaUsed || 0)} / ${quotaText}</em>
+            <em>${icon("BatteryMedium")}剩余 ${remainingText}</em>
+            <em>${icon("MonitorSmartphone")}设备 ${deviceCount}/${maxDeviceText}</em>
+            <em>${icon("UsersRound")}企业资料 ${arr(license.boundProfiles).length}</em>
+            ${license.expiresAt ? `<em>${icon("CalendarClock")}到期 ${escapeHtml(license.expiresAt)}</em>` : ""}
+          </div>
+          <small class="license-key-note">授权码已加密保存，不能反查旧码。需要发给别人时，点“生成新分享链接”，系统会生成新码和可复制登录链接。</small>
+          ${licenseBoundProfilesHtml(license)}
+        </div>
+        <div class="license-row-actions">
+          ${pauseOrActive}
+          ${rotate}
+          ${revoke}
+          ${remove}
+        </div>
+      </article>`;
+  }).join("");
+  list.querySelectorAll("[data-admin-license-action]").forEach((button) => {
+    button.addEventListener("click", updateLicenseStatusFromAdminPage);
+  });
+  list.querySelectorAll("[data-admin-license-rotate]").forEach((button) => {
+    button.addEventListener("click", rotateLicenseKeyFromAdminPage);
+  });
+  list.querySelectorAll("[data-admin-license-delete]").forEach((button) => {
+    button.addEventListener("click", deleteLicenseFromAdminPage);
+  });
+  refreshIcons();
+}
+
+async function updateLicenseStatusFromAdminPage(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.licenseId || "";
+  const status = button.dataset.adminLicenseAction || "";
+  const adminSecret = adminSecretValue();
+  if (!licenseId || !status || !adminSecret) return;
+  if (status === "revoked" && !confirm("吊销后该 License 将不能继续使用，确认吊销？")) return;
+  try {
+    await api("/.netlify/functions/admin-licenses", {
+      method: "PATCH",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ licenseId, patch: { status } })
+    });
+    await loadLicensesFromAdminPage(false);
+  } catch (error: any) {
+    const output = document.querySelector("#createdLicenseOutput");
+    if (output) output.textContent = `更新失败：${error.message}`;
+  }
+}
+
+async function rotateLicenseKeyFromAdminPage(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.adminLicenseRotate || "";
+  const adminSecret = adminSecretValue();
+  const output = document.querySelector("#createdLicenseOutput");
+  const actions = document.querySelector("#createdLicenseActions");
+  if (actions) actions.innerHTML = "";
+  if (!licenseId || !adminSecret) return;
+  if (!confirm("重新生成后旧授权码会立刻失效，新授权码和登录链接只显示一次。确认继续？")) return;
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "PATCH",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ licenseId, action: "rotateKey" })
+    });
+    const licenseKey = payload.licenseKey || "";
+    const loginUrl = licenseLoginUrl(licenseKey);
+    if (output) {
+      output.textContent = [
+        `新的授权码（只显示一次）：${licenseKey}`,
+        `新的登录链接：${loginUrl}`,
+        `租户：${payload.license?.tenantName || ""}`,
+        "请立即发给客户或妥善保存；刷新后无法再次查看明文。"
+      ].join("\n");
+    }
+    renderLicenseShareActions(actions, licenseKey, loginUrl);
+    await loadLicensesFromAdminPage(false);
+  } catch (error: any) {
+    if (output) output.textContent = `重置失败：${error.message}`;
+  }
+}
+
+async function deleteLicenseFromAdminPage(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.adminLicenseDelete || "";
+  const adminSecret = adminSecretValue();
+  const output = document.querySelector("#createdLicenseOutput");
+  const actions = document.querySelector("#createdLicenseActions");
+  if (actions) actions.innerHTML = "";
+  if (!licenseId || !adminSecret) return;
+  if (!confirm("删除后该 License、授权索引和相关登录会话都会被清除，确认删除？")) return;
+  try {
+    await api("/.netlify/functions/admin-licenses", {
+      method: "DELETE",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ licenseId })
+    });
+    if (output) output.textContent = "已删除 License。";
+    await loadLicensesFromAdminPage(false);
+  } catch (error: any) {
+    if (output) output.textContent = `删除失败：${error.message}`;
+  }
+}
+
+async function createLicenseFromGateV2() {
+  const adminSecret = adminSecretValueV2();
+  const tenantName = (document.querySelector<HTMLInputElement>("#tenantNameInput")?.value || "").trim();
+  const tenantId = (document.querySelector<HTMLInputElement>("#tenantIdInput")?.value || "").trim();
+  const quotaRaw = (document.querySelector<HTMLInputElement>("#quotaTotalInput")?.value || "").trim();
+  const quotaTotal = quotaRaw === "" ? -1 : Number(quotaRaw);
+  const expiresAt = (document.querySelector<HTMLInputElement>("#expiresAtInput")?.value || "").trim();
+  const createMasterKey = Boolean((document.querySelector<HTMLInputElement>("#createMasterKeyInput") as any)?.checked);
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!adminSecret || !tenantName) {
+    if (output) output.textContent = "请填写管理员密钥和租户名称。";
+    return;
+  }
+  if (!Number.isFinite(quotaTotal)) {
+    if (output) output.textContent = "授权次数请填写数字；-1 表示不限次数。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "POST",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ tenantName, tenantId, quotaTotal, expiresAt, createMasterKey })
+    });
+    if (output) {
+      output.textContent = [
+        `License Key（只显示一次）：${payload.licenseKey}`,
+        payload.masterKey ? `Master Key（只显示一次）：${payload.masterKey}` : "",
+        `租户：${payload.license?.tenantName}`,
+        `次数：${quotaLabelV2(payload.license?.quotaTotal)}`
+      ].filter(Boolean).join("\n");
+    }
+    await loadLicensesFromGateV2(false);
+  } catch (error: any) {
+    if (output) output.textContent = `创建失败：${error.message}`;
+  }
+}
+
+async function loadLicensesFromGateV2(showMessage = true) {
+  const adminSecret = adminSecretValueV2();
+  const list = document.querySelector("#adminLicenseList");
+  const output = document.querySelector("#createdLicenseOutput");
+  if (!adminSecret) {
+    if (output) output.textContent = "请先输入管理员密钥。";
+    return;
+  }
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "GET",
+      headers: { "x-admin-secret": adminSecret }
+    });
+    renderLicenseAdminListV2(payload.licenses || []);
+    if (showMessage && output) output.textContent = `已加载 ${payload.licenses?.length || 0} 个授权。`;
+  } catch (error: any) {
+    if (list) list.innerHTML = `<div class="notice error">读取失败：${escapeHtml(error.message || "未知错误")}</div>`;
+  }
+}
+
+function renderLicenseAdminListV2(licenses: any[]) {
+  const list = document.querySelector("#adminLicenseList");
+  if (!list) return;
+  if (!licenses.length) {
+    list.innerHTML = `<div class="license-empty">还没有开通任何 License。</div>`;
+    return;
+  }
+  list.innerHTML = licenses.map((license) => {
+    const remaining = Number(license.remainingUses);
+    const remainingText = remaining < 0 ? "不限" : `${remaining}`;
+    const status = String(license.status || "active");
+    const pauseOrActive = status === "paused"
+      ? `<button type="button" data-license-action="active" data-license-id="${escapeHtml(license.licenseId)}">${icon("PlayCircle")}启用</button>`
+      : `<button type="button" data-license-action="paused" data-license-id="${escapeHtml(license.licenseId)}">${icon("PauseCircle")}暂停</button>`;
+    const revoke = status === "revoked"
+      ? ""
+      : `<button class="danger" type="button" data-license-action="revoked" data-license-id="${escapeHtml(license.licenseId)}">${icon("Ban")}吊销</button>`;
+    return `
+      <article class="license-admin-row">
+        <div>
+          <b>${escapeHtml(license.tenantName || license.tenantId || "未命名租户")}</b>
+          <span>${escapeHtml(license.licenseId || "")}</span>
+          <small>状态：${statusLabelV2(status)}｜已用 ${Number(license.quotaUsed || 0)}｜剩余 ${remainingText}｜总量 ${quotaLabelV2(license.quotaTotal)}${license.expiresAt ? `｜到期 ${escapeHtml(license.expiresAt)}` : ""}</small>
+        </div>
+        <div class="license-row-actions">
+          ${pauseOrActive}
+          ${revoke}
+        </div>
+      </article>`;
+  }).join("");
+  list.querySelectorAll("[data-license-action]").forEach((button) => {
+    button.addEventListener("click", updateLicenseStatusFromGateV2);
+  });
+  refreshIcons();
+}
+
+async function updateLicenseStatusFromGateV2(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const licenseId = button.dataset.licenseId || "";
+  const status = button.dataset.licenseAction || "";
+  const adminSecret = adminSecretValueV2();
+  if (!licenseId || !status || !adminSecret) return;
+  if (status === "revoked" && !confirm("吊销后该 License 将不能继续使用，确认吊销？")) return;
+  try {
+    await api("/.netlify/functions/admin-licenses", {
+      method: "PATCH",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ licenseId, patch: { status } })
+    });
+    await loadLicensesFromGateV2(false);
+  } catch (error: any) {
+    const output = document.querySelector("#createdLicenseOutput");
+    if (output) output.textContent = `更新失败：${error.message}`;
+  }
 }
 
 function renderApp() {
@@ -497,6 +1919,7 @@ function setTab(tab: string, save = true) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.classList.toggle("active", (button as HTMLElement).dataset.tab === value);
   });
+  if (value === "tasks") startPolling();
   refreshIcons();
 }
 
@@ -609,7 +2032,12 @@ async function uploadAnnualReportIfNeeded(companyName: string) {
   const form = new FormData();
   form.append("file", file);
   form.append("companyName", companyName);
-  const res = await fetch("/.netlify/functions/upload-annual-report", { method: "POST", body: form });
+  const token = authToken();
+  const res = await fetch("/.netlify/functions/upload-annual-report", {
+    method: "POST",
+    body: form,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined
+  });
   const payload = await res.json();
   if (!res.ok || payload.ok === false) throw new Error(payload.error || "年报解析失败");
   const hint = document.querySelector("#annualReportHint");
@@ -640,33 +2068,48 @@ async function resolveCompany(event: Event) {
       method: "POST",
       body: JSON.stringify({ query: name, region, industry, aiNeeds, annualReportSummary })
     });
-    renderCandidates(arr(data.candidates), arr(data.cached));
+    renderCandidates(arr(data.candidates), arr(data.cached), data.tianyanchaDiagnostic);
     setCreateStatus("");
   } catch (error: any) {
     setCreateStatus(`核对失败：${error.message}`, "error");
   }
 }
 
-function renderCandidates(candidates: any[], cached: any[]) {
+function renderCandidates(candidates: any[], cached: any[], tianyanchaDiagnostic: any = null) {
   const root = document.querySelector("#candidateArea");
   if (!root) return;
+  const tycNotice = tianyanchaDiagnosticNotice(tianyanchaDiagnostic);
+  const sourceLabel = (candidate: any) => {
+    if (candidate?.scoreBreakdown?.tianyanchaApi || candidate?.tianyanchaSource || /tianyancha/i.test(String(candidate?.channel || ""))) {
+      return "已通过天眼查核验";
+    }
+    if (candidate?.scoreBreakdown?.annualReport || candidate?.annualReportId) return "年报强证据";
+    return "网页搜索候选";
+  };
   root.innerHTML = `
     <section class="candidate-panel ios-list-panel">
       <div class="list-section-title"><span>3</span><b>确认目标客户</b></div>
+      ${tycNotice ? `<div class="notice soft-warning">${escapeHtml(tycNotice)}</div>` : ""}
       ${cached.length ? `<div class="notice">已发现历史报告。若重新生成，将按“当前我方企业 + 目标客户”组合覆盖最新入口。</div>` : ""}
       <div class="candidate-grid compact-candidate-list">
-        ${candidates.map((candidate, index) => `
-          <article class="candidate-card">
+        ${candidates.map((candidate, index) => {
+          const verification = candidateVerification(candidate);
+          return `<article class="candidate-card ${verification.verified ? "candidate-card-verified" : ""}">
             <div class="candidate-main">
-              <b>${escapeHtml(candidate.standardName || candidate.name)}</b>
-              <span>${escapeHtml([candidate.region, candidate.industry].filter(Boolean).join("｜") || "地区/行业待确认")}</span>
-              <p>${escapeHtml(candidate.reason || "候选企业主体")}</p>
+              <div class="candidate-title-row">
+                <b>${escapeHtml(candidate.standardName || candidate.name)}</b>
+                <em class="candidate-source">${verification.verified ? icon("ShieldCheck") : ""}${escapeHtml(sourceLabel(candidate))}</em>
+              </div>
+              ${verification.verified ? `<div class="candidate-verified-line">${icon("BadgeCheck")}企业主体已核验${verification.creditCode ? `｜统一社会信用代码 ${escapeHtml(verification.creditCode)}` : ""}</div>` : `<span>${escapeHtml([candidate.region, candidate.industry].filter(Boolean).join("｜") || "地区/行业待确认")}</span>`}
+              ${verification.fields.length ? `<div class="candidate-facts">${verification.fields.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><b>${escapeHtml(value)}</b></span>`).join("")}</div>` : ""}
+              ${verification.address ? `<p class="candidate-address">注册地址：${escapeHtml(verification.address)}</p>` : (!verification.verified ? `<p>${escapeHtml(candidate.reason || "候选企业主体")}</p>` : "")}
             </div>
             <div class="candidate-side">
               <small>${escapeHtml(candidate.confidence || "-")}分</small>
               <button data-candidate="${index}" class="primary mini" type="button">${icon("Sparkles")}生成</button>
             </div>
-          </article>`).join("")}
+          </article>`;
+        }).join("")}
       </div>
     </section>`;
   root.querySelectorAll("[data-candidate]").forEach((button) => {
@@ -774,6 +2217,7 @@ function renderTaskCenter() {
         <span>${icon("TriangleAlert")}异常 <b>${stats.error}</b></span>
         <span>${icon("Layers3")}全部 <b>${stats.total}</b></span>
       </div>
+      ${taskSyncWarning ? `<div class="task-warning">${icon("TriangleAlert")}任务中心刚才有一次同步失败，已保留当前任务状态并自动重试：${escapeHtml(taskSyncWarning)}</div>` : ""}
       <div class="task-list">
         ${jobs.length ? jobs.map(taskCard).join("") : `<div class="empty-state compact-empty">暂无任务。创建后，参谋团会在这里显示每位成员正在做什么。</div>`}
       </div>
@@ -855,25 +2299,54 @@ async function cancelJob(jobId: string) {
 }
 
 async function pollJobs() {
+  if (pollingJobs) {
+    pollAgainAfterCurrent = true;
+    return;
+  }
+  pollingJobs = true;
+  const isLiveTask = (job: any) => ["queued", "running", "needs_resume"].includes(String(job?.status || ""));
+  const isRecentFinishedTask = (job: any) => {
+    if (!["done", "error", "cancelled"].includes(String(job?.status || ""))) return false;
+    const ts = Date.parse(job.completedAt || job.finishedAt || job.updatedAt || "");
+    return Number.isFinite(ts) && Date.now() - ts < 24 * 60 * 60 * 1000;
+  };
   try {
     const remote = await api("/.netlify/functions/list-report-jobs");
+    taskSyncWarning = "";
     const blocked = dismissedJobIdSet();
     const remoteJobs = Array.isArray(remote.jobs) ? remote.jobs : [];
-    for (const job of remoteJobs) {
+    const visibleRemoteJobs = remoteJobs
+      .filter((job: any) => isLiveTask(job) || isRecentFinishedTask(job))
+      .slice(0, 20);
+    for (const job of visibleRemoteJobs) {
       if (!job?.jobId || blocked.has(job.jobId)) continue;
       activeJobs[job.jobId] = mergeJobSnapshot(activeJobs[job.jobId] || loadJobSnapshot(job.jobId), job, job.jobId);
       saveJobSnapshot(job.jobId, activeJobs[job.jobId]);
     }
-    if (remoteJobs.length) saveActiveJobIds([...remoteJobs.map((job: any) => job.jobId), ...activeJobIds()]);
-  } catch {
-    // Keep local polling working if the cloud task list is temporarily unavailable.
+    if (visibleRemoteJobs.length) {
+      saveActiveJobIds([...visibleRemoteJobs.map((job: any) => job?.jobId).filter(Boolean), ...activeJobIds()].filter((id) => id !== "__task_sync_error"));
+    }
+  } catch (error: any) {
+    taskSyncWarning = error?.message || "任务列表暂时无法读取，系统会自动重试。";
+    delete activeJobs.__task_sync_error;
+    saveActiveJobIds(activeJobIds().filter((id) => id !== "__task_sync_error"));
   }
 
-  const ids = activeJobIds();
+  const ids = activeJobIds()
+    .filter((jobId) => {
+      const job = activeJobs[jobId] || loadJobSnapshot(jobId);
+      return !job || isLiveTask(job) || isRecentFinishedTask(job);
+    })
+    .slice(0, 20);
   if (!ids.length) {
     if (pollTimer) window.clearInterval(pollTimer);
     pollTimer = undefined;
     renderTaskCenter();
+    pollingJobs = false;
+    if (pollAgainAfterCurrent) {
+      pollAgainAfterCurrent = false;
+      window.setTimeout(pollJobs, 80);
+    }
     return;
   }
   await Promise.all(ids.map(async (jobId) => {
@@ -882,15 +2355,23 @@ async function pollJobs() {
       activeJobs[jobId] = mergeJobSnapshot(activeJobs[jobId] || loadJobSnapshot(jobId), data.job, jobId);
       saveJobSnapshot(jobId, activeJobs[jobId]);
     } catch (error: any) {
-      if (/任务不存在/.test(String(error.message || ""))) {
+      const message = String(error?.message || "");
+      if (/任务不存在|not found|404/i.test(message)) {
         forgetMissingJob(jobId);
         return;
       }
-      activeJobs[jobId] = { ...(activeJobs[jobId] || loadJobSnapshot(jobId) || {}), jobId, status: "running", stage: "状态同步失败", detail: error.message };
+      const previous = activeJobs[jobId] || loadJobSnapshot(jobId) || {};
+      activeJobs[jobId] = { ...previous, jobId, syncWarning: message || "任务状态暂时无法同步，系统会自动重试。", syncWarningAt: new Date().toISOString() };
       saveJobSnapshot(jobId, activeJobs[jobId]);
+      return;
     }
   }));
   renderTaskCenter();
+  pollingJobs = false;
+  if (pollAgainAfterCurrent) {
+    pollAgainAfterCurrent = false;
+    window.setTimeout(pollJobs, 80);
+  }
 }
 
 function startPolling() {
@@ -1006,6 +2487,17 @@ function renderProfiles() {
       </div>
       <div class="profile-manager">
         <aside class="profile-list">
+          <section class="profile-auth-card">
+            <div class="profile-auth-head">
+              <div>
+                <b>我的授权</b>
+                <span>${escapeHtml(licenseStatusText())}</span>
+              </div>
+              <button id="refreshLicensePanel" class="ghost" type="button">${icon("RefreshCw")}刷新</button>
+            </div>
+            ${licenseUsageCompactHtml()}
+            <button id="logoutButton" class="logout-inline" type="button">${icon("LogOut")}退出登录</button>
+          </section>
           <div class="add-profile">
             <input id="newProfileName" placeholder="输入我方企业名，例如：智用开物" />
             <button id="createProfileButton" class="primary" type="button">${icon("SearchCheck")}核对企业</button>
@@ -1013,10 +2505,19 @@ function renderProfiles() {
           ${profileStatus ? `<div class="notice">${escapeHtml(profileStatus)}</div>` : ""}
           ${profileCandidates.length ? `<div class="profile-candidates">
             <b>请选择我的企业主体</b>
-            ${profileCandidates.map((candidate, index) => `<button type="button" data-profile-candidate="${index}">
-              <span>${escapeHtml(candidate.standardName || candidate.name)}</span>
-              <small>${escapeHtml([candidate.region, candidate.industry, candidate.confidence ? `${candidate.confidence}分` : "", candidate.sourcesMerged ? `${candidate.sourcesMerged}个来源合并` : ""].filter(Boolean).join("｜") || "候选主体")}</small>
-            </button>`).join("")}
+            ${profileCandidates.map((candidate, index) => {
+              const verification = candidateVerification(candidate);
+              const baseInfo = [
+                verification.verified ? "天眼查核验" : "网页候选",
+                verification.creditCode ? `统一社会信用代码 ${verification.creditCode}` : "",
+                candidate.confidence ? `${candidate.confidence}分` : "",
+                candidate.sourcesMerged ? `${candidate.sourcesMerged}个来源合并` : ""
+              ].filter(Boolean).join("｜");
+              return `<button type="button" data-profile-candidate="${index}" class="${verification.verified ? "verified-profile-candidate" : ""}">
+                <span>${verification.verified ? icon("ShieldCheck") : ""}${escapeHtml(candidate.standardName || candidate.name)}</span>
+                <small>${escapeHtml(baseInfo || "候选主体")}</small>
+              </button>`;
+            }).join("")}
           </div>` : ""}
           ${profiles.length ? profiles.map((item) => `<button class="profile-tab ${item.profileId === selectedProfileId ? "active" : ""}" data-profile="${escapeHtml(item.profileId)}" type="button"><b>${escapeHtml(item.companyName)}</b><span>${escapeHtml(item.mainBusiness || item.summary || "点击编辑我的企业")}</span>${profileReady(item) ? "" : `<small>待补：主营业务 / 核心产品</small>`}</button>`).join("") : `<div class="empty">暂无我的企业。请先新增。</div>`}
         </aside>
@@ -1024,6 +2525,14 @@ function renderProfiles() {
       </div>
     </section>`;
   root.querySelector("#createProfileButton")?.addEventListener("click", createProfile);
+  root.querySelector("#refreshLicensePanel")?.addEventListener("click", async () => {
+    await refreshAuthMeQuiet();
+    renderProfiles();
+  });
+  root.querySelector("#logoutButton")?.addEventListener("click", () => {
+    clearAuth();
+    renderAuthGate("已退出，请重新输入授权码。");
+  });
   root.querySelectorAll("[data-profile-candidate]").forEach((button) => {
     button.addEventListener("click", () => {
       const index = Number((button as HTMLElement).dataset.profileCandidate);
@@ -1042,6 +2551,18 @@ function renderProfiles() {
   root.querySelector("#saveProfile")?.addEventListener("click", saveProfile);
   root.querySelector("#deleteProfile")?.addEventListener("click", deleteProfile);
   refreshIcons();
+}
+
+function licenseUsageCompactHtml() {
+  const detail = licenseQuotaDetails();
+  return `
+    <div class="profile-auth-grid">
+      <span><small>剩余</small><b>${escapeHtml(detail.remainingText)}</b></span>
+      <span><small>已用/总量</small><b>${escapeHtml(detail.usedText)} / ${escapeHtml(detail.totalText)}</b></span>
+      <span><small>设备</small><b>${escapeHtml(detail.deviceText)}</b></span>
+      <span><small>到期</small><b>${escapeHtml(detail.expiresText)}</b></span>
+    </div>
+    <p>生成首轮报告或新增一轮拜访分析成功后扣 1 次；查看历史报告不扣次数。</p>`;
 }
 
 function profileEditor(profile: any) {
@@ -1071,6 +2592,7 @@ async function createProfile() {
       body: JSON.stringify({ query: name, region: "", industry: "", aiNeeds: "用于创建我的企业资料，请优先识别企业主体、主营业务和核心产品。" })
     });
     profileCandidates = dedupeCompanyCandidates(data.candidates).slice(0, 5);
+    profileStatus = tianyanchaDiagnosticNotice(data.tianyanchaDiagnostic) || "企业主体已核对，请选择最准确的一项。";
     if (!profileCandidates.length) {
       await createProfileFromCandidate({ name, standardName: name });
       return;
@@ -1428,6 +2950,22 @@ async function addReportRound(reportId: string) {
 }
 
 async function bootstrap() {
+  if (isAdminRoute()) {
+    renderAdminPageClean();
+    return;
+  }
+  try {
+    const ok = await loadAuth();
+    if (!ok) {
+      renderAuthGate();
+      return;
+    }
+  } catch (error: any) {
+    clearAuth();
+    authError = error.message || "授权已失效，请重新输入授权码";
+    renderAuthGate(authError);
+    return;
+  }
   try {
     await loadProfiles();
   } catch {

@@ -3,6 +3,8 @@ import { getIndex } from "../lib/store.mjs";
 import { normalizeText, scoreMatch } from "../lib/util.mjs";
 import { qualityStatusText } from "../lib/report-quality.mjs";
 import { resolveCandidates } from "../lib/research.mjs";
+import { hasTianyanchaKey } from "../lib/tianyancha.mjs";
+import { withOacRequestContext } from "../lib/auth.mjs";
 
 function normalizeCandidateName(value = "") {
   return normalizeText(String(value || "").replace(/(股份有限公司|有限责任公司|集团有限公司|有限公司|公司)$/g, ""));
@@ -128,6 +130,7 @@ function isSameCompanyCacheHit(report, query) {
 
 export default async function handler(request) {
   try {
+    return await withOacRequestContext(request, async () => {
     const body = await readBody(request);
     const query = requireText(body.query, "企业名称");
     const region = String(body.region || "").trim();
@@ -161,9 +164,11 @@ export default async function handler(request) {
         candidates: dedupeCandidates(boostWithAnnualReport(resolved.candidates || [], query, region, industry, annualReportSummary)),
         cached,
         model: resolved.model,
-        channel: resolved.channel
+        channel: resolved.channel,
+        tianyanchaDiagnostic: resolved.tianyanchaDiagnostic || null
       });
-    } catch {
+    } catch (error) {
+      const tianyanchaConfigured = hasTianyanchaKey();
       return json({
         ok: true,
         candidates: dedupeCandidates(boostWithAnnualReport(
@@ -190,10 +195,18 @@ export default async function handler(request) {
         )),
         cached,
         model: "fast-resolve",
-        channel: "fast-resolve"
+        channel: "fast-resolve",
+        tianyanchaDiagnostic: {
+          provider: "tianyancha",
+          status: tianyanchaConfigured ? "api_failed" : "missing_key",
+          configured: tianyanchaConfigured,
+          message: tianyanchaConfigured ? "天眼查核验流程未完成，已回退到历史记录或输入名称" : "生产环境尚未配置天眼查核验",
+          error: String(error?.message || "").slice(0, 220)
+        }
       });
     }
+    });
   } catch (error) {
-    return fail(error?.message || "主体核对失败", 500);
+    return fail(error?.message || "主体核对失败", error?.status || 500);
   }
 }

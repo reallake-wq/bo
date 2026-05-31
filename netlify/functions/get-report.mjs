@@ -2,9 +2,11 @@ import { fail, json } from "../lib/http.mjs";
 import { getIndex, readJson, readText, saveIndex, writeJson, writeText } from "../lib/store.mjs";
 import { ratingIndex } from "../lib/opportunity-rating.mjs";
 import { ratingChanged, resolveOpportunityRating } from "../lib/rating-resolver.mjs";
-import { normalizeReportShape, renderReportHtml } from "../lib/report.mjs";
-import { auditReport } from "../lib/source-audit.mjs";
+import { normalizeReportShape, renderReportHtml } from "../lib/report.mjs?v=oac-insight-20260531a";
+import { auditReport } from "../lib/source-audit.mjs?v=oac-insight-20260531a";
 import { applySensitiveVerification } from "../lib/sensitive-verification.mjs";
+import { applyFreshnessGuardrails } from "../lib/evidence-freshness.mjs";
+import { withOacRequestContext } from "../lib/auth.mjs";
 
 function indexEntryFromReport(report = {}, existing = {}) {
   return {
@@ -43,6 +45,8 @@ function indexEntryFromReport(report = {}, existing = {}) {
 }
 
 export default async function handler(request) {
+  try {
+    return await withOacRequestContext(request, async () => {
   const url = new URL(request.url);
   const reportId = url.searchParams.get("reportId");
   if (!reportId) return fail("缺少reportId", 400);
@@ -51,7 +55,7 @@ export default async function handler(request) {
   const checkedReport = savedReport?.sensitiveVerification
     ? applySensitiveVerification(savedReport, savedReport.sensitiveVerification)
     : savedReport;
-  const audited = checkedReport ? auditReport(checkedReport) : null;
+  const audited = checkedReport ? applyFreshnessGuardrails(auditReport(checkedReport), { company: checkedReport }) : null;
   const report = audited
     ? normalizeReportShape({
         ...audited,
@@ -83,4 +87,8 @@ export default async function handler(request) {
   }
 
   return json({ ok: true, report, html });
+    });
+  } catch (error) {
+    return fail(error?.message || "打开报告失败", error?.status || 500);
+  }
 }

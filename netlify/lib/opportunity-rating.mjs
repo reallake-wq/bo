@@ -36,6 +36,34 @@ function countTerms(text, terms) {
   return terms.reduce((sum, term) => sum + (text.includes(term) ? 1 : 0), 0);
 }
 
+function countMatches(text, patterns) {
+  return patterns.reduce((sum, pattern) => sum + (pattern.test(text) ? 1 : 0), 0);
+}
+
+function hasDecisionConcentration(text) {
+  return /决策链条相对集中|决策相对集中|所有权与经营权于一身|创始人.{0,20}(经营权|控制权|实际控制)|实际控制人|法定代表人/.test(text);
+}
+
+function decisionUnknownSignals(text) {
+  let score = countMatches(text, [
+    /决策链.{0,16}(不清|不明确|未知|待确认|仍需确认)/,
+    /拍板人.{0,16}(不清|不明确|未知|待确认|仍需确认)/,
+    /预算归属.{0,16}(不清|不明确|未知|待确认|仍需确认)/,
+    /采购权|立项权|谁说了算/,
+    /总部决策|集团决策|母公司决策|集团.{0,12}审批|总部.{0,12}审批/
+  ]);
+  if (hasDecisionConcentration(text) && score <= 1) score = 0;
+  return score;
+}
+
+function systemBoundarySignals(text) {
+  return countMatches(text, [
+    /数据安全|安全审批|数据边界|数据出境|客户数据|脱敏/,
+    /系统接入|接口|权限|审计|日志/,
+    /合规|法务|信息安全|等保/
+  ]);
+}
+
 function metricValue(report, patterns) {
   const metrics = arr(report.customerInsights?.metrics);
   const item = metrics.find((metric) => patterns.some((pattern) => pattern.test(`${metric.label || ""} ${metric.title || ""}`)));
@@ -78,6 +106,14 @@ function moneyText(yi) {
   return `${Number((yi * 10000).toFixed(0))}万元`;
 }
 
+function hasConcreteBudgetEvidence(text = "") {
+  const value = String(text || "");
+  return (
+    /(?:中标|合同|采购|招标|预算|融资|投资|补助|研发投入|注册资本|实缴资本).{0,32}(?:-?\d+(?:\.\d+)?\s*(?:万|万元|亿|亿元|人民币|元)|[A-D]轮|Pre-A|IPO|上市)/i.test(value) ||
+    /(?:-?\d+(?:\.\d+)?\s*(?:万元|亿元|人民币|元)).{0,32}(?:中标|合同|采购|预算|融资|投资|补助|研发投入|注册资本|实缴资本)/i.test(value)
+  );
+}
+
 function dimension(key, score, evidence = [], deductions = [], questions = []) {
   const base = DIMENSIONS.find((item) => item.key === key) || { title: key, weight: 0 };
   return {
@@ -94,7 +130,7 @@ function dimension(key, score, evidence = [], deductions = [], questions = []) {
 function markUnknownDimension(item, reason) {
   item.status = "unknown";
   item.displayScore = "未知";
-  item.conclusion = "公开资料不足，初访阶段不判断好坏。";
+  item.conclusion = "当前不把这一项作为投入判断依据。";
   item.unknownReason = reason;
   item.evidence = [];
   item.deductions = [];
@@ -106,12 +142,12 @@ function markAssessedDimension(item) {
   item.status = "assessed";
   item.displayScore = `${item.score}分`;
   if (item.key === "budgetAbility") {
-    if (item.score >= 72) item.conclusion = "预算与付款能力有一定支撑，可以推进中小规模验证，但仍需确认专项预算。";
+    if (item.score >= 72) item.conclusion = "预算与付款能力有一定支撑，可以推进中小规模验证，并把专项预算和付款主体作为首轮商务核对重点。";
     else if (item.score >= 58) item.conclusion = "预算能力不能直接判定为强，适合先做低成本场景核验，再谈定制投入。";
-    else item.conclusion = "预算或付款能力是主要短板，未确认预算前不建议投入重方案。";
+    else item.conclusion = "预算或付款能力是主要短板，当前只适合轻量触达和资格筛选。";
   } else if (item.key === "triggerStrength") {
     if (item.score >= 72) item.conclusion = "客户存在较明确业务触发，适合围绕具体问题推进。";
-    else if (item.score >= 58) item.conclusion = "已有问题线索，但仍需现场确认哪一个问题最痛。";
+    else if (item.score >= 58) item.conclusion = "已有问题线索，首轮应把问题强度、损失口径和责任人问实。";
     else item.conclusion = "真实需求触发偏弱，容易停留在泛泛交流。";
   } else if (item.key === "roiPotential") {
     if (item.score >= 72) item.conclusion = "问题解决后具备较清晰的降本、提效或质量价值。";
@@ -123,12 +159,15 @@ function markAssessedDimension(item) {
     else item.conclusion = "当前线索与我方能力交集不足，不宜强推方案。";
   } else if (item.key === "implementationReadiness") {
     if (item.score >= 72) item.conclusion = "客户具备一定系统、数据或流程基础，适合讨论轻量试点。";
-    else if (item.score >= 58) item.conclusion = "落地基础尚需核验，建议先确认系统、数据和业务样例。";
+    else if (item.score >= 58) item.conclusion = "落地基础只适合先从系统、数据和业务样例做小场景验证。";
     else item.conclusion = "落地前置条件较多，可能需要先补数据治理或流程梳理。";
   } else if (item.key === "decisionRiskControl") {
-    if (item.score >= 72) item.conclusion = "公开风险较可控，但仍要确认本次谁能推动立项和采购。";
-    else if (item.score >= 58) item.conclusion = "决策链尚不清晰，适合先找到业务推进人和预算归属。";
-    else item.conclusion = "决策链或风险边界是明显短板，未确认拍板人前不建议重投入。";
+    const text = textOf(item);
+    if (item.score >= 72) item.conclusion = "公开风险较可控，首轮重点锁定能推动立项和采购的项目负责人。";
+    else if (/经营\/控制角色相对集中/.test(text)) item.conclusion = "经营层线索相对清楚，但项目级预算归属、推进人和IT/安全审批决定是否升级重方案投入。";
+    else if (/项目级采购权|预算归属|最终拍板人/.test(text)) item.conclusion = "项目级决策人和预算归属尚未确认，适合先找到业务推进人。";
+    else if (/数据安全|系统接入|合规审批/.test(text)) item.conclusion = "组织风险不在信用层面，主要是数据、系统接入和审批边界需要核实。";
+    else item.conclusion = "决策或落地边界会限制推进效率，拿到拍板路径前只做轻量推进。";
   } else if (item.score >= 72) item.conclusion = "当前证据支撑较好，可作为优先判断依据。";
   else if (item.score >= 58) item.conclusion = "当前证据支持轻量推进，但需要现场补强。";
   else item.conclusion = "当前存在明显短板，会限制商机优先级。";
@@ -156,10 +195,10 @@ function levelOf(grade, confidenceScore) {
 
 function nextActionOf(level, confidenceScore) {
   if (level === "优先推进") return confidenceScore < 55 ? "优先跟进，先补决策链和场景证据" : "优先安排会前输入和场景验证";
-  if (level === "重点跟进") return "先确认痛点、角色和预算窗口";
+  if (level === "重点跟进") return "锁定痛点、角色和预算窗口";
   if (level === "轻量验证") return "先核验信用/法律、付款条件和项目预算，再判断是否升级投入";
   if (level === "轻量跟进") return "标准交流为主，少量验证客户真实需求";
-  if (level === "待确认跟进") return "先确认客户主体、需求和参会角色";
+  if (level === "待确认跟进") return "先做资格筛选";
   return "暂缓深度方案投入";
 }
 
@@ -171,13 +210,18 @@ function confidenceLabel(score) {
 }
 
 function summaryOf(level, confidence, riskFlags) {
-  const blocker = riskFlags[0] || "预算、需求或决策链";
   if (level === "优先推进") return `建议优先推进：公开证据已支持投入售前准备，下一步要锁定业务场景、决策人和可验证样例；置信度${confidence}。`;
-  if (level === "重点跟进") return `建议重点但轻量推进：先拿到真实痛点、预算归属和决策人，再升级定制方案投入；当前最大变量是${blocker}，置信度${confidence}。`;
-  if (level === "轻量验证") return `建议先做资格核验：该线索有跟进价值，但必须先确认${blocker}，通过后再投入方案资源；置信度${confidence}。`;
+  if (level === "重点跟进") {
+    const blocker = riskFlags[0];
+    return blocker
+      ? `建议重点但轻量推进：先拿到真实痛点、预算归属和决策人，再升级定制方案投入；当前最大变量是${blocker}，置信度${confidence}。`
+      : `建议重点但轻量推进：公开资料支持继续接触，下一步重点问实真实痛点、项目级推进人和预算窗口；置信度${confidence}。`;
+  }
+  const blocker = riskFlags[0] || "关键商务输入";
+  if (level === "轻量验证") return `建议先做资格核验：该线索有跟进价值，但${blocker}决定是否升级方案投入；置信度${confidence}。`;
   if (level === "轻量跟进") return `建议低成本保持触达：先用标准材料和问题清单验证客户是否有明确业务触发，不建议提前重投入；置信度${confidence}。`;
-  if (level === "待确认跟进") return `暂不判断好坏：公开信息不足以支撑投入决策，先确认客户主体、真实需求、决策人和预算来源。`;
-  return riskFlags.length ? `建议暂缓深度投入：先确认${riskFlags.slice(0, 2).join("、")}。` : "建议暂缓深度方案资源，等待客户给出明确需求或预算线索。";
+  if (level === "待确认跟进") return `建议低成本资格筛选：只投入客户画像、标准案例和问题清单，现场拿到真实需求、决策人和预算来源后再升级；置信度${confidence}。`;
+  return riskFlags.length ? `建议暂缓深度投入：${riskFlags.slice(0, 2).join("、")}会显著影响投入产出。` : "建议暂缓深度方案资源，等待客户给出明确需求或预算线索。";
 }
 
 function presalesAdviceOf(level, confidenceScore) {
@@ -189,7 +233,7 @@ function presalesAdviceOf(level, confidenceScore) {
   if (level === "重点跟进") return "建议进入培育和场景确认，不急于重方案；拿到明确痛点和推进人后再升级投入。";
   if (level === "轻量验证") return "建议先做低成本核验：确认信用/法律风险、付款条件、预算窗口和客户真实需求；核验通过后再进入方案投入。";
   if (level === "轻量跟进") return "建议保持轻量触达，以标准材料、行业案例和问题清单为主，避免过早进入定制交付。";
-  if (level === "待确认跟进") return "先做资格确认：客户是谁、谁参会、要解决什么问题、是否有下一步动作。信息成立后再重新评级。";
+  if (level === "待确认跟进") return "先做资格筛选：客户是谁、谁参会、要解决什么问题、是否有下一步动作。拿到有效输入后再重新评级。";
   return "暂缓深度售前投入，只保留低成本线索维护或等待客户明确需求。";
 }
 
@@ -215,9 +259,9 @@ function disqualificationSignals(dimensions) {
     "客户只想泛泛了解 AI，没有具体业务场景或下一步安排。",
     "参会人无法触达业务、IT或预算相关角色。",
     "客户不愿提供流程、文档、样例数据或现有系统边界。",
-    "要求免费重度定制、无明确范围的 POC 或过早报价。"
+    "要求免费重度定制、无明确范围的 POC 或过早投入承诺。"
   ];
-  if ((byKey.budgetAbility?.score || 0) < 58) items.push("公开财务与经营线索显示预算能力偏弱，且无法确认专项预算或强ROI场景。");
+  if ((byKey.budgetAbility?.score || 0) < 58) items.push("公开财务与经营线索显示预算能力偏弱，必须先锁定专项预算和强ROI场景。");
   if ((byKey.roiPotential?.score || 0) < 58) items.push("当前问题即使解决，也看不到足够明确的降本、提效、质量或收入价值。");
   if ((byKey.capabilityFit?.score || 0) < 58) items.push("客户问题主要不在知识、流程、数据、质量、研发或现场协同范围内。");
   return Array.from(new Set(items)).slice(0, 6);
@@ -277,7 +321,7 @@ export function buildOpportunityRating(report = {}) {
       status: "not_rated",
       version: OPPORTUNITY_RATING_VERSION,
       label: "暂不评级",
-      notRatedReason: `公开信息不足以做初访优先级判断。当前可校验来源 ${sourceCount} 条，建议先补充客户主体、官网、地区、行业或已知需求线索。`,
+      notRatedReason: `当前只适合做资格筛选。系统已取得 ${sourceCount} 条可校验来源，但还缺少能支撑投入判断的业务、预算或需求线索。`,
       nextAction: "先补充资料与客户线索"
     };
   }
@@ -315,12 +359,17 @@ export function buildOpportunityRating(report = {}) {
       finance.revenueYi != null ? `已识别收入规模约 ${moneyText(finance.revenueYi)}。` : "",
       finance.profitYi != null ? `已识别利润规模约 ${moneyText(finance.profitYi)}。` : "",
       finance.cashflowYi != null ? `经营现金流约 ${moneyText(finance.cashflowYi)}。` : "",
-      budgetHits >= 2 ? "资料中出现预算、投资、立项、数字化或研发投入信号。" : ""
+      finance.revenueYi == null && finance.profitYi == null && /融资|B轮|投资|注册资本|实缴资本|员工|高新技术|专精特新/.test(fullText)
+        ? "公开资料存在融资、注册资本、人员规模或资质等间接经营实力线索。"
+        : "",
+      finance.revenueYi == null && finance.profitYi == null && budgetHits >= 2
+        ? "当前主要是间接经营实力线索，预算判断按轻量验证处理。"
+        : ""
     ],
     [
       finance.profitYi != null && finance.profitYi < 0.1 ? `利润约 ${moneyText(finance.profitYi)}，大额 AI 项目支付能力需谨慎评估。` : "",
       finance.cashflowYi != null && finance.cashflowYi <= 0 ? "经营现金流为负或偏弱，付款能力需要前置核验。" : "",
-      finance.revenueYi == null && finance.profitYi == null ? "尚未取得可用营收/利润硬指标，预算能力只能保守判断。" : "",
+      finance.revenueYi == null && finance.profitYi == null ? "缺少可用营收/利润硬指标，大额项目投入需先核对预算窗口。" : "",
       finance.assetDebt != null && finance.assetDebt > 70 ? "资产负债率偏高，付款和预算稳定性需核验。" : ""
     ],
     ["客户本次是否存在明确项目预算、年度数字化预算、试点预算或专项资金来源？"]
@@ -396,19 +445,22 @@ export function buildOpportunityRating(report = {}) {
     ["客户现有 ERP/MES/PLM/QMS/数据平台是什么？是否能导出样例数据或开放接口？"]
   );
 
-  const decisionPositive = countTerms(fullText, ["负责人", "高管", "IT", "质量", "设备", "工艺", "研发", "供应链", "业务线", "参会角色", "董事长", "总经理", "一把手"]);
-  const decisionUnknown = countTerms(fullText, ["待确认", "总部", "集团", "母公司", "采购权", "立项权", "谁说了算", "决策链"]);
-  const riskHits = countTerms(fullText, ["数据安全", "合规", "外资", "总部", "权限", "审计", "脱敏", "系统接入", "客户数据", "待确认", "诉讼", "被执行", "限制高消费", "失信"]);
+  const decisionPositive =
+    countTerms(fullText, ["负责人", "高管", "IT", "质量", "设备", "工艺", "研发", "供应链", "业务线", "参会角色", "董事长", "总经理", "一把手"]) +
+    (hasDecisionConcentration(fullText) ? 2 : 0);
+  const decisionUnknown = decisionUnknownSignals(fullText);
+  const systemBoundaryRisk = systemBoundarySignals(fullText);
   const decisionRiskDimension = dimension(
     "decisionRiskControl",
-    62 + Math.min(18, decisionPositive * 3) - Math.min(12, decisionUnknown) - Math.min(18, riskHits * 2) - Math.min(8, warnings.length * 2),
+    64 + Math.min(18, decisionPositive * 3) - Math.min(14, decisionUnknown * 7) - Math.min(12, systemBoundaryRisk * 3) - Math.min(8, warnings.length * 2),
     [
-      decisionPositive >= 3 ? "报告已识别可能相关的业务、IT、管理层或职能角色。" : "",
+      hasDecisionConcentration(fullText) ? "公开资料显示经营/控制角色相对集中，项目级拍板人是首轮要锁定的关键入口。" : "",
+      decisionPositive >= 3 ? "报告已识别经营管理层或相关职能线索。" : "",
       sourceCount >= BRIEF_SOURCE_MIN ? `可校验来源 ${sourceCount} 条，达到初访判断门槛。` : ""
     ],
     [
-      decisionUnknown >= 5 ? "本地主体、集团或关联公司之间的决策链仍可能不清。" : "",
-      riskHits >= 6 ? "数据安全、总部决策、系统接入、付款或信用风险项较多。" : ""
+      decisionUnknown > 0 ? "项目级采购权、预算归属或最终拍板人决定是否升级重方案投入。" : "",
+      systemBoundaryRisk >= 2 ? "数据安全、系统接入或合规审批可能影响落地，IT/法务/信息化边界必须前置锁定。" : ""
     ],
     ["本次参会人是否具备采购、立项或影响预算的权力？", "付款条件、合同主体、数据边界和安全审批谁负责？"]
   );
@@ -440,7 +492,7 @@ export function buildOpportunityRating(report = {}) {
   } else if (legalVerification?.status === "unverified") {
     decisionRiskDimension.score = Math.min(decisionRiskDimension.score, 66);
     infoDimension.score = Math.min(infoDimension.score, 68);
-    decisionRiskDimension.questions.push("系统未能公开证实信用/法律风险线索，建议会前核对企业信用记录、付款条件和项目预算。");
+    decisionRiskDimension.questions.push("信用、付款条件和项目预算要作为首轮商务复核项。");
     infoDimension.deductions.push("存在未证实敏感线索，信息置信度降低。");
   } else if (legalVerification?.status === "not_found") {
     decisionRiskDimension.evidence.push(
@@ -450,23 +502,24 @@ export function buildOpportunityRating(report = {}) {
     );
   }
 
-  if (finance.revenueYi == null && finance.profitYi == null && finance.cashflowYi == null && budgetHits < 2) {
-    markUnknownDimension(budgetDimension, "未取得营收、利润、现金流或明确预算线索，初访前不能稳定判断客户预算与付款能力。");
+  const hasBudgetHardEvidence = finance.revenueYi != null || finance.profitYi != null || finance.cashflowYi != null || finance.rdYi != null;
+  if (!hasBudgetHardEvidence && !hasConcreteBudgetEvidence(fullText)) {
+    markUnknownDimension(budgetDimension, "缺少营收、利润、现金流或明确预算线索，这一项暂不参与强判断。");
   }
   if (!aiNeeds && !pains.length && triggerHits < 3) {
-    markUnknownDimension(triggerDimension, "未取得客户直接需求、会议主题或足够痛点证据，只能在现场确认真实触发点。");
+    markUnknownDimension(triggerDimension, "缺少客户直接需求、会议主题或足够痛点证据，这一项暂不参与强判断。");
   }
   if (roiHits < 3 && valuePainCount === 0) {
-    markUnknownDimension(roiDimension, "未取得降本、提效、质量、交付或收入改善等价值信号，暂不能判断投入产出。");
+    markUnknownDimension(roiDimension, "缺少降本、提效、质量、交付或收入改善信号，这一项暂不参与强判断。");
   }
   if ((fitHits < 3 && sellerOverlap < 2) || (!solutions.length && !pains.length && !aiNeeds && fitHits < 5)) {
     markUnknownDimension(fitDimension, "公开资料与我的企业能力之间缺少明确交集，需通过拜访确认可切入场景。");
   }
   if (implementationHits < 3 && effectiveReadableCount < 5) {
-    markUnknownDimension(implementationDimension, "未取得足够系统、数据平台、流程数字化或IT基础线索，暂不能判断落地成熟度。");
+    markUnknownDimension(implementationDimension, "缺少系统、数据平台、流程数字化或IT基础线索，这一项暂不参与强判断。");
   }
   if (decisionPositive < 2 && sourceCount < 10 && !legalVerification) {
-    markUnknownDimension(decisionRiskDimension, "未取得参会角色、决策链、采购主体或风险边界线索，初访前不能判断决策可达性。");
+    markUnknownDimension(decisionRiskDimension, "缺少参会角色、决策链、采购主体或风险边界线索，这一项暂不参与强判断。");
   }
 
   const dimensions = [budgetDimension, triggerDimension, roiDimension, fitDimension, implementationDimension, decisionRiskDimension].map(markAssessedDimension);
@@ -490,7 +543,9 @@ export function buildOpportunityRating(report = {}) {
   const riskFlags = [
     budgetDimension.score < 62 ? "预算/付款能力待确认" : "",
     roiDimension.score < 62 ? "ROI价值需要量化" : "",
-    decisionRiskDimension.score < 62 ? "决策链或风险边界待确认" : "",
+    decisionRiskDimension.score < 62 && decisionUnknown > 0 ? "项目级决策人/预算归属待确认" : "",
+    decisionRiskDimension.score < 62 && systemBoundaryRisk >= 2 ? "数据/系统审批边界待确认" : "",
+    decisionRiskDimension.score < 62 && decisionUnknown === 0 && systemBoundaryRisk < 2 ? "项目推进边界待确认" : "",
     triggerDimension.score < 62 ? "需求触发不够清晰" : "",
     implementationDimension.score < 62 ? "落地基础需要核验" : "",
     legalVerification?.status === "verified" ? "信用/法律风险已证实" : "",
@@ -524,7 +579,7 @@ export function buildOpportunityRating(report = {}) {
     presalesAdvice: presalesAdviceOf(level, infoDimension.score),
     qualificationConditions: qualificationConditions(dimensions),
     disqualificationSignals: disqualificationSignals(dimensions),
-    resourceBoundary: "初访前投入以客户画像、问题清单、标准案例和轻量场景验证为上限；定制方案、报价和POC范围必须等成立条件确认后再进入。",
+    resourceBoundary: "初访前投入以客户画像、问题清单、标准案例和轻量场景验证为上限；定制方案、投入边界和POC范围必须等关键输入锁定后再进入。",
     modelBasis: MODEL_BASIS,
     scoringMethod: SCORING_METHOD,
     baseWeightedScore: clamp(weighted),
@@ -548,7 +603,7 @@ export function ratingIndex(rating = {}) {
       status: "not_rated",
       version: rating.version || OPPORTUNITY_RATING_VERSION,
       label: rating.label || "暂不评级",
-      notRatedReason: rating.notRatedReason || "旧报告或证据不足。"
+      notRatedReason: rating.notRatedReason || "当前只适合做资格筛选。"
     };
   }
   return {

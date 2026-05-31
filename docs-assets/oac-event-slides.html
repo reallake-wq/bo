@@ -1,0 +1,1716 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>商机参谋团 OAC 三页介绍</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --bg: #06111f;
+      --panel: rgba(255, 255, 255, .09);
+      --panel-strong: rgba(255, 255, 255, .14);
+      --line: rgba(181, 224, 255, .20);
+      --text: #f7fbff;
+      --muted: #a9bed2;
+      --cyan: #52d6ff;
+      --blue: #6ca7ff;
+      --green: #57e0b1;
+      --gold: #ffd47d;
+      --orange: #ffb45f;
+      --red: #ff7f8b;
+      --ink: #07111f;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #020813;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Arial, sans-serif;
+    }
+    .slide {
+      width: 1920px;
+      height: 1080px;
+      position: relative;
+      overflow: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(68, 132, 255, .35), transparent 26%),
+        radial-gradient(circle at 82% 2%, rgba(255, 208, 111, .28), transparent 28%),
+        radial-gradient(circle at 78% 68%, rgba(55, 219, 181, .18), transparent 30%),
+        linear-gradient(145deg, #07111f 0%, #0b2140 48%, #040a13 100%);
+      isolation: isolate;
+      display: none;
+    }
+    body[data-slide="1"] .s1,
+    body[data-slide="2"] .s2,
+    body[data-slide="3"] .s3,
+    body[data-slide="4"] .s4 { display: block; }
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: -80px;
+      background-image: url("./oac-ai-visual.png");
+      background-size: cover;
+      background-position: center;
+      opacity: .10;
+      filter: saturate(1.05) contrast(1.06);
+      z-index: -2;
+    }
+    .slide::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(3, 9, 18, .06), rgba(3, 9, 18, .70)),
+        linear-gradient(90deg, rgba(3, 9, 18, .25), transparent 48%, rgba(3, 9, 18, .18));
+      z-index: -1;
+    }
+    .content {
+      height: 100%;
+      padding: 58px 72px 54px;
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 28px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: #dff4ff;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: .5px;
+    }
+    .mark {
+      width: 58px;
+      height: 58px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      color: #06111f;
+      background: linear-gradient(135deg, #fff5cf 0%, #ffffff 44%, #80d7ff 100%);
+      box-shadow: 0 18px 48px rgba(82, 214, 255, .28);
+      font-size: 22px;
+      font-weight: 950;
+    }
+    .eyebrow {
+      border: 1px solid rgba(255, 255, 255, .18);
+      background: rgba(255, 255, 255, .08);
+      color: #d8eeff;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font-size: 19px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 0;
+      font-size: 70px;
+      line-height: 1.08;
+      letter-spacing: -1px;
+      font-weight: 950;
+    }
+    .subtitle {
+      margin: 16px 0 0;
+      max-width: 1120px;
+      color: #c7d9e9;
+      font-size: 28px;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+    .accent { color: var(--gold); }
+    .cyan { color: var(--cyan); }
+    .green { color: var(--green); }
+    .gold { color: var(--gold); }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      min-height: 0;
+    }
+    .s1 .content { gap: 20px; padding-top: 50px; padding-bottom: 42px; }
+    .s1 h1 { font-size: 68px; }
+    .s1 .subtitle { margin-top: 12px; font-size: 26px; line-height: 1.38; }
+    .s1 .grid-2 { flex: 1; max-height: 705px; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06));
+      box-shadow: 0 26px 80px rgba(0, 0, 0, .25);
+      backdrop-filter: blur(18px);
+    }
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #f4fbff;
+      font-size: 28px;
+      font-weight: 920;
+      margin: 0 0 18px;
+    }
+    .dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: var(--cyan);
+      box-shadow: 0 0 28px rgba(82, 214, 255, .8);
+    }
+    .pain-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+    .pain {
+      padding: 18px 20px;
+      border-radius: 24px;
+      min-height: 132px;
+      background: rgba(5, 15, 30, .46);
+      border: 1px solid rgba(255, 255, 255, .12);
+    }
+    .pain b {
+      display: block;
+      font-size: 25px;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .pain span {
+      display: block;
+      color: #c3d7e9;
+      font-size: 20px;
+      line-height: 1.38;
+    }
+    .before-after {
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .cases {
+      display: grid;
+      gap: 14px;
+    }
+    .case {
+      display: grid;
+      grid-template-columns: 168px 1fr;
+      gap: 16px;
+      align-items: center;
+      padding: 13px 20px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, .10);
+      border: 1px solid rgba(255, 255, 255, .13);
+    }
+    .case strong {
+      color: var(--gold);
+      font-size: 24px;
+      font-weight: 950;
+    }
+    .case p {
+      margin: 0;
+      font-size: 21px;
+      color: #e5f3ff;
+      line-height: 1.36;
+    }
+    .result-band {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 16px 22px;
+      border-radius: 26px;
+      background: linear-gradient(90deg, rgba(82, 214, 255, .18), rgba(255, 212, 125, .16));
+      border: 1px solid rgba(255, 255, 255, .18);
+      color: #f8fcff;
+      font-size: 22px;
+      line-height: 1.38;
+      font-weight: 800;
+    }
+    .mock-report {
+      padding: 20px 24px;
+      border-radius: 30px;
+      background: rgba(244, 250, 255, .95);
+      color: var(--ink);
+      box-shadow: 0 30px 90px rgba(0, 0, 0, .38);
+      min-height: 318px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+    }
+    .mock-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+    }
+    .mock-head b {
+      font-size: 27px;
+      color: #09243e;
+    }
+    .grade {
+      padding: 10px 16px;
+      border-radius: 999px;
+      color: #083322;
+      background: #c8ffe8;
+      font-weight: 950;
+      font-size: 20px;
+    }
+    .mock-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .mock-card {
+      padding: 13px 16px;
+      border-radius: 18px;
+      background: #eef6ff;
+      border: 1px solid #d8e7f3;
+    }
+    .mock-card strong {
+      display: block;
+      color: #0b5795;
+      font-size: 20px;
+      margin-bottom: 5px;
+    }
+    .mock-card span {
+      color: #223d54;
+      font-size: 17px;
+      line-height: 1.30;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .chip {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #e7f6ff;
+      color: #0b4d7f;
+      border: 1px solid #cfe8f7;
+      font-size: 17px;
+      font-weight: 800;
+    }
+    .slide-footer {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: rgba(231, 244, 255, .72);
+      font-size: 18px;
+      letter-spacing: .4px;
+    }
+
+    /* Slide 2 */
+    .s2 .content { gap: 20px; }
+    .engine {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 138px 1fr 142px;
+      gap: 14px;
+    }
+    .main-chain {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 18px 18px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 255, 255, .13);
+    }
+    .main-chain::before {
+      content: "";
+      position: absolute;
+      left: 56px;
+      right: 56px;
+      top: 50%;
+      height: 4px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(82,214,255,.85), rgba(255,212,125,.85));
+      opacity: .52;
+    }
+    .node {
+      position: relative;
+      z-index: 2;
+      min-height: 94px;
+      padding: 15px 10px;
+      border-radius: 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: rgba(7, 18, 34, .86);
+      border: 1px solid rgba(180, 228, 255, .25);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .22);
+    }
+    .node .num {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: #06111f;
+      background: var(--gold);
+      font-size: 15px;
+      font-weight: 950;
+      margin-bottom: 8px;
+    }
+    .node b {
+      font-size: 19px;
+      color: #fff;
+      line-height: 1.2;
+    }
+    .parallel-zone {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 14px;
+      min-height: 0;
+      position: relative;
+    }
+    .parallel-zone::before,
+    .parallel-zone::after {
+      content: "";
+      position: absolute;
+      top: 48%;
+      width: 76px;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, rgba(82,214,255,.72));
+      border-radius: 999px;
+    }
+    .parallel-zone::before { left: -6px; }
+    .parallel-zone::after {
+      right: -6px;
+      background: linear-gradient(90deg, rgba(255,212,125,.70), transparent);
+    }
+    .advisor {
+      padding: 16px;
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(82,214,255,.15), transparent 38%),
+        rgba(255, 255, 255, .075);
+      border: 1px solid rgba(255, 255, 255, .14);
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .advisor:nth-child(2n) {
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255,212,125,.13), transparent 38%),
+        rgba(255, 255, 255, .07);
+    }
+    .advisor h3 {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #fff;
+      font-size: 23px;
+      font-weight: 950;
+    }
+    .advisor h3 i {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #06111f;
+      background: linear-gradient(135deg, var(--cyan), #dff7ff);
+      font-style: normal;
+      font-size: 16px;
+    }
+    .advisor p {
+      margin: 0;
+      color: #c8dced;
+      font-size: 18px;
+      line-height: 1.32;
+    }
+    .advisor .tag-row {
+      margin-top: auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .advisor .mini-tag {
+      padding: 6px 8px;
+      border-radius: 999px;
+      color: #dff6ff;
+      background: rgba(255,255,255,.09);
+      border: 1px solid rgba(255,255,255,.10);
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .gates {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      padding: 12px;
+      border-radius: 28px;
+      background: rgba(4, 10, 20, .52);
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .gate {
+      position: relative;
+      padding: 18px 14px 16px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, .08);
+      border: 1px solid rgba(255, 212, 125, .26);
+    }
+    .gate::before {
+      content: "GATE";
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255, 212, 125, .18);
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: .8px;
+      margin-bottom: 5px;
+    }
+    .gate b {
+      display: block;
+      color: #fff;
+      font-size: 18px;
+      line-height: 1.25;
+      margin-bottom: 4px;
+    }
+    .gate span {
+      display: block;
+      color: #b9ccdd;
+      font-size: 15px;
+      line-height: 1.32;
+    }
+    .engine-note {
+      position: absolute;
+      right: 72px;
+      bottom: 54px;
+      width: 620px;
+      padding: 18px 22px;
+      border-radius: 24px;
+      color: #f8fdff;
+      background: linear-gradient(90deg, rgba(82,214,255,.16), rgba(255,212,125,.14));
+      border: 1px solid rgba(255,255,255,.16);
+      font-size: 21px;
+      line-height: 1.42;
+      font-weight: 750;
+    }
+
+    /* Slide 3 */
+    .demo-layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 700px 1fr 360px;
+      gap: 26px;
+      align-items: stretch;
+    }
+    .screens {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+    }
+    .phone {
+      position: absolute;
+      width: 278px;
+      height: 590px;
+      padding: 12px;
+      border-radius: 42px;
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(211,229,242,.88));
+      box-shadow: 0 36px 100px rgba(0,0,0,.42);
+      border: 1px solid rgba(255,255,255,.65);
+    }
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      width: 86px;
+      height: 18px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: #0a1422;
+      z-index: 3;
+    }
+    .phone img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 32px;
+      display: block;
+    }
+    .phone.home { left: 72px; top: 68px; transform: rotate(-5deg); }
+    .phone.report { right: 66px; top: 16px; transform: rotate(4deg); }
+    .phone-mock {
+      position: relative;
+      width: 286px;
+      height: 600px;
+      border-radius: 40px;
+      padding: 14px;
+      background: #f8fbff;
+      border: 11px solid rgba(255,255,255,.92);
+      box-shadow: 0 30px 80px rgba(0,0,0,.22);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .phone-mock::before {
+      content: "";
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      width: 92px;
+      height: 18px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: #0a1422;
+      z-index: 5;
+    }
+    .phone-mock.home-mock,
+    .phone-mock.report-mock {
+      transform: none;
+    }
+    .mock-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-radius: 28px;
+      background: #f7f8fb;
+    }
+    .mock-hero-mobile {
+      min-height: 178px;
+      padding: 36px 18px 18px;
+      color: #ffffff;
+      background:
+        radial-gradient(circle at 86% 18%, rgba(255,211,107,.34), transparent 30%),
+        linear-gradient(135deg, #101b31, #122647 70%, #283033);
+    }
+    .mock-hero-mobile .mini-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #606dff, #8d52ff);
+      font-weight: 950;
+      margin-bottom: 10px;
+    }
+    .mock-hero-mobile b {
+      display: block;
+      font-size: 25px;
+      line-height: 1.08;
+      margin-bottom: 8px;
+    }
+    .mock-hero-mobile span {
+      display: block;
+      font-size: 12px;
+      line-height: 1.35;
+      color: rgba(255,255,255,.82);
+    }
+    .mock-mobile-body {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+    }
+    .mock-input-row,
+    .mock-info-row {
+      padding: 11px 12px;
+      border-radius: 16px;
+      background: #ffffff;
+      border: 1px solid #e6eaf1;
+      color: #0f2138;
+      font-size: 13px;
+      line-height: 1.28;
+    }
+    .mock-input-row strong,
+    .mock-info-row strong {
+      display: block;
+      color: #0e4b8f;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+    .mock-pill-row {
+      display: grid;
+      gap: 8px;
+    }
+    .mock-pill {
+      padding: 10px 12px;
+      border-radius: 15px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #102336;
+    }
+    .mock-pill.blue { background: #e8f2ff; }
+    .mock-pill.green { background: #e8f8ee; }
+    .mock-pill.gold { background: #fff1d8; }
+    .mock-report-top {
+      padding: 36px 18px 16px;
+      background:
+        radial-gradient(circle at 88% 8%, rgba(255,215,137,.32), transparent 32%),
+        linear-gradient(135deg, #101c31, #0d1930);
+      color: #ffffff;
+    }
+    .mock-report-top small {
+      display: block;
+      color: rgba(255,255,255,.70);
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    .mock-report-top b {
+      display: block;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+    .mock-score {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      margin: 12px;
+      border-radius: 18px;
+      background: #ffffff;
+      border: 1px solid #e6eaf1;
+      color: #102336;
+    }
+    .mock-score em {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-style: normal;
+      font-size: 20px;
+      font-weight: 950;
+      color: #ffffff;
+      background: linear-gradient(135deg, #2377ff, #8ec5ff);
+    }
+    .mock-score b {
+      display: block;
+      font-size: 16px;
+      margin-bottom: 3px;
+    }
+    .mock-score span {
+      font-size: 12px;
+      color: #5f6d7c;
+    }
+    .mock-solution {
+      margin: 0 12px 10px;
+      padding: 12px;
+      border-radius: 16px;
+      background: #fff6e5;
+      border: 1px solid #f1d9aa;
+      color: #3a2d18;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .mock-solution strong {
+      display: block;
+      color: #9a4a00;
+      margin-bottom: 5px;
+    }
+    .mock-tabs {
+      margin-top: auto;
+      height: 62px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      align-items: center;
+      padding: 7px 6px 5px;
+      gap: 2px;
+      background: rgba(255,255,255,.94);
+      border-top: 1px solid #e6eaf1;
+    }
+    .mock-tab {
+      display: grid;
+      justify-items: center;
+      gap: 3px;
+      color: #607083;
+      font-size: 10px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .mock-tab i {
+      width: 20px;
+      height: 20px;
+      border-radius: 8px;
+      border: 2px solid currentColor;
+      display: block;
+    }
+    .mock-tab.active {
+      color: #1677ff;
+    }
+    .mock-tab.active i {
+      background: #dcecff;
+      border-color: #1677ff;
+    }
+    .screens.clear-screens {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      padding: 26px;
+    }
+    .clear-screens .screen-label {
+      position: absolute;
+    }
+    .clear-screens .label-home { left: 130px; top: 38px; }
+    .clear-screens .label-report { right: 132px; top: 38px; }
+    .screen-label {
+      position: absolute;
+      z-index: 4;
+      padding: 9px 13px;
+      border-radius: 999px;
+      color: #06111f;
+      background: var(--gold);
+      font-size: 16px;
+      font-weight: 950;
+      box-shadow: 0 10px 30px rgba(0,0,0,.20);
+    }
+    .label-home { left: 92px; top: 42px; }
+    .label-report { right: 86px; top: -10px; }
+    .steps {
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 54px 1fr;
+      gap: 16px;
+      align-items: start;
+      padding: 20px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, .09);
+      border: 1px solid rgba(255, 255, 255, .12);
+    }
+    .step-no {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      color: #06111f;
+      background: linear-gradient(135deg, var(--cyan), #ffffff);
+      font-size: 26px;
+      font-weight: 950;
+    }
+    .step b {
+      display: block;
+      color: #fff;
+      font-size: 28px;
+      margin-bottom: 6px;
+    }
+    .step span {
+      color: #bfd3e6;
+      font-size: 20px;
+      line-height: 1.36;
+    }
+    .outputs {
+      margin-top: auto;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .out {
+      padding: 10px 12px;
+      border-radius: 15px;
+      background: rgba(82, 214, 255, .10);
+      border: 1px solid rgba(82, 214, 255, .18);
+      color: #dcf5ff;
+      font-size: 17px;
+      font-weight: 850;
+      text-align: center;
+    }
+    .qr-wrap {
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background:
+        radial-gradient(circle at 50% 10%, rgba(255,212,125,.15), transparent 38%),
+        rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 30px;
+    }
+    .qr-box {
+      width: 286px;
+      height: 286px;
+      border-radius: 28px;
+      display: grid;
+      place-items: center;
+      background: #ffffff;
+      border: 10px solid rgba(255,255,255,.30);
+      box-shadow: 0 28px 70px rgba(0,0,0,.28);
+      color: #7c8b99;
+      font-size: 26px;
+      font-weight: 900;
+      text-align: center;
+      line-height: 1.24;
+    }
+    .qr-wrap h3 {
+      margin: 0;
+      color: #fff;
+      font-size: 33px;
+      text-align: center;
+      line-height: 1.16;
+    }
+    .qr-wrap p {
+      margin: 0;
+      color: #bfd3e6;
+      font-size: 20px;
+      line-height: 1.38;
+      text-align: center;
+    }
+    .p4-layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1.05fr 1fr 1fr;
+      gap: 24px;
+      align-items: stretch;
+    }
+    .p4-card {
+      padding: 30px;
+      border-radius: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      background: rgba(255,255,255,.58);
+      border: 1px solid rgba(42,128,61,.16);
+      box-shadow: 0 26px 80px rgba(35, 96, 45, .12);
+      backdrop-filter: blur(18px);
+    }
+    .cost-hero {
+      padding: 28px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(36, 147, 62, .12), rgba(255, 184, 128, .25));
+      border: 1px solid rgba(42,128,61,.16);
+    }
+    .cost-hero b {
+      display: block;
+      color: #146329;
+      font-size: 58px;
+      line-height: 1;
+      font-weight: 950;
+      letter-spacing: -1px;
+    }
+    .cost-hero span {
+      display: block;
+      margin-top: 12px;
+      color: #3d6048;
+      font-size: 21px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+    .cost-lines {
+      display: grid;
+      gap: 12px;
+    }
+    .cost-line {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(255,255,255,.62);
+      border: 1px solid rgba(42,128,61,.13);
+    }
+    .cost-line strong {
+      color: #183e24;
+      font-size: 22px;
+    }
+    .cost-line small {
+      display: block;
+      margin-top: 4px;
+      color: #5f765f;
+      font-size: 16px;
+      line-height: 1.25;
+    }
+    .cost-line em {
+      color: #146329;
+      font-size: 28px;
+      font-style: normal;
+      font-weight: 950;
+    }
+    .support-list {
+      display: grid;
+      gap: 15px;
+    }
+    .support-item {
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      gap: 14px;
+      padding: 17px;
+      border-radius: 22px;
+      background: rgba(255,255,255,.62);
+      border: 1px solid rgba(42,128,61,.13);
+    }
+    .support-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: linear-gradient(135deg, #188135, #8ec75c);
+      font-size: 22px;
+      font-weight: 950;
+    }
+    .support-item b {
+      display: block;
+      color: #183e24;
+      font-size: 23px;
+      margin-bottom: 5px;
+    }
+    .support-item span {
+      color: #46654e;
+      font-size: 18px;
+      line-height: 1.34;
+    }
+    .roadmap {
+      display: grid;
+      gap: 15px;
+      margin-top: 2px;
+    }
+    .road-step {
+      position: relative;
+      padding: 18px 18px 18px 28px;
+      border-radius: 22px;
+      background: rgba(255,255,255,.62);
+      border: 1px solid rgba(42,128,61,.13);
+    }
+    .road-step::before {
+      content: "";
+      position: absolute;
+      left: 12px;
+      top: 22px;
+      bottom: 22px;
+      width: 5px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #248d3f, #ffd4a6);
+    }
+    .road-step b {
+      display: block;
+      color: #183e24;
+      font-size: 24px;
+      margin-bottom: 6px;
+    }
+    .road-step span {
+      color: #46654e;
+      font-size: 18px;
+      line-height: 1.34;
+    }
+
+    /* Soft invitation-inspired theme overrides */
+    .slide {
+      color: #14351f;
+      background:
+        radial-gradient(circle at 9% 12%, rgba(64, 154, 83, .24), transparent 25%),
+        radial-gradient(circle at 76% 3%, rgba(255, 190, 170, .34), transparent 32%),
+        radial-gradient(circle at 78% 86%, rgba(130, 204, 75, .32), transparent 30%),
+        linear-gradient(132deg, #fffaf4 0%, #eef8e9 46%, #f7fbef 100%);
+    }
+    .slide::before {
+      opacity: .055;
+      mix-blend-mode: multiply;
+      filter: saturate(.8) contrast(.95);
+    }
+    .slide::after {
+      background:
+        linear-gradient(105deg, rgba(255,255,255,.82), rgba(255,255,255,.26) 45%, rgba(255,247,237,.62)),
+        radial-gradient(ellipse at 82% 45%, rgba(255,255,255,.58), transparent 40%);
+    }
+    .brand {
+      color: #176a2d;
+      text-shadow: none;
+    }
+    .mark {
+      color: #ffffff;
+      background: linear-gradient(135deg, #188135 0%, #3aa757 52%, #9ed66c 100%);
+      box-shadow: 0 16px 34px rgba(24, 129, 53, .24);
+    }
+    .eyebrow {
+      color: #176a2d;
+      background: rgba(255,255,255,.62);
+      border-color: rgba(24, 129, 53, .18);
+      box-shadow: 0 12px 40px rgba(24, 129, 53, .08);
+    }
+    .s1 .eyebrow { visibility: hidden; }
+    h1 {
+      color: #13371e;
+      text-shadow: none;
+    }
+    .subtitle {
+      color: #2f5a3b;
+    }
+    .accent,
+    .gold {
+      color: #1f7b31;
+    }
+    .cyan {
+      color: #238f67;
+    }
+    .green {
+      color: #35923e;
+    }
+    .dot {
+      background: #2fa94f;
+      box-shadow: 0 0 24px rgba(47, 169, 79, .42);
+    }
+    .card,
+    .before-after,
+    .steps,
+    .screens,
+    .qr-wrap {
+      background: rgba(255,255,255,.58);
+      border-color: rgba(42, 128, 61, .16);
+      box-shadow: 0 26px 80px rgba(35, 96, 45, .12);
+      backdrop-filter: blur(18px);
+    }
+    .panel-title,
+    .qr-wrap h3,
+    .step b {
+      color: #153f22;
+    }
+    .pain {
+      background: rgba(255,255,255,.60);
+      border-color: rgba(42, 128, 61, .13);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
+    }
+    .pain b {
+      color: #174d27;
+    }
+    .pain span,
+    .case p,
+    .step span,
+    .qr-wrap p {
+      color: #3d6048;
+    }
+    .case {
+      background: rgba(255,255,255,.64);
+      border-color: rgba(42, 128, 61, .15);
+    }
+    .case strong {
+      color: #197437;
+    }
+    .result-band {
+      color: #153f22;
+      background: linear-gradient(90deg, rgba(57, 168, 82, .14), rgba(255, 197, 151, .24));
+      border-color: rgba(42, 128, 61, .16);
+    }
+    .mock-report {
+      background: rgba(255,255,255,.84);
+      box-shadow: 0 26px 70px rgba(35, 96, 45, .15);
+    }
+    .mock-card {
+      background: #f3faee;
+      border-color: #d9ebd2;
+    }
+    .mock-card strong {
+      color: #197437;
+    }
+    .chip {
+      background: #eaf7df;
+      color: #1d6d31;
+      border-color: #d5eac9;
+    }
+    .slide-footer {
+      color: rgba(35, 79, 45, .72);
+    }
+    .main-chain {
+      background: rgba(255,255,255,.58);
+      border-color: rgba(42,128,61,.15);
+    }
+    .main-chain::before {
+      background: linear-gradient(90deg, rgba(47,169,79,.68), rgba(255, 171, 121, .78));
+    }
+    .node {
+      background: rgba(255,255,255,.76);
+      border-color: rgba(42,128,61,.18);
+      box-shadow: 0 12px 30px rgba(35,96,45,.12);
+    }
+    .node .num,
+    .step-no {
+      color: #ffffff;
+      background: linear-gradient(135deg, #188135, #78bd55);
+    }
+    .node b {
+      color: #183e24;
+    }
+    .advisor {
+      padding: 15px 16px;
+      background: rgba(255,255,255,.55) !important;
+      border-color: rgba(42,128,61,.14);
+    }
+    .advisor h3 {
+      color: #183e24;
+      font-size: 20px;
+    }
+    .advisor h3 i {
+      color: #ffffff;
+      background: linear-gradient(135deg, #188135, #87c45e);
+    }
+    .advisor p {
+      color: #3d6048;
+      font-size: 16px;
+      line-height: 1.32;
+    }
+    .advisor .mini-tag {
+      color: #1c6f32;
+      background: rgba(231, 246, 220, .85);
+      border-color: rgba(42,128,61,.12);
+      font-size: 13px;
+    }
+    .gates {
+      background: rgba(255,255,255,.50);
+      border-color: rgba(42,128,61,.14);
+    }
+    .gate {
+      padding: 12px 11px 10px;
+      background: rgba(255,255,255,.64);
+      border-color: rgba(255, 163, 109, .34);
+    }
+    .gate::before {
+      color: #176a2d;
+      background: rgba(230, 244, 211, .90);
+    }
+    .gate b {
+      color: #183e24;
+      font-size: 17px;
+    }
+    .gate span {
+      color: #476650;
+      font-size: 13px;
+      line-height: 1.20;
+    }
+    .phone {
+      box-shadow: 0 30px 80px rgba(35, 96, 45, .18);
+    }
+    .screen-label {
+      color: #ffffff;
+      background: #21833a;
+    }
+    .step {
+      background: rgba(255,255,255,.58);
+      border-color: rgba(42,128,61,.14);
+    }
+    .out {
+      color: #1c6f32;
+      background: rgba(231,246,220,.85);
+      border-color: rgba(42,128,61,.13);
+    }
+    .qr-box {
+      color: #6d806c;
+      border-color: rgba(42,128,61,.10);
+      box-shadow: 0 22px 55px rgba(35,96,45,.14);
+    }
+
+    /* Event red theme: align with the opening ceremony visual style */
+    .slide {
+      background:
+        radial-gradient(ellipse at 18% 18%, rgba(255, 50, 36, .72), transparent 35%),
+        radial-gradient(ellipse at 55% 42%, rgba(255, 118, 38, .62), transparent 34%),
+        radial-gradient(ellipse at 72% 12%, rgba(155, 28, 118, .36), transparent 34%),
+        radial-gradient(ellipse at 50% 100%, rgba(255, 104, 36, .44), transparent 36%),
+        linear-gradient(135deg, #250007 0%, #7c0712 43%, #29000a 100%);
+    }
+    .slide::before {
+      opacity: .06;
+      filter: saturate(1.4) contrast(1.05) hue-rotate(310deg);
+    }
+    .slide::after {
+      background:
+        radial-gradient(ellipse at 50% 52%, rgba(255, 107, 31, .30), transparent 34%),
+        linear-gradient(180deg, rgba(35, 0, 8, .04), rgba(32, 0, 8, .26)),
+        linear-gradient(90deg, rgba(31, 0, 8, .58), transparent 42%, rgba(20, 0, 8, .48));
+    }
+    .brand {
+      color: #fff8ed;
+      text-shadow: 0 2px 12px rgba(40,0,0,.35);
+    }
+    .mark {
+      color: #ffffff;
+      background: linear-gradient(135deg, #e11d25 0%, #ff7b32 56%, #ffd88c 100%);
+      box-shadow: 0 18px 45px rgba(255, 71, 38, .34);
+    }
+    .eyebrow {
+      color: #fff5df;
+      background: rgba(255, 245, 228, .13);
+      border-color: rgba(255, 220, 142, .38);
+      box-shadow: 0 14px 42px rgba(255, 70, 32, .18);
+    }
+    .s1 .eyebrow { visibility: hidden; }
+    h1 {
+      color: #fff9ef;
+      text-shadow: 0 4px 18px rgba(48,0,0,.36), 0 1px 0 rgba(255,255,255,.18);
+    }
+    .subtitle {
+      color: #ffe7cf;
+      text-shadow: 0 2px 10px rgba(35,0,0,.24);
+    }
+    .accent,
+    .gold,
+    .cyan,
+    .green {
+      color: #ffd98f;
+    }
+    .dot {
+      background: #ffd47d;
+      box-shadow: 0 0 28px rgba(255, 170, 59, .62);
+    }
+    .card,
+    .before-after,
+    .steps,
+    .screens,
+    .qr-wrap,
+    .main-chain,
+    .gates {
+      background: rgba(255, 247, 232, .86);
+      border-color: rgba(255, 211, 132, .36);
+      box-shadow: 0 28px 90px rgba(45, 0, 8, .24);
+      backdrop-filter: blur(18px);
+    }
+    .panel-title,
+    .qr-wrap h3,
+    .step b {
+      color: #5c0b0f;
+    }
+    .pain,
+    .case,
+    .step,
+    .mock-card,
+    .advisor,
+    .gate {
+      background: rgba(255, 252, 244, .86) !important;
+      border-color: rgba(218, 76, 38, .22);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.72);
+    }
+    .pain b,
+    .case strong,
+    .mock-card strong,
+    .advisor h3,
+    .gate b,
+    .node b {
+      color: #650c10;
+    }
+    .pain span,
+    .case p,
+    .step span,
+    .qr-wrap p,
+    .advisor p,
+    .gate span {
+      color: #72443b;
+    }
+    .result-band {
+      color: #5c0b0f;
+      background: linear-gradient(90deg, rgba(255, 226, 171, .60), rgba(255, 144, 80, .28));
+      border-color: rgba(255, 211, 132, .38);
+    }
+    .mock-report,
+    .phone,
+    .qr-box {
+      box-shadow: 0 28px 82px rgba(45, 0, 8, .34);
+    }
+    .chip,
+    .out,
+    .advisor .mini-tag,
+    .gate::before {
+      color: #7c1014;
+      background: rgba(255, 232, 190, .92);
+      border-color: rgba(190, 52, 28, .18);
+    }
+    .slide-footer {
+      color: rgba(255, 235, 204, .78);
+    }
+    .main-chain::before {
+      background: linear-gradient(90deg, rgba(255, 215, 132, .88), rgba(255, 77, 45, .86));
+    }
+    .node {
+      background: rgba(255, 252, 244, .92);
+      border-color: rgba(255, 211, 132, .42);
+      box-shadow: 0 16px 36px rgba(68,0,6,.18);
+    }
+    .node .num,
+    .step-no,
+    .advisor h3 i {
+      color: #ffffff;
+      background: linear-gradient(135deg, #cf1d23, #ff7b32);
+    }
+    .s2 .topbar + div h1 {
+      font-size: 64px;
+    }
+    .advisor h3 {
+      font-size: 20px;
+    }
+    .advisor p {
+      font-size: 16px;
+      line-height: 1.32;
+    }
+    .gate::before {
+      color: #7c1014;
+    }
+    .screen-label {
+      color: #ffffff;
+      background: linear-gradient(135deg, #c51a22, #ff7a32);
+    }
+    .qr-box {
+      color: #8a6256;
+      border-color: rgba(190, 52, 28, .20);
+    }
+    .s4 .content {
+      gap: 18px;
+      padding-bottom: 36px;
+    }
+    .s4 h1 {
+      font-size: 64px;
+    }
+    .s4 .subtitle {
+      margin-top: 8px;
+      font-size: 26px;
+      line-height: 1.35;
+      max-width: 1320px;
+    }
+    .s4 .p4-layout {
+      flex: 0 0 612px;
+      gap: 24px;
+    }
+    .s4 .p4-card {
+      padding: 26px 30px;
+      gap: 13px;
+    }
+    .cost-hero {
+      padding: 22px 26px;
+      background: linear-gradient(135deg, rgba(255, 226, 170, .78), rgba(255, 131, 70, .26));
+      border-color: rgba(255, 211, 132, .42);
+    }
+    .cost-hero b {
+      color: #8a1014;
+      font-size: 54px;
+    }
+    .cost-hero span {
+      color: #7c4434;
+      font-size: 20px;
+      margin-top: 8px;
+    }
+    .cost-lines {
+      gap: 10px;
+    }
+    .cost-line {
+      padding: 13px 18px;
+    }
+    .cost-line strong,
+    .support-item b,
+    .road-step b {
+      color: #650c10;
+    }
+    .cost-line small,
+    .support-item span,
+    .road-step span {
+      color: #75483d;
+    }
+    .cost-line em {
+      color: #a41419;
+    }
+    .support-list,
+    .roadmap {
+      gap: 12px;
+    }
+    .support-item {
+      padding: 14px 16px;
+    }
+    .support-icon {
+      background: linear-gradient(135deg, #cf1d23, #ff8a3d);
+    }
+    .road-step {
+      padding: 15px 16px 15px 28px;
+    }
+    .road-step::before {
+      background: linear-gradient(180deg, #cf1d23, #ffd47d);
+    }
+  </style>
+  <script>
+    const params = new URLSearchParams(location.search);
+    document.addEventListener("DOMContentLoaded", () => {
+      document.body.dataset.slide = params.get("slide") || "1";
+    });
+  </script>
+</head>
+<body data-slide="1">
+  <section class="slide s1">
+    <div class="content">
+      <div class="topbar">
+        <div class="brand"><div class="mark">OAC</div><span>商机参谋团｜Opportunity Advisory Crew</span></div>
+        <div class="eyebrow">华东区新办公室入驻仪式｜10 分钟系统介绍</div>
+      </div>
+
+      <div>
+        <h1>从快速评估，<span class="accent">到持续陪跑成单</span></h1>
+        <p class="subtitle">OAC 不只是内部会前准备工具。升级后支持任何一家企业选择“我的企业”，分析自己的目标客户，并在每次拜访后持续迭代。</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="card before-after">
+          <div>
+            <h2 class="panel-title"><span class="dot"></span>拜访前后的真实压力</h2>
+            <div class="pain-grid">
+              <div class="pain">
+                <b class="gold">销售痛点</b>
+                <span>商机真假难辨，预算和决策链问不实，售前资源容易投错。</span>
+              </div>
+              <div class="pain">
+                <b class="cyan">售前痛点</b>
+                <span>客户业务和行业不熟，只能讲产品，难讲出方案价值。</span>
+              </div>
+              <div class="pain">
+                <b class="green">客户侧可用</b>
+                <span>不只服务我们自己，也能让客户分析自己的客户需求。</span>
+              </div>
+              <div class="pain">
+                <b class="gold">多轮迭代</b>
+                <span>会后提交会议反馈，刷新第二轮判断，陪跑直到成单。</span>
+              </div>
+            </div>
+          </div>
+          <div class="result-band">
+            全过程沉淀为共享客户档案：会前快速评估、会中带问卷验证、会后根据反馈继续更新。
+          </div>
+        </div>
+
+        <div class="card before-after">
+          <div>
+            <h2 class="panel-title"><span class="dot"></span>初步验证：打中了客户问题</h2>
+            <div class="cases">
+              <div class="case"><strong>森浦融讯</strong><p>数促会王秘书长反馈：研判内容与客户内部信息一致。</p></div>
+              <div class="case"><strong>广为电器</strong><p>实际接触后验证：系统判断与一线交流得到的信息一致。</p></div>
+              <div class="case"><strong>高发汽车</strong><p>按报告准备交流方案，对方表示我们提出的痛点问题确实存在。</p></div>
+            </div>
+          </div>
+          <div class="mock-report">
+            <div class="mock-head"><b>拜访作战简报</b><span class="grade">重点跟进</span></div>
+            <div class="mock-cards">
+              <div class="mock-card"><strong>客户画像</strong><span>客户是谁、卖什么、规模与经营压力。</span></div>
+              <div class="mock-card"><strong>痛点机会</strong><span>从公开证据推导可能的业务痛点。</span></div>
+              <div class="mock-card"><strong>方案建议</strong><span>结合我方能力给出可交流切入点。</span></div>
+              <div class="mock-card"><strong>现场问题</strong><span>沉淀成客户经理可直接使用的问卷。</span></div>
+            </div>
+            <div class="chips">
+              <span class="chip">商机评级</span><span class="chip">预算判断</span><span class="chip">证据角标</span><span class="chip">多轮迭代</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer"><span>OAC 已初步验证：提升拜访准备质量，也具备作为客户侧商机洞察工具的开放潜力。</span><span>01 / 04</span></div>
+    </div>
+  </section>
+
+  <section class="slide s2">
+    <div class="content">
+      <div class="topbar">
+        <div class="brand"><div class="mark">OAC</div><span>商机参谋团｜Opportunity Advisory Crew</span></div>
+        <div class="eyebrow">复杂流程图：串行主链路 × 并行参谋 × 质量闸门</div>
+      </div>
+
+      <div>
+        <h1>一份作战简报背后，<span class="accent">是一套复杂的商机研究流水线</span></h1>
+        <p class="subtitle">不是让模型自由发挥，而是把商机研究拆成多个并行参谋任务，结合付费信源、证据分级、质量闸门和轮次迭代，生成可追溯、可追问、可复盘的拜访准备。</p>
+      </div>
+
+      <div class="engine">
+        <div class="main-chain">
+          <div class="node"><span class="num">1</span><b>输入<br>我的企业</b></div>
+          <div class="node"><span class="num">2</span><b>输入<br>目标客户</b></div>
+          <div class="node"><span class="num">3</span><b>主体<br>核对</b></div>
+          <div class="node"><span class="num">4</span><b>检索<br>规划</b></div>
+          <div class="node"><span class="num">5</span><b>证据池<br>建设</b></div>
+          <div class="node"><span class="num">6</span><b>风险<br>核验</b></div>
+          <div class="node"><span class="num">7</span><b>商机<br>评估</b></div>
+          <div class="node"><span class="num">8</span><b>作战<br>简报</b></div>
+          <div class="node"><span class="num">9</span><b>会后<br>迭代</b></div>
+        </div>
+
+        <div class="parallel-zone">
+          <div class="advisor"><h3><i>企</i>企业主体参谋</h3><p>核对集团、子公司、同名企业、工商主体，避免一开始就研究错对象。</p><div class="tag-row"><span class="mini-tag">工商</span><span class="mini-tag">股权</span><span class="mini-tag">别名</span></div></div>
+          <div class="advisor"><h3><i>财</i>财务研究参谋</h3><p>抽取营收、利润、现金流、研发投入、预算能力，判断有没有钱做。</p><div class="tag-row"><span class="mini-tag">年报</span><span class="mini-tag">F10</span><span class="mini-tag">预算</span></div></div>
+          <div class="advisor"><h3><i>品</i>产品客户参谋</h3><p>识别主营产品、客户类型、供应链位置，判断客户真正面对谁。</p><div class="tag-row"><span class="mini-tag">产品</span><span class="mini-tag">客户</span><span class="mini-tag">供应链</span></div></div>
+          <div class="advisor"><h3><i>业</i>行业压力参谋</h3><p>用付费搜索和公开资料扩展行业、招投标、招聘、新闻线索，寻找外部触发点。</p><div class="tag-row"><span class="mini-tag">Tavily</span><span class="mini-tag">新闻</span><span class="mini-tag">招投标</span></div></div>
+          <div class="advisor"><h3><i>数</i>数字化线索参谋</h3><p>检索 ERP、MES、数据基础、AI/自动化线索，判断落地成熟度。</p><div class="tag-row"><span class="mini-tag">ERP</span><span class="mini-tag">MES</span><span class="mini-tag">AI</span></div></div>
+          <div class="advisor"><h3><i>核</i>风险核验参谋</h3><p>法律、信用、股权、付款风险出现时，不直接写结论，先二次核验。</p><div class="tag-row"><span class="mini-tag">敏感拦截</span><span class="mini-tag">二次核验</span><span class="mini-tag">付款</span></div></div>
+          <div class="advisor"><h3><i>策</i>方案策略参谋</h3><p>把我方能力与客户痛点匹配，形成可交流方案、边界和现场问题。</p><div class="tag-row"><span class="mini-tag">匹配</span><span class="mini-tag">方案</span><span class="mini-tag">边界</span></div></div>
+          <div class="advisor"><h3><i>简</i>简报撰写参谋</h3><p>把证据、判断、方案、问卷整理成销售/售前看得懂的作战简报。</p><div class="tag-row"><span class="mini-tag">结论</span><span class="mini-tag">问卷</span><span class="mini-tag">复盘</span></div></div>
+        </div>
+
+        <div class="gates">
+          <div class="gate"><b>主体不清</b><span>不进入正式分析，防止集团/子公司混淆。</span></div>
+          <div class="gate"><b>来源不足</b><span>降级为线索，不包装成强结论。</span></div>
+          <div class="gate"><b>敏感信息</b><span>二次核验后才进入正文判断。</span></div>
+            <div class="gate"><b>财务异常</b><span>单位校验、来源复核和异常拦截。</span></div>
+          <div class="gate"><b>无证据判断</b><span>进入待确认问题，不进入研究结论。</span></div>
+          <div class="gate"><b>会后反馈</b><span>更新最新轮次，历史判断保留可追溯。</span></div>
+        </div>
+      </div>
+
+      <div class="slide-footer"><span>付费信源扩展、网页读取验证、敏感信息二次核验、财务单位校验，让 OAC 经得起追问。</span><span>02 / 04</span></div>
+    </div>
+  </section>
+
+  <section class="slide s3">
+    <div class="content">
+      <div class="topbar">
+        <div class="brand"><div class="mark">OAC</div><span>商机参谋团｜Opportunity Advisory Crew</span></div>
+        <div class="eyebrow">现场扫码体验｜可看案例，也可创建新任务</div>
+      </div>
+
+      <div>
+        <h1>1 分钟创建任务，<span class="accent">10 分钟拿到拜访作战简报</span></h1>
+        <p class="subtitle">输入“我的企业”和“目标客户”，OAC 自动完成客户研究、商机评估、痛点机会、配套方案和拜访问卷。移动端优先，适合一线在旅途中创建、查看和会后补充。</p>
+      </div>
+
+      <div class="demo-layout">
+        <div class="screens card clear-screens">
+          <span class="screen-label label-home">创建任务</span>
+          <span class="screen-label label-report">作战简报</span>
+          <div class="phone-mock home-mock">
+            <div class="mock-screen">
+              <div class="mock-hero-mobile">
+                <div class="mini-logo">OAC</div>
+                <b>会前 10 分钟<br>拿到商机简报</b>
+                <span>选择我的企业，输入目标客户，参谋团自动开始研究。</span>
+              </div>
+              <div class="mock-mobile-body">
+                <div class="mock-input-row"><strong>我的企业</strong>智用开物｜AI 智能体 / 排产 / 知识库</div>
+                <div class="mock-input-row"><strong>目标客户</strong>宁波精华电子科技股份有限公司</div>
+                <div class="mock-pill-row">
+                  <div class="mock-pill green">跟进判断：A级｜86分</div>
+                  <div class="mock-pill blue">优先切入：质量追溯与工艺知识</div>
+                  <div class="mock-pill gold">下一步：带问题清单拜访</div>
+                </div>
+              </div>
+              <div class="mock-tabs">
+                <div class="mock-tab active"><i></i><span>首页</span></div>
+                <div class="mock-tab"><i></i><span>创建</span></div>
+                <div class="mock-tab"><i></i><span>任务</span></div>
+                <div class="mock-tab"><i></i><span>报告</span></div>
+                <div class="mock-tab"><i></i><span>我的</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="phone-mock report-mock">
+            <div class="mock-screen">
+              <div class="mock-report-top">
+                <small>作战简报｜目标客户：宁波精华电子</small>
+                <b>建议重点跟进：质量追溯与工艺知识场景更容易切入</b>
+              </div>
+              <div class="mock-score">
+                <em>A</em>
+                <div><b>86 分｜重点跟进</b><span>证据充分，预算与需求需现场核实</span></div>
+              </div>
+              <div class="mock-info-row"><strong>客户画像</strong>汽车电子零部件企业，关注质量、交付和工艺稳定。</div>
+              <div class="mock-solution"><strong>方案建议</strong>先做质量异常归因与工艺知识助手，再扩展到排产协同。</div>
+              <div class="mock-info-row"><strong>拜访问卷</strong>质量异常如何闭环？现有数据从哪些系统导出？</div>
+              <div class="mock-tabs">
+                <div class="mock-tab"><i></i><span>首页</span></div>
+                <div class="mock-tab"><i></i><span>创建</span></div>
+                <div class="mock-tab"><i></i><span>任务</span></div>
+                <div class="mock-tab active"><i></i><span>报告</span></div>
+                <div class="mock-tab"><i></i><span>我的</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="steps card">
+          <h2 class="panel-title"><span class="dot"></span>现场体验三步走</h2>
+          <div class="step"><div class="step-no">1</div><div><b>选择我的企业</b><span>告诉系统：我们是谁，主营业务和核心产品是什么。</span></div></div>
+          <div class="step"><div class="step-no">2</div><div><b>输入目标客户</b><span>输入客户名称，系统核对主体并启动公开研究。</span></div></div>
+          <div class="step"><div class="step-no">3</div><div><b>查看作战简报</b><span>获得评级、客户画像、痛点机会、方案建议和现场问题。</span></div></div>
+          <div class="outputs">
+            <div class="out">商机评级</div>
+            <div class="out">客户画像</div>
+            <div class="out">痛点机会</div>
+            <div class="out">配套方案</div>
+            <div class="out">拜访问卷</div>
+            <div class="out">会后迭代</div>
+          </div>
+        </div>
+
+        <div class="qr-wrap">
+          <h3>扫码体验<br>OAC</h3>
+          <div class="qr-box">此处粘贴<br>体验二维码</div>
+          <p>可查看已有案例，也可创建新任务。二维码区域已预留干净白底。</p>
+        </div>
+      </div>
+
+      <div class="slide-footer"><span>让每一次拜访前，都像带着一支专业参谋团队。</span><span>03 / 04</span></div>
+    </div>
+  </section>
+
+  <section class="slide s4">
+    <div class="content">
+      <div class="topbar">
+        <div class="brand"><div class="mark">OAC</div><span>商机参谋团｜Opportunity Advisory Crew</span></div>
+        <div class="eyebrow">低成本试点｜生产化封装｜客户共创</div>
+      </div>
+
+      <div>
+        <h1>从个人验证，<span class="accent">到公司级试点</span></h1>
+        <p class="subtitle">成本可控、价值已初步验证。下一步重点不是无限加功能，而是把它封装成稳定工具，并找到对外打动客户的抓手。</p>
+      </div>
+
+      <div class="p4-layout">
+        <div class="p4-card">
+          <h2 class="panel-title"><span class="dot"></span>单次成本：区间可控</h2>
+          <div class="cost-hero">
+            <b>约 3.8-8 元/次</b>
+            <span>常规任务约 3.8 元；含复杂年报通常约 5-8 元。</span>
+          </div>
+          <div class="cost-lines">
+            <div class="cost-line"><div><strong>DeepSeek 常规分析</strong><small>检索规划、综合分析、作战简报生成</small></div><em>约 1.8 元</em></div>
+            <div class="cost-line"><div><strong>Tavily 付费信源</strong><small>约 35 积分，支撑公开搜索与证据扩展</small></div><em>约 2 元</em></div>
+            <div class="cost-line"><div><strong>年报 PDF 增强</strong><small>140-200 页年报清洗后约 15万-35万 token</small></div><em>+1-4 元</em></div>
+            <div class="cost-line"><div><strong>部署与存储</strong><small>当前小规模试点阶段成本较低</small></div><em>可控</em></div>
+          </div>
+        </div>
+
+        <div class="p4-card">
+          <h2 class="panel-title"><span class="dot"></span>希望公司支持</h2>
+          <div class="support-list">
+            <div class="support-item"><div class="support-icon">研</div><div><b>研发封装支持</b><span>生产环境部署、账号权限、数据隔离、日志监控和稳定性治理。</span></div></div>
+            <div class="support-item"><div class="support-icon">资</div><div><b>资源预算支持</b><span>给到 API、搜索、Token 小额预算，保障一线连续使用和验证。</span></div></div>
+            <div class="support-item"><div class="support-icon">试</div><div><b>业务试点支持</b><span>选择华东区真实商机，由销售和售前共同验证命中率和使用价值。</span></div></div>
+          </div>
+        </div>
+
+        <div class="p4-card">
+          <h2 class="panel-title"><span class="dot"></span>对外打法建议</h2>
+          <div class="roadmap">
+            <div class="road-step"><b>内部先用</b><span>先提升销售/售前拜访准备能力，沉淀真实案例和可复用模板。</span></div>
+            <div class="road-step"><b>客户共创试用</b><span>选择愿意尝鲜的客户，用“AI 客户洞察共创”方式受控开放。</span></div>
+            <div class="road-step"><b>产品化包装</b><span>验证价值后，再评估作为 AI 销售/售前智能体、客户洞察 Agent 或交付服务输出。</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer"><span>结论：低成本、可试点、可产品化；先受控开放，不直接全量免费给客户使用。</span><span>04 / 04</span></div>
+    </div>
+  </section>
+</body>
+</html>

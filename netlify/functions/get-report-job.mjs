@@ -2,6 +2,7 @@ import { fail, json } from "../lib/http.mjs";
 import { readJson } from "../lib/store.mjs";
 import { updateJob } from "../lib/pipeline.mjs";
 import { decorateJob } from "../lib/job-progress.mjs";
+import { withOacRequestContext } from "../lib/auth.mjs";
 
 function isStale(job) {
   if (!["queued", "running", "needs_resume"].includes(job?.status)) return false;
@@ -12,9 +13,33 @@ function isStale(job) {
 
 function canAutoResume(job) {
   if (["done", "cancelled"].includes(String(job?.status || ""))) return false;
-  if (!job?.checkpoint) return false;
+  if (!job?.checkpoint && !job?.checkpointRef) return false;
   const last = Date.parse(job.resumeRequestedAt || "");
   return !Number.isFinite(last) || Date.now() - last > 45 * 1000;
+}
+
+function publicJob(job = {}) {
+  const out = decorateJob(job);
+  delete out.inputText;
+  delete out.checkpoint;
+  delete out.sourceAudit;
+  delete out.sources;
+  delete out.sourceBriefs;
+  delete out.report;
+  delete out.html;
+  delete out.sensitiveVerification;
+  delete out.annualReportEvidence;
+  if (out.company) {
+    const { annualReportEvidence, ...company } = out.company;
+    out.company = company;
+  }
+  if (Array.isArray(out.steps)) {
+    out.steps = out.steps.slice(-40).map((step) => ({
+      ...step,
+      detail: String(step.detail || "").slice(0, 600)
+    }));
+  }
+  return out;
 }
 
 function hasJobIdentity(job = {}, jobId = "") {
@@ -30,16 +55,18 @@ function hasJobIdentity(job = {}, jobId = "") {
 async function triggerResume(request, jobId) {
   const origin = new URL(request.url).origin;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 1500);
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    await fetch(`${origin}/.netlify/functions/run-report-job-background`, {
+    const response = await fetch(`${origin}/.netlify/functions/run-report-job-background`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jobId, resume: true }),
       signal: controller.signal
     });
+    return response.ok || response.status === 202;
   } catch {
     // The next poll can try again. The checkpoint remains saved.
+    return false;
   } finally {
     clearTimeout(timer);
   }
@@ -47,6 +74,7 @@ async function triggerResume(request, jobId) {
 
 export default async function handler(request) {
   try {
+    return await withOacRequestContext(request, async () => {
     const url = new URL(request.url);
     const jobId = url.searchParams.get("jobId");
     if (!jobId) return fail("缺少 jobId", 400);
@@ -56,7 +84,7 @@ export default async function handler(request) {
     if (!hasJobIdentity(job, jobId)) {
       return json({
         ok: true,
-        job: decorateJob({
+        job: publicJob({
           ...job,
           jobId,
           status: "error",
@@ -80,12 +108,32 @@ export default async function handler(request) {
         error: "",
         resumeRequestedAt: new Date().toISOString()
       });
-      await triggerResume(request, jobId);
+      const triggered = await triggerResume(request, jobId);
+      if (!triggered) {
+        await updateJob(jobId, {
+          status: "needs_resume",
+          phaseKey: job.phaseKey || "analysis",
+          stage: "等待续跑唤醒",
+          detail: "本次后台续跑请求未及时响应，系统会在下一轮轮询继续尝试。",
+          resumeRequestedAt: ""
+        });
+      }
+      job = await readJson("jobs", `${jobId}.json`, job);
+    } else if (job.status === "needs_resume" && !job.checkpoint && !job.checkpointRef) {
+      await updateJob(jobId, {
+        status: "error",
+        progress: 100,
+        phaseKey: job.phaseKey || "analysis",
+        stage: "断点缺失，需要重新生成",
+        detail: "系统发现该任务没有可恢复断点。为避免浪费搜索额度和模型 token，已停止自动重跑；请确认后重新生成。",
+        error: "checkpoint missing"
+      });
       job = await readJson("jobs", `${jobId}.json`, job);
     }
 
-    return json({ ok: true, job: decorateJob(job) });
+    return json({ ok: true, job: publicJob(job) });
+    });
   } catch (error) {
-    return fail(error?.message || "读取任务状态失败", 500);
+    return fail(error?.message || "读取任务状态失败", error?.status || 500);
   }
 }
