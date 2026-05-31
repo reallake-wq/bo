@@ -1142,6 +1142,7 @@ function actionableRiskText(value = "", max = 180) {
     .replace(/^风险[：:]\s*/g, "")
     .replace(/[。；;，,\s]+$/g, "");
   if (!raw || !substantiveText(raw, 8)) return "";
+  if (isBackendRiskTemplateText(raw)) return "";
   if (/接口|数据|权限|样例|责任人|验收|上线范围|现场|视频|设备|系统|网络|安全|集成|需求扩散|返工/.test(raw)) {
     return cleanBusinessText(raw
       .replace(/现有系统接口、数据权限和样例质量未确认时，交付周期和效果不能锁定/g, "接口、数据权限和样例质量是交付成败关键，缺少任一项都会引发返工、范围扩张和验收争议")
@@ -1744,8 +1745,14 @@ function meaningful(value) {
   if (/^(?:\.{2,}|…+|选\s*\.{2,}|形成\s*\.{2,}|前置条件是\s*\.{2,}|最大交付风险是\s*\.{2,})$/.test(text)) return false;
   if (/^(待确认|暂无|无|未获取|未取得|未在已读取公开来源中取得|公开来源不足|当前来源不足)/.test(text)) return false;
   if (/^(已采集来源，待核验数值|上传年报中待人工核对|未取得可读财务硬来源)$/.test(text)) return false;
+  if (isBackendRiskTemplateText(text)) return false;
   if (/信息置信度不足|企业信息不足|无法分析|无法判断|无法评估|分析不了|判断不了|没有数据|数据不足|不足以支撑|支撑不足|不能支撑|不能判断|隐藏低相关|重复或错误来源|资料有限|证据不足|以已读来源为准|未证实内容|需继续核对|用户提供线索待确认|无法给出有效判断|没有明确(?:观点|结论|依据)|没有可用(?:观点|结论|依据)|无法形成(?:有效)?(?:观点|结论|判断)|不能作为(?:有效)?(?:观点|结论|依据)|尚不足以(?:支撑|判断|分析)/.test(text)) return false;
   return true;
+}
+
+function isBackendRiskTemplateText(value = "") {
+  const text = cleanBusinessText(value, 260);
+  return /系统未能通过公开来源证实|未能通过公开来源证实信用|公开来源证实信用\/法律风险|建议会前核对企业信用记录/.test(text);
 }
 
 function isNonDecisionClaim(value) {
@@ -6116,7 +6123,7 @@ function replacementClaimFromEvidence(values = []) {
   if (/旧系统|替换|升级|改造/.test(evidence.join(" "))) {
     return summary ? `替换/升级机会来自公开线索：${summary}。` : "客户存在系统升级、改造或替换线索。";
   }
-  return summary ? `当前仅看到邻近的系统变化线索：${summary}，不能直接判断已有替换项目。` : "当前仅有弱替换线索，不能判断已有替换项目。";
+  return summary ? `当前只把邻近系统线索作为增量切入参考：${summary}；本轮不按替换项目推进。` : "当前只有邻近系统线索，本轮按增量合作验证，不按替换项目推进。";
 }
 
 function solutionRiskClaimFromEvidence(values = []) {
@@ -7127,7 +7134,7 @@ function actionPerspective(report, round, sources = []) {
     .replace(/^开场先/, "先")
     .replace(/[。！？.!?]+$/g, "");
   const nextAction = actionNextStepText(brief.next);
-  const notCommit = notes[0] || brief.risk || "需求、数据和交付边界未清楚前，不承诺重交付范围、周期、效果指标或免费验证。";
+  const notCommit = notes[0] || usableActionNote(brief.risk) || "客户业务优先级、预算路径和数据/系统边界未确认前，不承诺正式方案范围、上线周期、效果指标或免费验证。";
   const nodes = [
     {
       label: "开场切入",
@@ -7265,8 +7272,9 @@ function actionNextStepText(value = "") {
 function usableActionNote(value = "") {
   const text = cleanBusinessText(value, 180);
   if (!meaningful(text)) return "";
+  if (isBackendRiskTemplateText(text)) return "";
   if (/不\s*\.{2,}|不承\s*\.{2,}|不\s*…|承诺边界[:：]?\s*不\s*$/.test(text)) return "";
-  return text;
+  return text.replace(/^(?:承诺边界|风险关注|主要风险)[：:]\s*/g, "").trim();
 }
 
 function roundHistorySection(report) {
