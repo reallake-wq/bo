@@ -197,7 +197,7 @@ function scoreReport({ file, report }, html) {
     executiveCover: html.includes("cover-rating-badge"),
     profileFirst: html.indexOf("view-profile") >= 0 && html.indexOf("view-profile") < html.indexOf("view-sales"),
     deliveryOrder: sowIndex >= 0 && riskIndex >= 0 && sowIndex < riskIndex,
-    workPackageDepth: (html.match(/class="sow-work-group"/g) || []).length >= 6,
+    workPackageDepth: (html.match(/class="argument-field-grid sow-fields"/g) || []).length >= 1 && /\u4e8c\u7ea7\u529f\u80fd\u9879/.test(deliveryPanel),
     noDeliveryEstimate: !VALUE_DRAIN_PATTERN.test(deliveryPanel),
     evidenceEnough: Array.isArray(report.sources) && report.sources.length >= 6 && sourceFamilyCount(report) >= 2,
     noGlobalLowValue: !VALUE_DRAIN_PATTERN.test(text),

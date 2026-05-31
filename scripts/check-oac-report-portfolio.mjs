@@ -126,7 +126,7 @@ function cleanPortfolioChecks({ text, html, sourceCount, families }) {
     firstVisitIntelSection:
       html.includes("action-argument-section") &&
       has(text, "\u884c\u52a8\u6307\u5357") &&
-      has(text, "\u62dc\u8bbf\u95ee\u5377|\u5fc5\u95ee\u95ee\u9898"),
+      has(text, "\u5f00\u573a\u5207\u5165|\u5fc5\u95ee\u95ee\u9898|\u5185\u90e8\u8fb9\u754c|\u4f1a\u540e\u66f4\u65b0"),
     firstVisitIntel:
       html.includes("action-argument-section") &&
       has(text, "\u5f00\u573a\u5207\u5165") &&
@@ -142,10 +142,11 @@ function cleanPortfolioChecks({ text, html, sourceCount, families }) {
       has(text, "\u914d\u5957\u89e3\u51b3\u65b9\u6848") &&
       has(text, "\u65b9\u6848\u98ce\u9669\u70b9|\u65b9\u6848\u4f18\u5148\u7ea7"),
     visitValidation:
-      has(text, "\u62dc\u8bbf\u95ee\u5377") &&
-      has(text, "\u9884\u7b97|\u51b3\u7b56\u94fe|\u91c7\u8d2d\u6d41\u7a0b") &&
+      html.includes("action-argument-section") &&
+      has(text, "\u5f00\u573a\u5207\u5165|\u5fc5\u95ee\u95ee\u9898") &&
+      has(text, "\u9884\u7b97|\u51b3\u7b56|\u62cd\u677f|\u91c7\u8d2d\u6d41\u7a0b") &&
       has(text, "\u6570\u636e|\u7cfb\u7edf|\u63a5\u53e3|\u6743\u9650|\u6837\u4f8b") &&
-      has(text, "\u4f1a\u540e|\u4e0b\u4e00\u6b65|\u5185\u90e8\u8fb9\u754c"),
+      has(text, "\u4f1a\u540e\u66f4\u65b0|\u4f1a\u540e|\u5185\u90e8\u8fb9\u754c|\u4e0d\u80fd\u627f\u8bfa"),
     perspectiveBranchDensity: allPerspectiveBranchesOk(html),
     perspectiveCompleteClaims: allPerspectiveClaimsOk(html),
     evidenceUsable: sourceCount >= 10,

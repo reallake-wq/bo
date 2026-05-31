@@ -88,8 +88,8 @@ function validate(report, html, index) {
   if (!html.includes("view-profile") || !html.includes("view-sales") || !html.includes("view-presales") || !html.includes("view-delivery")) {
     failures.push("missing role perspective panels");
   }
-  if (!html.includes("solution-strategy-section")) failures.push("missing strategy html section");
-  if (!html.includes("SOW工作拆分") || !html.includes("work-package-breakdown")) failures.push("missing SOW work package section");
+  if (!html.includes("presales-argument-section")) failures.push("missing strategy html section");
+  if (!html.includes("SOW工作拆分") || !html.includes("sow-fields")) failures.push("missing SOW work package section");
   if (!html.includes("delivery-argument-section")) failures.push("missing delivery argument section");
   if (!html.includes("sales-pyramid")) failures.push("missing sales html section");
   const indexed = Array.isArray(index.reports) ? index.reports.find((item) => item.reportId === report.reportId) : null;

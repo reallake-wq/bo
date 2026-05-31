@@ -212,6 +212,18 @@ function argumentSectionDetails(html) {
   });
 }
 
+function argumentNodeText(html, sectionClass, label) {
+  const section = firstSectionHtml(html, `battle-section argument-section ${sectionClass}`);
+  if (!section) return "";
+  const nodeChunks = section.split(/<details class="argument-node(?:\s|")/).slice(1);
+  const target = String(label || "");
+  for (const chunk of nodeChunks) {
+    const text = plainText(chunk);
+    if (text.includes(target)) return text;
+  }
+  return "";
+}
+
 function argumentStats(html) {
   const details = argumentSectionDetails(html);
   const counts = details.map((section) => section.count);
@@ -319,6 +331,13 @@ function scoreHtml(html, report = {}) {
     bad.lowValueClaim = Math.max(0, bad.lowValueClaim - allowedUnknownInInvalidCards);
   }
   const text = plainText(html);
+  const salesEntryNodeText = argumentNodeText(html, "sales-argument-section", "是否存在进入窗口");
+  if (
+    /客户案例|典型项目|典型示范案例|为.{0,20}建设|承建|实施|交付|解决方案提供商|服务商/.test(salesEntryNodeText) &&
+    !/采购人|招标人|采购单位|采购公告|采购意向|预算金额/.test(salesEntryNodeText)
+  ) {
+    bad.supplierDeliveryAsEntryWindow = 1;
+  }
   const coverHeaderHtml = firstHeaderHtml(html, "hero battle-cover");
   const coverLeadMatch = coverHeaderHtml.match(/<p>([\s\S]*?)<\/p>/i);
   const coverHeaderText = plainText(coverLeadMatch?.[1] || coverHeaderHtml);
@@ -350,7 +369,7 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u884c\u52a8\u6307\u5357"),
     salesPyramid: html.includes("sales-pyramid") || html.includes("sales-argument-section"),
     solutionStrategy: html.includes("solution-strategy-section") || html.includes("presales-argument-section"),
-    delivery: html.includes("work-package-grid") || html.includes("sow-table") || html.includes("delivery-risk-table"),
+    delivery: html.includes("delivery-argument-section") && html.includes("SOW\u5de5\u4f5c\u62c6\u5206"),
     buying:
       html.includes("buying-section") ||
       hasText(text, "\u9884\u7b97|\u4e70\u5355|\u4ed8\u6b3e\u80fd\u529b|\u8425\u6536|\u5229\u6da6"),
@@ -364,10 +383,11 @@ function scoreHtml(html, report = {}) {
       html.includes("view-delivery") &&
       html.includes("argument-tree"),
     workPackages:
-      (html.includes("work-package-grid") || html.includes("sow-table")) &&
-      (html.includes("work-item-kicker") || hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879")),
+      html.includes("delivery-argument-section") &&
+      html.includes("sow-fields") &&
+      hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879|\u76f8\u5bf9\u96be\u70b9"),
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
-    deliveryAssessment: html.includes("work-package-grid") || html.includes("sow-table"),
+    deliveryAssessment: html.includes("delivery-argument-section") && html.includes("sow-fields"),
     deliveryOrder:
       html.indexOf("SOW\u5de5\u4f5c\u62c6\u5206") >= 0 &&
       (!html.includes("\u98ce\u9669\u4e0e\u5e94\u5bf9\u77e9\u9635") ||
@@ -378,11 +398,11 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u5546\u673a\u8bc4\u7ea7") &&
       hasText(text, "\u4f18\u5148\u5207\u5165|\u98ce\u9669|\u4e0b\u4e00\u6b65"),
     questionnaire:
-      html.includes("question-grid") &&
-      hasText(text, "\u4e1a\u52a1\u95ee\u9898") &&
-      hasText(text, "IT\u4e0e\u6570\u636e") &&
-      hasText(text, "\u9884\u7b97\u4e0e\u51b3\u7b56") &&
-      hasText(text, "\u98ce\u9669\u4e0e\u8fb9\u754c")
+      html.includes("action-argument-section") &&
+      hasText(text, "\u5fc5\u95ee\u95ee\u9898") &&
+      hasText(text, "\u4e1a\u52a1\u4f18\u5148\u7ea7|\u4e1a\u52a1\u9a8c\u8bc1") &&
+      hasText(text, "\u9884\u7b97\/\u51b3\u7b56|\u9884\u7b97\u9a8c\u8bc1") &&
+      hasText(text, "\u6570\u636e\/\u7cfb\u7edf\u8fb9\u754c|\u6570\u636e\u9a8c\u8bc1")
   };
   const rankedSolutions = Array.isArray(solutionStrategy.rankedSolutions) ? solutionStrategy.rankedSolutions : [];
   const businessUsefulness = {

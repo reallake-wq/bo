@@ -3695,7 +3695,7 @@ function buildSalesPyramid(report, round, sources = []) {
     bestMetricText(report, [/净利润|利润|归母|扣非/]),
     bestMetricText(report, [/现金流/]),
     bestMetricText(report, [/研发/])
-  ].filter(Boolean);
+  ].filter((item) => Boolean(item) && !/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验/.test(item));
   const budgetEvidence = supportBullets([...budgetMetrics, ...arr(budget.evidence), ...arr(budget.deductions)], 4);
   const people = firstDecisionPeopleSummary(sources);
   const decisionEvidence = supportBullets([people ? `可查角色：${people}` : "", ...arr(decision.evidence), ...arr(decision.deductions)], 4);
@@ -3776,7 +3776,7 @@ function coverDecisionStrip(report, round, sources = []) {
     bestMetricText(report, [/净利润|利润|归母|扣非/]),
     bestMetricText(report, [/现金流/]),
     bestMetricText(report, [/研发/])
-  ].filter(Boolean);
+  ].filter((item) => Boolean(item) && !/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验/.test(item));
   const budgetSignal = combinedSignal(round, sources, /营收|营业收入|净利润|利润|现金流|研发投入|注册资本|实缴|融资|上市|招标|中标|采购|预算|项目金额|合同金额|固定资产|扩产|产能/i, 3);
   const byTitle = (pattern) => arr(pyramid.cards).find((card) => pattern.test(String(card.title || ""))) || {};
   const worth = byTitle(/值得|优先级|投入/);
@@ -5024,7 +5024,7 @@ function selectBranchEvidence(label = "", title = "", evidence = [], used = new 
 }
 
 function allowSupplementalArgumentBranches(label = "") {
-  return /客户现状|痛点机会|解决思路|配套解决方案|方案优先级|SOW|工作拆分|风险评估|应对方案|前置条件|开场切入|必问问题|内部边界|会后更新/.test(String(label || ""));
+  return false;
 }
 
 function sourceLikeBranchClaim(value = "") {
@@ -5191,7 +5191,7 @@ function argumentBranchItems(node = {}, evidence = []) {
       });
     }
   }
-  const combined = (baseBranches.length >= 3 || !allowSupplementalArgumentBranches(node.label) ? baseBranches : [...baseBranches, ...supplementalArgumentBranches(node, evidence)])
+  const combined = baseBranches
     .filter((branch) => meaningful(branch.claim) && !isNonDecisionClaim(branch.claim));
   const seen = new Set();
   return combined
@@ -5406,6 +5406,7 @@ function isMaturityEvidenceText(value = "") {
 function isPurchaseBudgetEvidenceText(value = "") {
   const text = cleanBusinessText(value, 260);
   if (!meaningful(text)) return false;
+  if (/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验|缺少可用|缺少|未查到|无法|未形成|不能证明/.test(text)) return false;
   if (/公开资料存在|当前主要是间接|预算判断按|间接经营实力线索|资料中出现|资料显示/.test(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   return isConcreteBudgetEvidence(text) || isScaleEvidenceText(text) || isBuyerProcurementEvidenceText(text);
@@ -5524,6 +5525,17 @@ function isActionTriggerSignal(value = "") {
     return false;
   }
   return true;
+}
+
+function isEntryWindowEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 280);
+  if (!meaningful(text)) return false;
+  if (/招聘|岗位|人才/.test(text) && !isStrategicHiringEvidenceText(text)) return false;
+  if (isProductCatalogTitleOnly(text)) return false;
+  if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
+  if (isBuyerProcurementEvidenceText(text)) return true;
+  return /新设|新建|扩张|扩产|投产|产能|融资|上市|并购|募投|组织调整|高管变更|处罚|诉讼|监管|政策|国产化|安全|合规|转型|升级|立项|采购意向|招标计划|预算金额|项目金额|合同金额|政府补助|专项资金|重点研发/.test(text) ||
+    isStrategicHiringEvidenceText(text);
 }
 
 function isConcreteBudgetEvidence(value = "") {
@@ -5949,6 +5961,7 @@ function financialKpiRowsForProfile(report = {}, round = {}) {
     const label = financialProfileKey(key);
     const formatted = typeof value === "string" ? value.trim() : displayMetricValue({ label, value });
     if (!label || !meaningful(formatted) || formatted === "待核验" || /^0(?:\.0+)?(?:元|万元|亿元|%)?$/.test(formatted)) return;
+    if (/不公示|未公示|未披露|选择不公示|未取得|暂无/.test(formatted)) return;
     const dedupe = normalizeForCompare(`${label}${formatted}`);
     if (!dedupe || seen.has(dedupe)) return;
     seen.add(dedupe);
@@ -6042,7 +6055,7 @@ function isOperatingStatusEvidenceText(value = "") {
 }
 
 function evidenceCategorySummary(rows = [], fallback = "外部证据") {
-  const text = rows.map((item) => item.text || item).join(" ");
+  const text = rows.map((item) => (typeof item === "string" ? item : item.text || item.claim || item.body || "")).join(" ");
   const categories = [];
   if (/营收|营业收入|收入|净利润|利润|现金流|毛利|研发投入|资产负债/.test(text)) categories.push("经营指标");
   if (/预算金额|采购预算|采购人|招标人|采购单位|采购公告|政府采购|采购意向|项目金额|合同金额/.test(text)) categories.push("甲方采购记录");
@@ -6053,6 +6066,15 @@ function evidenceCategorySummary(rows = [], fallback = "外部证据") {
   if (/被执行|失信|限制高消费|诉讼|合同纠纷|行政处罚|经营异常|付款|回款/.test(text)) categories.push("信用与法务风险");
   if (/MES|APS|ERP|WMS|LIMS|SCADA|PLM|QMS|CRM|OA|HolliCube|工业互联网|数字化工厂|软件著作权|专利|软著/.test(text)) categories.push("系统与技术资产");
   return uniqueTexts(categories, 4).join("、") || fallback;
+}
+
+function evidenceDecisionSummary(rows = [], fallback = "公开来源") {
+  const texts = arr(rows)
+    .map((item) => cleanBusinessText(typeof item === "string" ? item : item.text || item.claim || item.body || "", 110))
+    .filter(meaningful)
+    .filter((item) => !/^已查到|^以下|^当前边界/.test(item))
+    .slice(0, 2);
+  return texts.length ? texts.join("；") : fallback;
 }
 
 function signalTextSummary(values = [], max = 2, limit = 92) {
@@ -6142,6 +6164,97 @@ function workPackageComplexity(groups = [], solution = {}) {
   if (hardCount >= 2 || (hardCount >= 1 && mediumCount >= 2)) return { level: "高", label: "难", className: "hard" };
   if (hardCount >= 1 || mediumCount >= 2) return { level: "中", label: "中", className: "medium" };
   return { level: "低", label: "易", className: "easy" };
+}
+
+function relativeTaskComplexityMap(groups = [], solution = {}) {
+  const tasks = arr(groups)
+    .flatMap((group, groupIndex) =>
+      arr(group.items).map((task, taskIndex) => ({
+        groupIndex,
+        taskIndex,
+        key: `${groupIndex}:${taskIndex}`,
+        task,
+        base: workTaskComplexity(task, group, solution)
+      }))
+    )
+    .filter((item) => meaningful(item.task));
+  const ranked = [...tasks].sort((a, b) => (b.base.rank || 0) - (a.base.rank || 0) || a.groupIndex - b.groupIndex || a.taskIndex - b.taskIndex);
+  const hardLimit = Math.max(1, Math.ceil(ranked.length * 0.25));
+  const mediumLimit = Math.max(hardLimit + 1, Math.ceil(ranked.length * 0.65));
+  const out = new Map();
+  ranked.forEach((item, index) => {
+    let next = item.base;
+    if (index < hardLimit && item.base.rank >= 3) next = { level: "高", label: "难", className: "hard", rank: 3 };
+    else if (index < mediumLimit && item.base.rank >= 2) next = { level: "中", label: "中", className: "medium", rank: 2 };
+    else next = { level: "低", label: "易", className: "easy", rank: 1 };
+    out.set(item.key, next);
+  });
+  return out;
+}
+
+function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
+  const solutions = arr(round.solutionCards).filter((item) => meaningful(item.title)).slice(0, 4);
+  const fallbackItems = !solutions.length
+    ? arr(delivery.sowOutline)
+        .filter(meaningful)
+        .filter((item) => !isDeliveryEstimateText(item))
+        .slice(0, 4)
+        .map((item, index) => {
+          const [title, rest] = String(item).split(/[：:]/);
+          return {
+            priority: `P${Math.min(index, 2)}`,
+            title: cleanBusinessText(title || item, 48),
+            introduction: cleanBusinessText(rest || item, 140),
+            prerequisite: arr(delivery.dependencies)[index] || ""
+          };
+        })
+    : [];
+  const workItems = solutions.length ? solutions : fallbackItems;
+  return workItems.map((item, index) => {
+    const groups = solutionWorkPackages(item);
+    const complexityMap = relativeTaskComplexityMap(groups, item);
+    const allTasks = groups.flatMap((group, groupIndex) =>
+      arr(group.items).map((task, taskIndex) => ({
+        group,
+        task,
+        complexity: complexityMap.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(task, group, item)
+      }))
+    );
+    const hardTasks = allTasks
+      .filter((row) => row.complexity.className === "hard")
+      .map((row) => `${row.group.title}-${row.task}`)
+      .slice(0, 3);
+    const mediumTasks = allTasks
+      .filter((row) => row.complexity.className === "medium")
+      .map((row) => `${row.group.title}-${row.task}`)
+      .slice(0, 3);
+    const taskLines = groups.map((group, groupIndex) => {
+      const items = arr(group.items)
+        .map((task, taskIndex) => {
+          const complexity = complexityMap.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(task, group, item);
+          return `${task}（${complexity.label}）`;
+        })
+        .join("、");
+      return `${group.title}：${items}`;
+    });
+    const attention = hardTasks.length
+      ? hardTasks.join("、")
+      : mediumTasks.length
+        ? mediumTasks.join("、")
+        : "客户样例、验收口径和责任人";
+    return {
+      title: `${item.priority || `P${Math.min(index, 2)}`}｜${cleanBusinessText(item.title || "功能项", 44)}`,
+      claim: `相对难点在${attention}；其余功能按中低复杂度推进，不把全部工作都标成难。`,
+      fields: [
+        { label: "二级功能项", value: taskLines.join("；") },
+        { label: "相对难点", value: attention },
+        { label: "交付边界", value: cleanBusinessText(item.prerequisite || arr(delivery.dependencies)[index] || "先确认客户侧样例、系统边界、权限和验收口径。", 180) }
+      ],
+      kind: "sow-fields",
+      sourceIds: normalizeSourceIdList(item),
+      forceDisplay: true
+    };
+  });
 }
 
 function sowTaskList(group = {}, solution = {}) {
@@ -6311,35 +6424,35 @@ function customerProfilePerspective(report, round, sources = []) {
     },
     {
       label: "企业发展阶段",
-      claim: triggerRows.length ? `企业发展阶段呈${stage}信号。` : "",
+      claim: triggerRows.length ? `企业发展阶段呈${stage}信号，主要依据是${evidenceCategorySummary(triggerRows)}。` : "",
       evidence: evidenceTexts(triggerRows, 6),
       sourceIds: evidenceSourceIds(triggerRows),
       tone: /扩张|转型/.test(stage) ? "strong" : /承压/.test(stage) ? "risk" : ""
     },
     {
       label: "经营状态",
-      claim: operatingRows.length ? `经营状态更接近${operating}。` : "",
+      claim: operatingRows.length ? `经营状态更接近${operating}，判断来自${evidenceCategorySummary(operatingRows)}。` : "",
       evidence: evidenceTexts(operatingRows, 6),
       sourceIds: evidenceSourceIds(operatingRows),
       tone: /压力/.test(operating) ? "risk" : /增长|转型/.test(operating) ? "strong" : ""
     },
     {
       label: "组织复杂度",
-      claim: registryRows.length ? `${org}。` : "",
+      claim: registryRows.length ? `${org}，初访要确认项目预算主体、合同主体和实际使用部门是否一致。` : "",
       evidence: evidenceTexts(registryRows, 6),
       sourceIds: evidenceSourceIds(registryRows),
       tone: /复杂/.test(org) ? "watch" : ""
     },
     {
       label: "行业地位",
-      claim: industryRows.length ? "行业地位存在公开背书。" : "",
+      claim: industryRows.length ? `行业地位有公开背书，可作为建立信任的开场依据，但不能直接推导预算。` : "",
       evidence: evidenceTexts(industryRows, 6),
       sourceIds: evidenceSourceIds(industryRows),
       tone: "strong"
     },
     {
       label: "管理成熟度初判",
-      claim: maturityRows.length ? "管理成熟度已有可查技术资产或系统线索。" : "",
+      claim: maturityRows.length ? `管理成熟度有${systemNamesFromEvidence(maturityRows).join("、") || "技术资产/系统"}线索，适合先问现有系统边界和外部合作意愿。` : "",
       evidence: evidenceTexts(maturityRows, 6),
       sourceIds: evidenceSourceIds(maturityRows),
       tone: "watch"
@@ -6353,7 +6466,6 @@ function customerProfilePerspective(report, round, sources = []) {
     }
   ].filter((node) => node.forceDisplay || arr(node.evidence).length || normalizeSourceIdList(node).length);
   return `<div class="report-view-panel view-profile">
-    ${basicCustomerProfileIntro(round, sources)}
     ${argumentTreeSection({
       className: "profile-argument-section",
       kicker: "企业画像",
@@ -6377,7 +6489,7 @@ function salesPerspective(report, round, sources = []) {
     bestMetricText(report, [/净利润|利润|归母|扣非/]),
     bestMetricText(report, [/现金流/]),
     bestMetricText(report, [/研发/])
-  ].filter(Boolean);
+  ].filter((item) => Boolean(item) && !/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验/.test(item));
   const people = firstDecisionPeopleSummary(sources);
   const riskEvidence = usefulEvidenceTexts([
     ...arr(rating.riskFlags),
@@ -6393,6 +6505,7 @@ function salesPerspective(report, round, sources = []) {
     combinedSignal(round, sources, /扩张|扩产|新建|新增|投产|产能|融资|上市|并购|战略合作|重大合作|签约|招投标|中标|采购项目|招聘|高管|组织调整|处罚|诉讼|监管|政策|国产化|安全|合规|转型|升级|项目|立项|客户案例|合作/i, 5),
     isActionTriggerSignal
   );
+  const entryWindowSignal = filterSignal(triggerSignal, isEntryWindowEvidenceText);
   const procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 5, {
     sourcePredicate: (_source, text) => isBuyerProcurementEvidenceText(text),
     signalPredicate: isBuyerProcurementEvidenceText,
@@ -6432,8 +6545,9 @@ function salesPerspective(report, round, sources = []) {
     riskEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text })),
     budgetEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text }))
   );
-  const directPurchaseEvidence = budgetEvidence.filter((text) => /营收|营业收入|净利润|利润|现金流|采购人|招标人|采购单位|采购公告|采购意向|预算|项目金额|采购预算|合同金额|政府采购/.test(text));
-  const capitalOnlyEvidence = budgetEvidence.filter((text) => !directPurchaseEvidence.includes(text));
+  const positiveBudgetEvidence = budgetEvidence.filter((text) => !/缺少|未查到|无法|未形成|不能证明|不公示|未披露|暂无|待核验/.test(text));
+  const directPurchaseEvidence = positiveBudgetEvidence.filter((text) => /营收|营业收入|净利润|利润|现金流|采购人|招标人|采购单位|采购公告|采购意向|预算|项目金额|采购预算|合同金额|政府采购/.test(text));
+  const capitalOnlyEvidence = positiveBudgetEvidence.filter((text) => !directPurchaseEvidence.includes(text));
   const decisionPeople = usefulDecisionPeople(extractDecisionPeople(sources));
   const decisionPeopleEvidence = decisionPeople.map((person) =>
     `${person.name}：${person.role}${person.insight ? `，${cleanBusinessText(person.insight, 90)}` : ""}`
@@ -6447,34 +6561,34 @@ function salesPerspective(report, round, sources = []) {
   });
   const boundaryBranch = (claim) => ({ ...forcedBranch("当前边界", claim, []), invalid: true });
   const purchaseLevel = directPurchaseEvidence.length
-    ? "客户具备项目级采购能力线索。"
-    : budgetEvidence.length
-    ? "客户仅有基础体量或资本线索，项目级采购能力未形成有效判断。"
+    ? `采购能力可以继续验证，依据是${evidenceDecisionSummary(directPurchaseEvidence, "可用财务/采购线索")}。`
+    : positiveBudgetEvidence.length
+    ? `只查到${evidenceCategorySummary(positiveBudgetEvidence, "基础体量线索")}，不能直接证明项目级预算。`
     : "未查到营收、现金流、预算或历史采购线索，采购能力未形成有效判断。";
   const purchaseAbilityClaim =
     purchaseLevel;
   const purchaseHabitClaim =
     arr(procurementSignal.evidence).length
-      ? "客户有作为甲方发起采购的公开记录。"
+      ? `客户有作为甲方发起采购的公开记录，采购习惯可继续跟进。`
     : "未查到客户作为甲方的公开采购记录，采购习惯未形成有效判断。";
   const purchaseHabitEvidence = arr(procurementSignal.evidence).length
     ? arr(procurementSignal.evidence)
     : ["已读来源未形成客户作为甲方的采购公告、采购平台记录或供应商记录；现有材料主要体现客户对外交付能力。"];
-  const nearBudgetEvidence = uniqueTexts([...arr(triggerSignal.evidence), ...arr(procurementSignal.evidence), ...arr(budgetSignal.evidence)].filter(isBudgetWindowEvidenceText), 6);
+  const nearBudgetEvidence = uniqueTexts([...arr(entryWindowSignal.evidence), ...arr(procurementSignal.evidence), ...arr(budgetSignal.evidence)].filter(isBudgetWindowEvidenceText), 6);
   const nearBudgetClaim =
     nearBudgetEvidence.length
       ? budgetWindowClaimFromEvidence(nearBudgetEvidence)
     : "未查到明确预算窗口，近期预算未形成有效判断。";
   const sameProjectClaim =
     sameProjectEvidence.length
-      ? "客户作为甲方出现同类软件、咨询、系统、设备或服务采购线索。"
+      ? `客户作为甲方出现同类项目采购线索，可用于判断替换或新增机会。`
       : "未查到客户作为甲方采购同类软件、咨询、系统、设备或服务的记录。";
   const sameProjectSupport = sameProjectEvidence.length
     ? sameProjectEvidence
     : ["已读来源中可见客户对外项目和产品能力，但未形成客户作为甲方采购软件、咨询、系统、设备或服务的记录。"];
   const supplierClaim =
     arr(competitorSignal.evidence).length
-      ? "客户已有可查的供应商、实施商、系统商或竞品线索。"
+      ? `客户已有供应商、实施商、系统商或竞品线索，首次交流要避开正面替换式打法。`
       : "未查到客户已有供应商、实施商、系统商或竞品替换线索。";
   const supplierEvidence = arr(competitorSignal.evidence).length
     ? arr(competitorSignal.evidence)
@@ -6487,11 +6601,11 @@ function salesPerspective(report, round, sources = []) {
     ? evidenceTexts(lowValueRows, 5)
     : ["已读来源未形成被执行、失信、经营异常、付款纠纷或长期无采购记录等明确低价值信号。"];
   const entryWindowClaim =
-    arr(triggerSignal.evidence).length
-      ? "客户存在可利用的进入窗口。"
+    arr(entryWindowSignal.evidence).length
+      ? `客户存在进入窗口，触发依据是${evidenceDecisionSummary(arr(entryWindowSignal.evidence), "公开动作线索")}。`
       : "未查到明确进入窗口。";
-  const entryWindowEvidence = arr(triggerSignal.evidence).length
-    ? arr(triggerSignal.evidence)
+  const entryWindowEvidence = arr(entryWindowSignal.evidence).length
+    ? arr(entryWindowSignal.evidence)
     : ["已读来源未出现新项目、新基地、组织调整、旧系统替换或明确采购触发事件。"];
   const decisionChainClaim = decisionPeople.length
     ? "公开资料可见关键人或高管角色线索，决策链应从经营层与项目职能双线核实。"
@@ -6503,7 +6617,7 @@ function salesPerspective(report, round, sources = []) {
     {
       label: "是否有采购能力",
       claim: purchaseAbilityClaim,
-      evidence: budgetEvidence,
+      evidence: positiveBudgetEvidence,
       branches: [
         directPurchaseEvidence.length
           ? forcedBranch("可用证据", "已查到预算、财务或客户作为甲方的采购记录。", directPurchaseEvidence)
@@ -6539,12 +6653,12 @@ function salesPerspective(report, round, sources = []) {
       branches: nearBudgetEvidence.length
         ? [forcedBranch("具体预算信号", budgetWindowClaimFromEvidence(nearBudgetEvidence), nearBudgetEvidence)]
         : [{ ...boundaryBranch("未查到采购意向、预算金额、政府补贴、项目金额或融资募资等预算窗口。"), invalid: true }],
-      sourceIds: Array.from(new Set([...arr(triggerSignal.sourceIds), ...arr(procurementSignal.sourceIds), ...arr(budgetSignal.sourceIds)])).slice(0, 6),
+      sourceIds: Array.from(new Set([...arr(entryWindowSignal.sourceIds), ...arr(procurementSignal.sourceIds), ...arr(budgetSignal.sourceIds)])).slice(0, 6),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      tone: arr(triggerSignal.evidence).length ? "strong" : "watch"
+      tone: arr(entryWindowSignal.evidence).length ? "strong" : "watch"
     },
     {
       label: "是否已有同类项目迹象",
@@ -6592,15 +6706,15 @@ function salesPerspective(report, round, sources = []) {
       label: "是否存在进入窗口",
       claim: entryWindowClaim,
       evidence: entryWindowEvidence,
-      branches: arr(triggerSignal.evidence).length
-        ? [forcedBranch("进入窗口线索", "已查到组织调整、业务扩张、政策变化、旧系统替换、同行案例刺激或明确项目动作。", arr(triggerSignal.evidence), arr(triggerSignal.sourceIds))]
-        : [boundaryBranch("未查到组织调整、业务扩张、政策变化、旧系统替换、同行案例刺激或明确项目动作。")],
-      sourceIds: arr(triggerSignal.sourceIds),
+      branches: arr(entryWindowSignal.evidence).length
+        ? [forcedBranch("进入窗口线索", "已查到组织调整、业务扩张、政策变化、旧系统替换或明确采购/立项动作。", arr(entryWindowSignal.evidence), arr(entryWindowSignal.sourceIds))]
+        : [boundaryBranch("未查到组织调整、业务扩张、政策变化、旧系统替换或明确采购/立项动作。")],
+      sourceIds: arr(entryWindowSignal.sourceIds),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      tone: arr(triggerSignal.evidence).length ? "strong" : "watch"
+      tone: arr(entryWindowSignal.evidence).length ? "strong" : "watch"
     },
     {
       label: "商务风险",
@@ -6623,9 +6737,9 @@ function salesPerspective(report, round, sources = []) {
       thesis: pyramid.summary || brief.oneLine,
       summary: "这一页只展示已找到有效依据的销售决策问题；没有甲方采购、竞品或风险证据时，不用规则硬凑结论。",
       nodes,
-      sources
+      sources,
+      showClaim: false
     })}
-    ${decisionSurfaceSection(report, round, sources)}
   </div>`;
 }
 
@@ -6878,7 +6992,8 @@ function presalesPerspective(report, round, sources = []) {
       thesis: strategy.overallApproach || "售前方案应先收敛到可验证场景，再扩展为完整方案。",
       summary: "这一页站在售前视角，把客户现状、痛点机会、解决思路和方案优先级串成一条方案逻辑。",
       nodes,
-      sources
+      sources,
+      showClaim: false
     })}
   </div>`;
 }
@@ -6945,6 +7060,7 @@ function deliveryArgumentSection(report, round) {
   const risks = arr(delivery.deliveryRisks).filter(meaningful).slice(0, 4);
   const responses = arr(delivery.responsePlan).filter(meaningful).slice(0, 4);
   const dependencies = arr(delivery.dependencies).filter(meaningful).slice(0, 4);
+  const sowBranches = sowArgumentBranches(report, round, delivery);
   return argumentTreeSection({
     className: "delivery-argument-section",
     kicker: "交付分析",
@@ -6953,43 +7069,48 @@ function deliveryArgumentSection(report, round) {
     nodes: [
       {
         label: "SOW工作拆分",
-        claim: "本轮交付范围应按可交付功能项拆分，不按实施流程或泛平台能力拆分。",
+        claim: "本轮SOW只按可交付功能项拆分，并标出相对难点用于控范围。",
         evidence: sow,
-        branches: deliveryBranches(sow, "功能项"),
-        forceDisplay: true
+        branches: sowBranches.length ? sowBranches : deliveryBranches(sow, "功能项"),
+        forceDisplay: true,
+        useExplicitBranchesOnly: true,
+        open: true,
+        wide: true
       },
       {
         label: "风险评估",
-        claim: "主要交付风险集中在系统边界、数据样例、权限审计和客户既有平台定位。",
+        claim: risks.length ? `主要交付风险集中在${evidenceDecisionSummary(risks, "系统、数据、权限和验收边界")}。` : "未形成具体交付风险，不扩大承诺范围。",
         evidence: risks,
         branches: deliveryBranches(risks, "风险"),
         forceDisplay: true,
+        useExplicitBranchesOnly: true,
         tone: "risk"
       },
       {
         label: "应对方案",
-        claim: "先用最小业务闭环验证价值，把边界外内容留到二次方案或正式项目中确认。",
+        claim: responses.length ? `应对策略是${evidenceDecisionSummary(responses, "先锁边界再轻量验证")}。` : "先用最小业务闭环验证价值，把边界外内容留到二次方案或正式项目中确认。",
         evidence: responses,
         branches: deliveryBranches(responses, "应对"),
-        forceDisplay: true
+        forceDisplay: true,
+        useExplicitBranchesOnly: true
       },
       {
         label: "前置条件",
-        claim: "客户需先给出责任人、样例数据、系统边界和验收口径，否则交付范围不能放大。",
+        claim: dependencies.length ? `客户侧前置条件是${evidenceDecisionSummary(dependencies, "责任人、样例、系统边界和验收口径")}。` : "客户需先给出责任人、样例数据、系统边界和验收口径，否则交付范围不能放大。",
         evidence: dependencies,
         branches: deliveryBranches(dependencies, "条件"),
-        forceDisplay: true
+        forceDisplay: true,
+        useExplicitBranchesOnly: true
       }
     ],
-    sources: arr(report.sources)
+    sources: arr(report.sources),
+    showClaim: false
   });
 }
 
 function deliveryPerspective(report, round) {
   return `<div class="report-view-panel view-delivery">
     ${deliveryArgumentSection(report, round)}
-    ${deliveryWorkPackageSection(round, report)}
-    ${deliveryAssessmentSection(report, round)}
   </div>`;
 }
 
@@ -7000,30 +7121,35 @@ function actionPerspective(report, round, sources = []) {
   const businessQuestions = questionsByGroup(round, /业务/, report);
   const budgetQuestions = questionsByGroup(round, /预算|决策/, report);
   const dataQuestions = questionsByGroup(round, /IT|数据|风险|边界/, report);
-  const notes = arr(round.internalNotes).filter(isActionableInternalNote);
+  const notes = arr(round.internalNotes).map(usableActionNote).filter(isActionableInternalNote);
   const opening = actionOpeningSentence(report, round, brief);
-  const openingTopic = cleanBusinessText(opening, 120);
+  const openingTopic = cleanBusinessText(opening, 120)
+    .replace(/^开场先/, "先")
+    .replace(/[。！？.!?]+$/g, "");
   const nextAction = actionNextStepText(brief.next);
+  const notCommit = notes[0] || brief.risk || "需求、数据和交付边界未清楚前，不承诺重交付范围、周期、效果指标或免费验证。";
   const nodes = [
     {
       label: "开场切入",
-      claim: opening,
+      claim: openingTopic
+        ? `${openingTopic}，目标是验证业务优先级，不从产品功能清单开讲。`
+        : "开场先验证客户最优先的业务场景，不从产品功能清单开讲。",
       evidence: [brief.entry, brief.reason, brief.oneLine],
       branches: [
         {
-          title: "第一句话",
+          title: "开场句",
           claim: openingTopic || "先从客户最关心的业务场景开场，不从产品功能清单开场。",
           evidence: [brief.entry, brief.reason]
         },
         {
-          title: "追问方向",
-          claim: coreQuestion ? `顺势追问：${cleanBusinessText(coreQuestion, 130)}` : "追问重点应放在现状、损失、目标指标和当前做法上。",
-          evidence: [coreQuestion, ...businessQuestions].filter(Boolean).slice(0, 3)
+          title: "为什么这样开场",
+          claim: brief.reason || brief.oneLine || "开场目标是让客户先确认问题是否重要，再判断我方方案是否值得展开。",
+          evidence: [brief.reason, brief.oneLine].filter(Boolean)
         },
         {
-          title: "承接动作",
-          claim: nextAction || "把客户回答沉淀成下一轮方案、验证样例和责任人清单。",
-          evidence: [nextAction, brief.reason].filter(Boolean)
+          title: "顺势追问",
+          claim: coreQuestion ? `顺势追问：${cleanBusinessText(coreQuestion, 130)}` : "追问重点应放在现状、损失、目标指标和当前做法上。",
+          evidence: [coreQuestion, ...businessQuestions].filter(Boolean).slice(0, 3)
         }
       ],
       forceDisplay: true,
@@ -7033,21 +7159,21 @@ function actionPerspective(report, round, sources = []) {
     },
     {
       label: "必问问题",
-      claim: coreQuestion ? `现场首要问题是：${cleanBusinessText(coreQuestion, 140)}。` : "现场首要问题应围绕业务场景、推进人、预算归属和数据边界展开。",
+      claim: "现场必须先问清业务优先级、预算/拍板路径和数据/系统边界，否则不升级方案投入。",
       evidence: uniqueTexts([coreQuestion, ...businessQuestions, ...questions], 8),
       branches: [
         {
-          title: "业务验证",
+          title: "业务优先级",
           claim: coreQuestion || businessQuestions[0] || "业务验证应锁定当前场景、损失、优先级和衡量指标。",
           evidence: [coreQuestion, ...businessQuestions].filter(Boolean).slice(0, 3)
         },
         {
-          title: "预算验证",
+          title: "预算/决策",
           claim: budgetQuestions[0] || "预算验证应锁定预算来源、采购流程、付款主体和拍板路径。",
           evidence: budgetQuestions.slice(0, 3)
         },
         {
-          title: "数据验证",
+          title: "数据/系统边界",
           claim: dataQuestions[0] || "数据验证应锁定数据样例、系统边界、部署方式和安全要求。",
           evidence: dataQuestions.slice(0, 3)
         }
@@ -7060,16 +7186,16 @@ function actionPerspective(report, round, sources = []) {
     },
     {
       label: "内部边界",
-      claim: notes.length ? `内部最需要注意的是：${cleanBusinessText(notes[0], 160)}。` : "需求、数据和交付边界未清楚前，不承诺重交付范围、周期和免费验证。",
-      evidence: notes.length ? notes.slice(0, 6) : ["内部边界用于控制免费验证、定制开发、数据安全和交付承诺。"],
+      claim: `当前不能承诺的是：${cleanBusinessText(notCommit, 150)}。`,
+      evidence: notes.length ? notes.slice(0, 6) : [notCommit],
       branches: [
         {
           title: "不能承诺",
-          claim: notes[0] || "需求、数据和交付边界未清楚前，不承诺重交付范围、周期和免费验证。",
+          claim: notCommit,
           evidence: notes.slice(0, 2)
         },
         {
-          title: "先锁边界",
+          title: "先确认",
           claim: notes[1] || "先锁定场景、样例、接口、部署、安全和验收口径，再讨论正式方案。",
           evidence: notes.slice(1, 3)
         },
@@ -7086,7 +7212,7 @@ function actionPerspective(report, round, sources = []) {
     },
     {
       label: "会后更新",
-      claim: "拜访后应把会议纪要、客户原话和下一步动作输入系统，刷新评级、方案和推进建议。",
+      claim: "会后只更新客户原话、已确认事实和下一步动作，用它们刷新评级、痛点、方案优先级和内部边界。",
       evidence: ["会后会议纪要会进入最新轮次，用于刷新商机评级、痛点排序、方案优先级和下一步动作。"],
       branches: [
         {
@@ -7096,7 +7222,7 @@ function actionPerspective(report, round, sources = []) {
         },
         {
           title: "判断刷新",
-          claim: "系统应同步刷新评级、痛点、方案优先级、风险和下一步动作。",
+          claim: "只用已确认的新事实刷新评级、痛点、方案优先级、风险和下一步动作。",
           evidence: ["会后补充信息用于刷新最新轮次，公开证据和客户原话在页面中分开呈现。"]
         },
         {
@@ -7118,10 +7244,9 @@ function actionPerspective(report, round, sources = []) {
       thesis: opening || nextAction || brief.next,
       summary: "这一页把会前判断翻译成现场动作：怎么开场、先问什么、哪些边界不能承诺，以及会后怎么刷新判断。",
       nodes,
-      sources
+      sources,
+      showClaim: false
     })}
-    ${questionnaireSection(report, round)}
-    ${internalNotesSection(round)}
   </div>`;
 }
 
@@ -7134,6 +7259,13 @@ function actionNextStepText(value = "") {
   if (/预算来源|审批流程|决策链|付款主体|采购流程/.test(text)) {
     return "下一步锁定项目预算来源、采购流程、付款主体和拍板路径。";
   }
+  return text;
+}
+
+function usableActionNote(value = "") {
+  const text = cleanBusinessText(value, 180);
+  if (!meaningful(text)) return "";
+  if (/不\s*\.{2,}|不承\s*\.{2,}|不\s*…|承诺边界[:：]?\s*不\s*$/.test(text)) return "";
   return text;
 }
 

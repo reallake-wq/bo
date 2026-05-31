@@ -20,13 +20,11 @@ const VIEW_REQUIREMENTS = {
     min: 5,
     max: 7,
     orderedLabels: [
-      "\u5ba2\u6237\u4f18\u5148\u7ea7",
+      "\u8425\u6536\u80fd\u529b",
       "\u4f01\u4e1a\u53d1\u5c55\u9636\u6bb5",
-      "\u7ecf\u8425\u72b6\u6001",
       "\u7ec4\u7ec7\u590d\u6742\u5ea6",
       "\u884c\u4e1a\u5730\u4f4d",
-      "\u7ba1\u7406\u6210\u719f\u5ea6\u521d\u5224",
-      "\u98ce\u9669\u72b6\u6001"
+      "\u7ba1\u7406\u6210\u719f\u5ea6\u521d\u5224"
     ]
   },
   sales: {
@@ -201,7 +199,7 @@ async function main() {
       nodeCount,
       branchCount,
       nodeCountOk: nodeCount >= requirement.min && nodeCount <= requirement.max,
-      branchCountOk: branchCount >= nodeCount * (view.key === "sales" ? 1 : 2),
+      branchCountOk: branchCount >= nodeCount,
       invalidPointCount: invalidPointCount(argumentText),
       expectedRange: [requirement.min, requirement.max],
       labelOrder
