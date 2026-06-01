@@ -199,7 +199,7 @@ async function main() {
     fivePerspectivePyramid:
       hasAll(text, [C.profile, C.salesAnalysis, C.solutionAnalysis, C.deliveryAnalysis, C.actionGuide]) &&
       (html.match(/class="argument-node/g) || []).length >= 18 &&
-      (html.match(/class="argument-branch"/g) || []).length >= 45,
+      (html.match(/class="argument-branch\b/g) || []).length >= 45,
     salesPaysOff:
       hasAll(salesText, [
         "\u662f\u5426\u6709\u91c7\u8d2d\u80fd\u529b",

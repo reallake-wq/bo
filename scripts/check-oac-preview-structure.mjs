@@ -188,7 +188,7 @@ async function main() {
     const argument = argumentSectionHtml(panel, view.argumentClass);
     const argumentText = plainText(argument);
     const nodeCount = count(/class="argument-node(?:\s|")/g, argument);
-    const branchCount = count(/class="argument-branch"/g, argument);
+    const branchCount = count(/class="[^"]*\bargument-branch\b/g, argument);
     const requirement = VIEW_REQUIREMENTS[view.key] || { min: 3, max: 5, orderedLabels: [] };
     const labelOrder = labelsInNodeOrder(argument, requirement.orderedLabels);
     return {

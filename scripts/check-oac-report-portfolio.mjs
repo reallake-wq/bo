@@ -41,7 +41,7 @@ function argumentBranchCounts(section = "") {
   return section
     .split(/<details class="argument-node/)
     .slice(1)
-    .map((node) => (node.match(/class="argument-branch"/g) || []).length);
+    .map((node) => (node.match(/class="argument-branch\b/g) || []).length);
 }
 
 function argumentClaims(section = "") {

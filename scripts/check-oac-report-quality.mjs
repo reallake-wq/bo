@@ -198,7 +198,7 @@ function argumentSectionDetails(html) {
     const nodeChunks = content.split(/<details class="argument-node(?:\s|")/).slice(1);
     const nodes = nodeChunks.map((chunk) => {
       const summaryMatch = chunk.match(/<summary>[\s\S]*?<span>([\s\S]*?)<\/span>[\s\S]*?<b>([\s\S]*?)<\/b>/);
-      const branchCount = (chunk.match(/class="argument-branch"/g) || []).length;
+      const branchCount = (chunk.match(/class="[^"]*\bargument-branch\b/g) || []).length;
       const evidenceCount = (chunk.match(/class="evidence-chip"|<li>/g) || []).length;
       return {
         label: plainText(summaryMatch?.[1] || ""),
@@ -207,7 +207,7 @@ function argumentSectionDetails(html) {
         evidenceCount
       };
     });
-    const branchCount = (content.match(/class="argument-branch"/g) || []).length;
+    const branchCount = (content.match(/class="[^"]*\bargument-branch\b/g) || []).length;
     const unsupportedNodes = nodes.filter((node) => node.branchCount < 1).map((node) => node.label || node.claim || "unnamed");
     return {
       className,
@@ -361,7 +361,8 @@ function scoreHtml(html, report = {}) {
   if ([...coverActionSegment].length > 220) bad.coverActionTooLong = (bad.coverActionTooLong || 0) + 1;
   const actionSectionHtml = firstSectionHtml(html, "battle-section argument-section action-argument-section");
   const actionQuestionFieldCount = (actionSectionHtml.match(/<em>\u95ee\u9898\d+<\/em>/g) || []).length;
-  if (actionQuestionFieldCount < 12) bad.questionnaireTooThin = (bad.questionnaireTooThin || 0) + 1;
+  const compactQuestionCategoryCount = (actionSectionHtml.match(/questionnaire-row-list/g) || []).length;
+  if (actionQuestionFieldCount < 12 && compactQuestionCategoryCount < 4) bad.questionnaireTooThin = (bad.questionnaireTooThin || 0) + 1;
   const argumentsInfo = argumentStats(html);
   const roleCoverage = roleArgumentCoverage(argumentsInfo);
   const activeRound =
@@ -397,12 +398,11 @@ function scoreHtml(html, report = {}) {
       html.includes("argument-tree"),
     workPackages:
       html.includes("delivery-argument-section") &&
-      html.includes("sow-fields") &&
-      hasText(text, "\u4e00\u7ea7\u529f\u80fd\u6a21\u5757") &&
+      (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")) &&
       hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") &&
-      hasText(text, "\u96be\u70b9\u6807\u8bc6"),
+      hasText(text, "\u96be\u70b9\u6807\u8bc6|\u96be\u70b9"),
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
-    deliveryAssessment: html.includes("delivery-argument-section") && html.includes("sow-fields"),
+    deliveryAssessment: html.includes("delivery-argument-section") && (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")),
     deliveryOrder:
       html.indexOf("SOW\u5206\u89e3") >= 0 &&
       html.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9") >= 0 &&

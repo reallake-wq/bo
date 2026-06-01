@@ -1337,13 +1337,162 @@ function isUnsupportedSchedulingQuestion(value = "", context = {}) {
 }
 
 function cleanDecisionSolutions(items = [], context = {}) {
-  return arr(items)
+  const cleaned = arr(items)
     .map(cleanRoundTextItem)
     .filter((item) => meaningful(item.title))
     .filter((item) => [item.customerPain, item.introduction, item.value, item.expectedImpact, item.how, item.why].some(meaningful))
     .filter((item) => !isNonDecisionClaim([item.customerPain, item.introduction, item.value, item.expectedImpact, item.how, item.why].join("；")))
-    .filter((item) => !isForcedSellerProductSolution(item, context))
-    .slice(0, 8);
+    .filter((item) => !isForcedSellerProductSolution(item, context));
+  return normalizePrioritizedSolutions(cleaned, 8);
+}
+
+function explicitPriorityLabel(value = "") {
+  const match = String(value || "").toUpperCase().match(/\bP\s*([0-9])\b/);
+  if (!match) return "";
+  return `P${Math.min(Number(match[1]), 2)}`;
+}
+
+function normalizePriorityLabel(value = "", index = 0) {
+  return explicitPriorityLabel(value) || `P${Math.min(Math.max(Number(index) || 0, 0), 2)}`;
+}
+
+function priorityRank(value = "") {
+  const label = explicitPriorityLabel(value);
+  return label ? Number(label.slice(1)) : 99;
+}
+
+function prioritySorted(items = []) {
+  return arr(items)
+    .map((item, index) => ({ item, index, rank: priorityRank(item?.priority) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ item }) => item);
+}
+
+function normalizePrioritizedSolutions(items = [], limit = 6) {
+  return prioritySorted(
+    arr(items)
+      .map((item, index) => ({
+        ...item,
+        title: item.title || item.name || item.label || "",
+        priority: normalizePriorityLabel(item.priority, index)
+      }))
+      .filter((item) => meaningful(item.title))
+  ).slice(0, limit);
+}
+
+function priorityMatchKeywords(value = "") {
+  const text = String(value || "");
+  return [
+    "知识库", "数据问答", "知识", "生态", "伙伴", "接入", "智能体", "编排",
+    "投标", "售前", "标书", "交付", "预测", "维护", "运维", "AIOps",
+    "跨系统", "流程", "HolliCube", "机理", "模型", "MES", "ERP", "WMS", "LIMS"
+  ].filter((keyword) => text.includes(keyword));
+}
+
+function priorityMatchText(item = {}) {
+  return [
+    item.title,
+    item.customerPain,
+    item.pain,
+    item.opportunity,
+    item.aiEntry,
+    item.introduction,
+    item.value,
+    item.why,
+    item.sourceBasis,
+    item.reasoning
+  ].filter(meaningful).join(" ");
+}
+
+function painSolutionMatchScore(pain = {}, solution = {}) {
+  const painText = priorityMatchText(pain);
+  const solutionText = priorityMatchText(solution);
+  const painKey = normalizeForCompare(painText);
+  const solutionKey = normalizeForCompare(solutionText);
+  const painTitle = normalizeForCompare(pain.title || "");
+  const solutionTitle = normalizeForCompare(solution.title || "");
+  let score = 0;
+  if (painTitle && solutionKey.includes(painTitle)) score += 8;
+  if (solutionTitle && painKey.includes(solutionTitle)) score += 8;
+  if (painKey && solutionKey && (painKey.includes(solutionKey) || solutionKey.includes(painKey))) score += 6;
+  const painKeywords = new Set(priorityMatchKeywords(painText));
+  priorityMatchKeywords(solutionText).forEach((keyword) => {
+    if (painKeywords.has(keyword)) score += 2;
+  });
+  return score;
+}
+
+function relatedPainForSolution(solution = {}, pains = [], fallbackIndex = 0) {
+  const ranked = arr(pains)
+    .map((pain, index) => ({ pain, index, score: painSolutionMatchScore(pain, solution) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  return ranked[0]?.score > 0 ? ranked[0].pain : arr(pains)[fallbackIndex] || {};
+}
+
+function alignPainPrioritiesWithSolutions(pains = [], solutions = [], limit = 8) {
+  const visibleSolutions = normalizePrioritizedSolutions(solutions, Math.max(arr(solutions).length, 1));
+  const aligned = arr(pains)
+    .map(cleanRoundTextItem)
+    .filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity))
+    .map((pain, index) => {
+      const explicit = explicitPriorityLabel(pain.priority);
+      if (explicit) return { ...pain, priority: explicit };
+      const matched = visibleSolutions
+        .map((solution, solutionIndex) => ({ solution, solutionIndex, score: painSolutionMatchScore(pain, solution) }))
+        .sort((a, b) => b.score - a.score || a.solutionIndex - b.solutionIndex)[0];
+      const fallback = visibleSolutions[index] || {};
+      return {
+        ...pain,
+        priority: matched?.score > 0
+          ? normalizePriorityLabel(matched.solution.priority, matched.solutionIndex)
+          : normalizePriorityLabel(fallback.priority, index)
+      };
+    });
+  return prioritySorted(aligned).slice(0, limit);
+}
+
+function painItemsForVisibleSolutions(pains = [], solutions = [], limit = 5) {
+  const visibleSolutions = visibleSolutionCards(solutions, limit);
+  const pool = arr(pains)
+    .map(cleanRoundTextItem)
+    .filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity));
+  if (!visibleSolutions.length) return alignPainPrioritiesWithSolutions(pool, [], limit);
+  const used = new Set();
+  const fallbackQueue = [...pool];
+  return visibleSolutions
+    .map((solution, solutionIndex) => {
+      const ranked = pool
+        .map((pain, painIndex) => ({
+          pain,
+          painIndex,
+          key: normalizeForCompare(`${pain.title || ""}${pain.pain || ""}${pain.opportunity || ""}`) || String(painIndex),
+          score: painSolutionMatchScore(pain, solution)
+        }))
+        .filter((item) => !used.has(item.key))
+        .sort((a, b) => b.score - a.score || a.painIndex - b.painIndex);
+      let picked = ranked[0]?.score > 0 ? ranked[0] : null;
+      if (!picked) {
+        while (fallbackQueue.length) {
+          const next = fallbackQueue.shift();
+          const key = normalizeForCompare(`${next.title || ""}${next.pain || ""}${next.opportunity || ""}`) || String(pool.indexOf(next));
+          if (!used.has(key)) {
+            picked = { pain: next, key };
+            break;
+          }
+        }
+      }
+      if (!picked?.pain) return null;
+      used.add(picked.key);
+      return {
+        ...picked.pain,
+        priority: normalizePriorityLabel(solution.priority, solutionIndex)
+      };
+    })
+    .filter(Boolean);
+}
+
+function visibleSolutionCards(items = [], limit = 5) {
+  return normalizePrioritizedSolutions(items, limit);
 }
 
 function cleanDecisionPains(items = [], context = {}) {
@@ -1381,11 +1530,13 @@ function cleanStrategyData(strategy = {}) {
     ...strategy,
     currentSituation,
     overallApproach,
-    rankedSolutions: arr(strategy.rankedSolutions)
-      .map(cleanRoundTextItem)
-      .filter((item) => meaningful(item.title) || meaningful(item.why))
-      .filter((item) => !isNonDecisionClaim(`${item.title || ""} ${item.why || ""}`))
-      .slice(0, 6),
+    rankedSolutions: normalizePrioritizedSolutions(
+      arr(strategy.rankedSolutions)
+        .map(cleanRoundTextItem)
+        .filter((item) => meaningful(item.title) || meaningful(item.why))
+        .filter((item) => !isNonDecisionClaim(`${item.title || ""} ${item.why || ""}`)),
+      6
+    ),
     implementationPath: implementationPath.length || !shouldCompletePath
       ? implementationPath
       : [
@@ -1938,8 +2089,8 @@ function buildBattleRound(report = {}, type = "pre_visit", inputText = "", previ
   const rating = ratingOf(report);
   const conclusions = normalizeConclusions(report);
   const fit = report.opportunityFit || {};
-  const pains = usefulItems(report.pains).slice(0, 6);
-  const solutions = usefulItems(report.solutions).slice(0, 6);
+  const solutions = normalizePrioritizedSolutions(usefulItems(report.solutions), 6);
+  const pains = alignPainPrioritiesWithSolutions(usefulItems(report.pains), solutions, 6);
   const customerSections = [
     { key: "local", title: "主体与股权/区域", items: usefulItems(report.customerInsights?.localCards) },
     { key: "market", title: "产品与客户", items: usefulItems(report.customerInsights?.groupCards) },
@@ -1979,6 +2130,7 @@ function buildBattleRound(report = {}, type = "pre_visit", inputText = "", previ
     conclusions,
     customerInfo: customerSections,
     painsAndOpportunities: pains.map((item) => cleanRoundTextItem({
+      priority: item.priority,
       title: item.title || "痛点机会",
       customerSignal: item.sourceBasis || item.basis || arr(item.facts)[0] || item.reasoning || evidenceTextFromSources(report, item),
       pain: item.reasoning || item.body || item.insight || item.basis || evidenceTextFromSources(report, item),
@@ -2044,6 +2196,7 @@ function cleanInternalNote(value) {
 
 function roundPainFromReportPain(report = {}, item = {}) {
   return cleanRoundTextItem({
+    priority: explicitPriorityLabel(item.priority),
     title: item.title || "痛点机会",
     customerSignal: item.sourceBasis || item.basis || arr(item.facts)[0] || item.reasoning || evidenceTextFromSources(report, item),
     pain: item.reasoning || item.body || item.insight || item.basis || evidenceTextFromSources(report, item),
@@ -2055,7 +2208,7 @@ function roundPainFromReportPain(report = {}, item = {}) {
 
 function roundSolutionFromReportSolution(item = {}, index = 0) {
   return cleanRoundTextItem({
-    priority: item.priority || `P${Math.min(index + 1, 2)}`,
+    priority: normalizePriorityLabel(item.priority, index),
     title: item.title || "建议方案",
     customerPain: item.customerPain || item.why || item.sourceBasis || "",
     introduction: solutionIntro(item),
@@ -2077,9 +2230,10 @@ function normalizeExistingRound(report, round = {}, index = 0) {
       )
     : arr(round.changeSummary);
   const reportPainFallback = arr(report.pains).map((item) => roundPainFromReportPain(report, item));
-  const sourceFallback = feedback.hasActionable
+  const rawSourceFallback = feedback.hasActionable
     ? mergeByTitle(
         feedback.pains.map((item) => ({
+          priority: explicitPriorityLabel(item.priority),
           title: item.title,
           customerSignal: item.sourceBasis,
           pain: item.reasoning,
@@ -2091,12 +2245,14 @@ function normalizeExistingRound(report, round = {}, index = 0) {
         8
       )
     : mergeScenarioItemsByTheme(arr(round.painsAndOpportunities), reportPainFallback, 6);
-  const reportSolutionFallback = arr(report.solutions).map((item, solutionIndex) => roundSolutionFromReportSolution(item, solutionIndex));
+  const reportSolutionFallback = normalizePrioritizedSolutions(arr(report.solutions).map((item, solutionIndex) => roundSolutionFromReportSolution(item, solutionIndex)), 8);
   const rawSolutions = feedback.hasActionable
     ? mergeByTitle(feedback.solutions, round.solutionCards, 8)
     : mergeByTitle(round.solutionCards, reportSolutionFallback, 6);
-  const solutionCards = rawSolutions.map((item, solutionIndex) => {
-    const sourcePain = sourceFallback[solutionIndex] || {};
+  const normalizedRawSolutions = normalizePrioritizedSolutions(rawSolutions, 8);
+  const sourceFallback = alignPainPrioritiesWithSolutions(rawSourceFallback, normalizedRawSolutions, 8);
+  const solutionCards = normalizedRawSolutions.map((item, solutionIndex) => {
+    const sourcePain = relatedPainForSolution(item, sourceFallback, solutionIndex);
     const customerPain = compactText(item.customerPain || item.pain || item.sourceBasis || sourcePain.pain || item.why, 260);
     const introduction = solutionIntro(item);
     let value = compactText(item.value || item.solutionValue || item.why || item.how || item.body, 240);
@@ -2104,7 +2260,7 @@ function normalizeExistingRound(report, round = {}, index = 0) {
     if (sameText(value, customerPain)) value = compactText(item.body || item.how || item.expectedImpact, 220);
     return cleanRoundTextItem({
       ...cleanRoundTextItem(item),
-      priority: item.priority || `P${Math.min(solutionIndex + 1, 2)}`,
+      priority: normalizePriorityLabel(item.priority, solutionIndex),
       customerPain,
       introduction,
       value,
@@ -4491,12 +4647,12 @@ function painsAndOpportunitySection(round, sources) {
 
 function buildSolutionStrategy(report, round) {
   const explicit = round.solutionStrategy || report.solutionStrategy || {};
-  const pains = arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain));
-  const solutions = arr(round.solutionCards).filter((item) => meaningful(item.title));
+  const solutions = normalizePrioritizedSolutions(arr(round.solutionCards).filter((item) => meaningful(item.title)), 6);
+  const pains = alignPainPrioritiesWithSolutions(arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain)), solutions, 8);
   const topPain = pains[0] || {};
   const p0 = solutions.find((item) => String(item.priority || "").toUpperCase() === "P0") || solutions[0] || {};
   const ranked = solutions.slice(0, 5).map((item, index) => ({
-    priority: item.priority || `P${Math.min(index + 1, 2)}`,
+    priority: normalizePriorityLabel(item.priority, index),
     title: item.title || "建议方案",
     why: item.value || item.why || item.expectedImpact || item.customerPain || ""
   }));
@@ -4512,7 +4668,7 @@ function buildSolutionStrategy(report, round) {
       (p0.title
         ? `围绕“${p0.title}”建立第一切入点，再用知识库、数据问答或自动化能力补齐交付和复用链路。`
         : "先把客户问题收敛到一个可验证场景，再逐步扩大到流程、数据和组织协同。"),
-    rankedSolutions: arr(explicit.rankedSolutions).length ? explicit.rankedSolutions : ranked,
+    rankedSolutions: arr(explicit.rankedSolutions).length ? normalizePrioritizedSolutions(explicit.rankedSolutions, 6) : ranked,
     implementationPath: arr(explicit.implementationPath).length ? explicit.implementationPath : defaultPath
   };
 }
@@ -4544,7 +4700,12 @@ function solutionWorkItems(solution = {}) {
     items.push("优化引擎：输出可解释排程、瓶颈提示和多方案对比。");
     items.push("异常重排模块：处理插单、缺料、设备异常和交期变化。");
     items.push("排产看板：展示产能负荷、计划达成率和异常原因。");
-  } else if (/视频|摄像头|识别|视觉|告警|行为/.test(text)) {
+  } else if (/预测性维护|运维|AIOps|故障|维修|备件|处置复盘/.test(text)) {
+    items.push("告警知识库：沉淀告警规则、故障原因、处置建议和引用来源。");
+    items.push("故障诊断助手：结合设备状态、历史案例和知识库输出排查路径。");
+    items.push("工单处置闭环：串联建议、派单、处理记录、备件申请和结果确认。");
+    items.push("运维复盘看板：统计告警命中、处理时长、复发问题和知识更新。");
+  } else if (/视频|摄像头|视觉|图像|画面|错装|违规动作|行为识别/.test(text)) {
     items.push("视频接入模块：接入摄像头画面、区域配置和工位映射。");
     items.push("行为识别模块：识别违规动作、错装错放和异常停留。");
     items.push("告警联动模块：推送现场告警、留存截图和处置记录。");
@@ -4591,7 +4752,27 @@ function solutionWorkPackages(solution = {}) {
       }
     ];
   }
-  if (/视频|摄像头|识别|视觉|告警|行为/.test(text)) {
+  if (/预测性维护|运维|AIOps|故障|维修|备件|处置复盘/.test(text)) {
+    return [
+      {
+        title: "告警知识库",
+        items: ["告警规则入库", "故障原因和处置建议沉淀", "引用出处追溯"]
+      },
+      {
+        title: "故障诊断助手",
+        items: ["设备状态摘要", "历史案例匹配", "排查路径生成"]
+      },
+      {
+        title: "工单处置闭环",
+        items: ["处置建议推送", "工单和备件申请联动", "处理结果确认"]
+      },
+      {
+        title: "运维复盘看板",
+        items: ["告警命中统计", "处理时长分析", "复发问题和知识更新"]
+      }
+    ];
+  }
+  if (/视频|摄像头|视觉|图像|画面|错装|违规动作|行为识别/.test(text)) {
     return [
       {
         title: "视频接入与区域配置",
@@ -5137,7 +5318,24 @@ function normalizeForCompare(text = "") {
     .trim();
 }
 
-function removeClaimDuplicateEvidence(evidence = [], claim = "") {
+function isNearDuplicateText(a = "", b = "", minLength = 18) {
+  const left = normalizeForCompare(a);
+  const right = normalizeForCompare(b);
+  if (!left || !right) return false;
+  if (Math.min(left.length, right.length) < minLength) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+function basisFromClaimOrEvidence(claim = "", evidence = []) {
+  const text = cleanBusinessText(claim, 240).replace(/[。！？.!?]+$/g, "");
+  const basis = text.match(/(?:依据是|依据为|主要依据是|触发依据是)(.+)$/)?.[1] || "";
+  const cleanedBasis = cleanBusinessText(basis.replace(/^[:：，,\s]+/g, ""), 180);
+  if (meaningful(cleanedBasis)) return claimSentence(cleanedBasis, "", 180);
+  const evidenceText = signalTextSummary(evidence, 1, 150) || evidenceDecisionSummary(evidence, "");
+  return evidenceText ? claimSentence(evidenceText, "", 180) : "";
+}
+
+function removeClaimDuplicateEvidence(evidence = [], claim = "", { keepFallback = true } = {}) {
   const claimKey = normalizeForCompare(claim);
   const original = arr(evidence)
     .map((item) => usefulEvidenceText(item, 180))
@@ -5148,7 +5346,7 @@ function removeClaimDuplicateEvidence(evidence = [], claim = "") {
     if (!claimKey) return true;
     return !(claimKey.includes(itemKey) || itemKey.includes(claimKey));
   });
-  return cleaned.length ? cleaned : original.slice(0, 1);
+  return cleaned.length ? cleaned : (keepFallback ? original.slice(0, 1) : []);
 }
 
 function argumentBranchTitles(label = "") {
@@ -5366,9 +5564,16 @@ function argumentBranchItems(node = {}, evidence = []) {
       const title = cleanBusinessText(branch.title || branch.label || "支撑判断", 36);
       const forceBranch = Boolean(node.forceDisplay || branch.forceDisplay);
       const rawClaim = branch.claim || branch.body || branch.summary || "";
+      const branchEvidence = uniqueTexts(branch.evidence || branch.facts || [], 4)
+        .map((item) => forceBranch ? cleanBusinessText(item, 180) : usefulEvidenceText(item, 180))
+        .filter(Boolean);
+      const branchClaim = forceBranch ? forcedSentence(rawClaim, "", 180) : completeBranchClaim(title, rawClaim);
+      const dedupedClaim = isNearDuplicateText(branchClaim, node.claim)
+        ? (basisFromClaimOrEvidence(branchClaim, branchEvidence) || branchClaim)
+        : branchClaim;
       return {
         title,
-        claim: forceBranch ? forcedSentence(rawClaim, "", 180) : completeBranchClaim(title, rawClaim),
+        claim: dedupedClaim,
         kind: branch.kind || "",
         fields: arr(branch.fields)
           .map((field) => ({
@@ -5376,9 +5581,18 @@ function argumentBranchItems(node = {}, evidence = []) {
             value: cleanBusinessText(field.value || field.body || field.text || "", 260)
           }))
           .filter((field) => meaningful(field.label) && meaningful(field.value)),
-        evidence: uniqueTexts(branch.evidence || branch.facts || [], 4)
-          .map((item) => forceBranch ? cleanBusinessText(item, 180) : usefulEvidenceText(item, 180))
-          .filter(Boolean),
+        rows: arr(branch.rows)
+          .map((row) => {
+            const rowLabel = typeof row === "string" ? row : row.label || row.title || row.task || row.name || "";
+            return {
+              label: cleanBusinessText(rowLabel, 240),
+              description: cleanBusinessText(typeof row === "string" ? "" : row.description || row.introduction || row.summary || row.body || "", 180),
+              hard: Boolean(row.hard),
+              difficulty: cleanBusinessText(row.difficulty || (row.hard ? "难点" : ""), 24)
+            };
+          })
+          .filter((row) => meaningful(row.label)),
+        evidence: branchEvidence,
         sourceIds: normalizeSourceIdList(branch),
         annualPage: branch.annualPage || branch.page || branch.annualReportPage,
         annualFileName: branch.annualFileName,
@@ -5467,25 +5681,45 @@ function argumentTreeSection({ className = "", kicker = "", thesis = "", summary
       ${cleanNodes
         .map((node, index) => {
           const toneClass = node.invalid ? "" : e(node.tone || "");
+          const branchTitle = /delivery-argument-section/.test(className)
+            ? (/SOW/.test(String(node.label || "")) ? "功能明细" : "明细")
+            : /action-argument-section/.test(className)
+              ? (/现场问卷/.test(String(node.label || "")) ? "问题分类" : "关注项")
+              : "核心论据";
+          const branchTitleHtml = branchTitle && branchTitle !== "明细"
+            ? `<div class="argument-evidence-title">${e(branchTitle)}</div>`
+            : "";
           return `<details class="argument-node ${toneClass} ${node.invalid ? "invalid" : ""} ${node.wide ? "wide" : ""}" ${node.open ? "open" : ""}>
           <summary>
             <span>${e(`${String(index + 1).padStart(2, "0")}｜${node.label || "关键判断"}`)}</span>
             <b>${e(node.claim)}</b>
           </summary>
           <div class="argument-node-body">
-            ${node.branches.length ? `<div class="argument-evidence-title">核心论据</div>
+            ${node.branches.length ? `${branchTitleHtml}
               <div class="argument-branches">
                 ${node.branches.map((branch) => {
-                  const branchEvidence = removeClaimDuplicateEvidence(branch.evidence || [], branch.claim);
+                  const branchEvidence = removeClaimDuplicateEvidence(
+                    removeClaimDuplicateEvidence(branch.evidence || [], branch.claim, { keepFallback: false }),
+                    node.claim,
+                    { keepFallback: false }
+                  );
                   const branchInvalid = Boolean(branch.invalid) || /^未查到|.*暂无法判断|.*无法判断|.*未形成有效判断|.*未形成.*结论/.test(`${branch.title || ""}${branch.claim || ""}`);
-                  return `<article class="argument-branch${branchInvalid ? " invalid" : ""}">
-                    <span>${e(branch.title)}</span>
-                    <b>${e(branch.claim)}</b>
-                    ${arr(branch.fields).length ? `<div class="argument-field-grid ${e(branch.kind || "")}">${arr(branch.fields)
-                      .map((field) => `<div class="argument-field"><em>${e(field.label)}</em><p>${e(field.value)}</p></div>`)
-                      .join("")}</div>` : branchEvidence.length ? `<ul>${branchEvidence.map((item) => `<li>${e(item)}</li>`).join("")}</ul>` : ""}
-                    ${evidenceLinks(branch, sources)}
-                  </article>`;
+                  return `<details class="argument-branch ${e(branch.kind || "")}${branchInvalid ? " invalid" : ""}">
+                    <summary>
+                      <span>${e(branch.title)}</span>
+                      <b>${e(branch.claim)}</b>
+                    </summary>
+                    <div class="argument-branch-body">
+                      ${arr(branch.rows).length ? `<div class="sow-module-rows ${e(branch.kind || "")}">
+                        ${arr(branch.rows).map((row) => branch.kind === "sow-module-fields"
+                          ? `<div class="sow-module-row${row.hard ? " hard" : ""}"><span class="sow-row-main"><em>${e(row.label)}</em>${row.description ? `<small>${e(row.description)}</small>` : ""}</span><span>${row.hard ? "✓ 难点" : ""}</span></div>`
+                          : `<div class="sow-module-row${row.hard ? " hard" : ""}"><span>${e(row.label)}</span><span>${row.hard ? "✓ 难点" : ""}</span></div>`).join("")}
+                      </div>` : arr(branch.fields).length ? `<div class="argument-field-grid ${e(branch.kind || "")}">${arr(branch.fields)
+                        .map((field) => `<div class="argument-field"><em>${e(field.label)}</em><p>${e(field.value)}</p></div>`)
+                        .join("")}</div>` : branchEvidence.length ? `<ul>${branchEvidence.map((item) => `<li>${e(item)}</li>`).join("")}</ul>` : ""}
+                      ${evidenceLinks(branch, sources)}
+                    </div>
+                  </details>`;
                 }).join("")}
               </div>` : ""}
             ${node.note ? `<p class="argument-note">${e(cleanBusinessText(node.note, 180))}</p>` : ""}
@@ -5737,6 +5971,218 @@ function filterSignal(signal = {}, predicate = () => true) {
     evidence,
     sourceIds: arr(signal.sourceIds)
   };
+}
+
+function isPresalesEfficiencyEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 320);
+  if (!meaningful(text)) return false;
+  if (/招投标|投标|中标|标书|资质材料|采购公告|招标公告|投标邀请/.test(text)) return true;
+  return /项目制|项目交付|定制项目/.test(text) && /售前|标书|资质|版本|方案材料|重复/.test(text);
+}
+
+function isEcosystemIntegrationEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 320);
+  if (!meaningful(text)) return false;
+  return /生态伙伴|本地化能力中心|能力中心|伙伴接入|平台融合|行业信息化产品|HolliCube|本地生态服务公司|区域产业集群/.test(text);
+}
+
+function isRealtimeDataEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 320);
+  if (!meaningful(text)) return false;
+  return /实时性|完备性|安全性|二次计算|时序数据|实时监控|高频|性能|稳定性|运维|工业时序数据库|云边数据交互/.test(text);
+}
+
+function reportInsightSignalRows(report = {}, round = {}, pattern, predicate = () => true, max = 5) {
+  const containers = [
+    ...arr(report.sourceBriefs).flatMap((brief) => [...arr(brief.facts), ...arr(brief.implications)]),
+    ...arr(round.sourceBriefs).flatMap((brief) => [...arr(brief.facts), ...arr(brief.implications)]),
+    ...arr(report.businessInsights),
+    ...arr(round.businessInsights)
+  ].filter(Boolean);
+  const rows = containers.flatMap((item) => {
+    const candidates = uniqueTexts([
+      item.claim,
+      item.body,
+      item.insight,
+      item.summary,
+      item.value,
+      item.customerSignal,
+      item.pain,
+      item.opportunity,
+      item.reasoning,
+      item.sourceBasis,
+      item.introduction,
+      item.expectedImpact,
+      item.prerequisite,
+      ...arr(item.facts),
+      ...arr(item.implementationPath)
+    ], 10);
+    return candidates
+      .map((candidate) => {
+        const text = cleanBusinessText(candidate, 260);
+        if (!meaningful(text)) return null;
+        if (!pattern.test(text)) return null;
+        if (!predicate(text)) return null;
+        return { text, sourceIds: normalizeSourceIdList(item) };
+      })
+      .filter(Boolean);
+  });
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = normalizeForCompare(row.text);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, max);
+}
+
+function operationalEvidenceRank(key = "", text = "") {
+  const value = cleanBusinessText(text, 320);
+  if (key === "presalesEfficiency") {
+    if (/(?:\d+\s*次.{0,12}招投标|招投标.{0,12}\d+\s*次)/.test(value)) return -1;
+    if (/招投标|投标|中标/.test(value) && /\d+\s*次|万元|项目/.test(value)) return 0;
+    if (/标书|资质材料|版本一致|方案素材/.test(value)) return 1;
+  }
+  if (key === "ecosystemIntegration") {
+    if (/本地化能力中心|生态伙伴|行业信息化产品|伙伴接入/.test(value)) return 0;
+    if (/HolliCube|平台融合|能力中心/.test(value)) return 1;
+  }
+  if (key === "realtimeData") {
+    if (/二次计算|实时监控|时序数据|工业时序数据库|实时性/.test(value)) return 0;
+    if (/云边数据交互|性能|稳定性|运维/.test(value)) return 1;
+  }
+  return 3;
+}
+
+function operationalInsightItems(report = {}, round = {}, sources = []) {
+  const signalOptions = {
+    excludeFamilies: ["finance_budget", "subject_registry", "risk_legal"],
+    excludeKeys: ["finance", "risk", "local"],
+    excludePattern: /工商|主体边界|股权|集团关系|受益所有人|董监高|注册资本|实缴|财务|年报|经营体量|预算能力|付款能力/i
+  };
+  const definitions = [
+    {
+      key: "presalesEfficiency",
+      title: "投标与项目制带来的售前成本高",
+      pattern: /招投标|投标|中标|标书|资质|售前|项目制|项目交付|采购公告|招标公告|定制项目/i,
+      directPattern: /标书|资质材料|售前成本|版本一致|重复生产|项目制交付|投标成本|方案复用/i,
+      evidencePredicate: isPresalesEfficiencyEvidenceText,
+      pain:
+        "公开资料显示客户存在招投标、中标或项目交付线索，标书、方案、资质材料和版本一致性可能形成重复售前成本。",
+      opportunity:
+        "可优先验证标书/方案素材库、资质材料库、项目经验复用和版本审批流程，用企业智能体把重复材料生产压缩成可管控的知识流。",
+      confirm:
+        "现场重点核对近一年投标/方案材料产出频率、常用资质包、版本审核责任和重复修改原因。"
+    },
+    {
+      key: "ecosystemIntegration",
+      title: "生态伙伴融合成本高",
+      pattern: /生态伙伴|能力中心|本地化能力中心|伙伴|融合|接口|数据模型|验收标准|集成|HolliCube|平台生态|行业信息化产品/i,
+      directPattern: /接口|数据模型|验收标准|重复交付|集成|融合成本|伙伴接入|系统集成/i,
+      evidencePredicate: isEcosystemIntegrationEvidenceText,
+      pain:
+        "公开资料显示客户存在平台融合、能力中心或生态伙伴线索，伙伴接入时接口、数据模型、版本和验收标准不统一，可能带来重复交付压力。",
+      opportunity:
+        "可围绕伙伴接入规范、接口知识库、行业模板和验收标准沉淀做验证，帮助销售/交付团队减少重复解释和重复实施。",
+      confirm:
+        "现场重点核对伙伴接入流程、接口文档、数据模型口径、版本管理和验收模板是否已经标准化。"
+    },
+    {
+      key: "realtimeData",
+      title: "平台实时数据链路压力",
+      pattern: /实时性|完备性|安全性|二次计算|时序数据|实时监控|高频|性能|稳定性|运维|告警|吞吐|延迟|设备数据/i,
+      directPattern: /实时性|完备性|安全性|二次计算|时序数据|实时监控|高频|性能|稳定性|运维压力/i,
+      evidencePredicate: isRealtimeDataEvidenceText,
+      pain:
+        "公开资料涉及工业数据实时性、完备性、安全性、二次计算或实时监控场景，平台性能、稳定性和运维能力会成为落地压力。",
+      opportunity:
+        "可从实时链路监控、异常告警、知识化运维和高频数据处理问起，验证企业智能体是否能补齐一线运维和数据解释能力。",
+      confirm:
+        "现场重点核对数据刷新频率、二次计算规则、告警闭环、异常复核流程和现有运维工具。"
+    }
+  ];
+  return definitions
+    .map((definition) => {
+      const scopedOptions = {
+        ...signalOptions,
+        sourcePredicate: (_source, text) => definition.evidencePredicate(text),
+        signalPredicate: (text) => definition.evidencePredicate(text),
+        itemPredicate: (_section, _item, candidate, text) => definition.evidencePredicate(`${candidate || ""} ${text || ""}`)
+      };
+      const signal = combinedSignal(round, sources, definition.pattern, 5, scopedOptions);
+      const reportRows = reportInsightSignalRows(report, round, definition.pattern, definition.evidencePredicate, 8);
+      const evidenceCandidates = [
+        ...reportRows.map((row) => row.text),
+        ...arr(signal.evidence).map((item) => cleanBusinessText(item, 220))
+      ]
+        .filter(definition.evidencePredicate)
+        .sort((a, b) => operationalEvidenceRank(definition.key, a) - operationalEvidenceRank(definition.key, b));
+      const evidence = uniqueTexts(evidenceCandidates, 5);
+      if (!evidence.length) return null;
+      const evidenceText = evidence.join(" ");
+      const isDirect = definition.directPattern.test(evidenceText);
+      const evidenceLevel = isDirect ? "公开证据" : "推测信息";
+      const sourceBasis = evidenceDecisionSummary(evidence, definition.title);
+      const reasoningPrefix = evidenceLevel === "推测信息" ? "推测信息：公开资料可支撑方向，但需用客户原话或流程样例复核。" : "公开证据：来源已直接出现相关场景或压力线索。";
+      return {
+        key: definition.key,
+        title: definition.title,
+        customerSignal: evidence[0],
+        pain: definition.pain,
+        opportunity: definition.opportunity,
+        aiEntry: definition.opportunity,
+        reasoning: `${reasoningPrefix} ${sourceBasis}`,
+        sourceBasis,
+        toConfirm: [definition.confirm],
+        evidenceLevel,
+        sourceIds: Array.from(new Set([...arr(signal.sourceIds), ...reportRows.flatMap((row) => arr(row.sourceIds))])).slice(0, 6)
+      };
+    })
+    .filter(Boolean);
+}
+
+function operationalInsightPattern(key = "") {
+  if (key === "presalesEfficiency") return /投标|招投标|标书|资质|售前|项目制|项目交付|版本一致/i;
+  if (key === "ecosystemIntegration") return /生态|伙伴|能力中心|融合|接口|数据模型|验收标准|HolliCube/i;
+  if (key === "realtimeData") return /实时|二次计算|时序|监控|性能|稳定性|运维|高频/i;
+  return null;
+}
+
+function hasEquivalentOperationalInsight(key = "", text = "") {
+  const value = cleanBusinessText(text, 800);
+  if (key === "presalesEfficiency") {
+    return /投标与项目制|售前成本|标书|资质材料|版本一致|重复生产|(?:\d+\s*次)?招投标.{0,40}(?:\d+\s*次|中标|万元)/.test(value);
+  }
+  if (key === "ecosystemIntegration") {
+    return /生态伙伴融合成本|伙伴接入|本地化能力中心|行业信息化产品|生态.{0,30}(?:接口|数据模型|验收标准|重复交付)/.test(value);
+  }
+  if (key === "realtimeData") {
+    return /平台实时数据链路压力|二次计算|实时监控|时序数据|工业时序数据库|实时性.{0,20}(?:性能|稳定性|运维)/.test(value);
+  }
+  return false;
+}
+
+function mergeOperationalPainItems(primary = [], operational = [], limit = 8) {
+  const raw = arr(primary).filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity));
+  const existingText = raw.map((item) => `${item.title || ""} ${item.pain || ""} ${item.opportunity || ""} ${item.customerSignal || ""}`).join(" ");
+  const supplemental = arr(operational).filter((item) => {
+    const pattern = operationalInsightPattern(item.key);
+    if (!pattern || !pattern.test(existingText)) return true;
+    return !hasEquivalentOperationalInsight(item.key, existingText);
+  });
+  const out = [];
+  const seen = new Set();
+  const push = (item) => {
+    if (!item) return;
+    const key = normalizeForCompare(`${item.title || ""}${item.pain || ""}${item.opportunity || ""}`) || normalizeForCompare(item.customerSignal || "");
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  };
+  push(raw[0]);
+  supplemental.forEach(push);
+  raw.slice(1).forEach(push);
+  return out.slice(0, limit);
 }
 
 function isActionTriggerSignal(value = "") {
@@ -6538,8 +6984,69 @@ function relativeTaskComplexityMap(groups = [], solution = {}) {
   return out;
 }
 
+function sowTaskDescription(task = "", group = {}, solution = {}) {
+  const text = `${task || ""} ${group.title || ""} ${solution.title || ""} ${solution.introduction || ""}`;
+  const patterns = [
+    [/政策|制度|模板入库/, "把制度、模板、规范和历史材料纳入知识库，形成可检索、可引用的基础资料。"],
+    [/术语|口径/, "统一客户内部术语、字段含义和表达口径，减少跨团队理解偏差。"],
+    [/案例|经验/, "沉淀历史方案、项目复盘和交付经验，支持售前与交付复用。"],
+    [/多源检索/, "从文档库、业务资料和系统数据中统一检索候选内容。"],
+    [/出处|追溯/, "保留答案引用来源，方便业务人员复核、引用和追责。"],
+    [/权限|审计/, "按角色控制可见范围，并记录访问、引用和调用日志。"],
+    [/初稿|材料.*生成|生成入口/, "基于知识库和模板生成初稿，减少重复撰写和格式整理。"],
+    [/格式|模板套用/, "把固定格式、章节结构和输出规范配置成可复用模板。"],
+    [/文风|场景输出/, "按不同业务场景调整表达风格、内容颗粒度和输出格式。"],
+    [/更新|审核/, "管理知识新增、修改和审核流程，避免过期内容直接进入输出。"],
+    [/版本管理|版本迭代/, "记录知识、规则和应用版本，支持回溯、对比和灰度更新。"],
+    [/反馈|纠错|运营看板/, "收集使用反馈、错误样例和效果指标，推动持续优化。"],
+    [/智能体模板/, "沉淀常用场景的角色、提示词、工具和输出规范，便于快速复用。"],
+    [/工具调用/, "配置智能体可调用的系统、接口和业务工具，控制调用边界。"],
+    [/任务编排|流程编排/, "把查询、分析、生成、审批或告警等步骤编排成可执行流程。"],
+    [/know-how|行业|工艺/, "沉淀行业经验、工艺规则和专家知识，支撑专业问答与方案生成。"],
+    [/产品文档|项目经验/, "汇总产品资料、实施文档和项目经验，支撑售前和交付复用。"],
+    [/规则|标准口径/, "统一业务规则、术语和验收口径，降低跨团队协作返工。"],
+    [/HolliCube|接口|连接器|适配/, "对接客户现有平台或业务系统，打通数据读取和工具调用入口。"],
+    [/MES|APS|ERP|WMS|LIMS/, "接入核心业务系统数据，为问答、分析和流程辅助提供上下文。"],
+    [/问答|分析/, "提供业务人员直接使用的查询、分析和生成入口。"],
+    [/告警|任务流转/, "把异常提醒、待办分派和处理结果纳入闭环记录。"],
+    [/摄像头|视频接入/, "接入现场视频源，并完成点位、区域和工位关系配置。"],
+    [/识别|模型|样本/, "识别目标对象或行为，并用复核样本持续优化准确率。"],
+    [/排产|排程|调度/, "根据订单、资源和约束生成计划结果，辅助计划人员评估可执行性。"],
+    [/看板|统计/, "展示运行状态、关键指标和异常分布，方便持续运营。"]
+  ];
+  const matched = patterns.find(([pattern]) => pattern.test(text));
+  if (matched) return matched[1];
+  const moduleTitle = cleanBusinessText(group.title || "该模块", 28);
+  const solutionTitle = cleanBusinessText(solution.title || "本方案", 36);
+  return `${moduleTitle}中的可交付功能，用于支撑${solutionTitle}落地。`;
+}
+
+function sowTaskRowsForSolution(item = {}, index = 0) {
+  const groups = solutionWorkPackages(item);
+  const complexityMap = relativeTaskComplexityMap(groups, item);
+  return groups.flatMap((group, groupIndex) =>
+    arr(group.items)
+      .filter(meaningful)
+      .map((task, taskIndex) => {
+        const complexity = complexityMap.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(task, group, item);
+        return {
+          priority: item.priority || `P${Math.min(index, 2)}`,
+          solutionTitle: cleanBusinessText(item.title || "方案", 58),
+          moduleTitle: cleanBusinessText(group.title || "功能模块", 48),
+          task: cleanBusinessText(task, 180),
+          description: cleanBusinessText(sowTaskDescription(task, group, item), 180),
+          solutionIndex: index,
+          moduleIndex: groupIndex,
+          taskIndex,
+          hard: complexity.className === "hard",
+          sourceIds: normalizeSourceIdList(item)
+        };
+      })
+  );
+}
+
 function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
-  const solutions = arr(round.solutionCards).filter((item) => meaningful(item.title)).slice(0, 4);
+  const solutions = visibleSolutionCards(arr(round.solutionCards).filter((item) => meaningful(item.title)), 5);
   const fallbackItems = !solutions.length
     ? arr(delivery.sowOutline)
         .filter(meaningful)
@@ -6556,43 +7063,37 @@ function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
         })
     : [];
   const workItems = solutions.length ? solutions : fallbackItems;
-  return workItems.map((item, index) => {
-    const groups = solutionWorkPackages(item);
-    const complexityMap = relativeTaskComplexityMap(groups, item);
-    const allTasks = groups.flatMap((group, groupIndex) =>
-      arr(group.items).map((task, taskIndex) => ({
-        group,
-        task,
-        complexity: complexityMap.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(task, group, item)
-      }))
-    );
-    const hardTasks = allTasks
-      .filter((row) => row.complexity.className === "hard")
-      .map((row) => `${row.group.title}-${row.task}`)
-      .slice(0, 3);
-    const taskLines = groups.map((group, groupIndex) => {
-      const items = arr(group.items)
-        .map((task, taskIndex) => {
-          const complexity = complexityMap.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(task, group, item);
-          return complexity.className === "hard" ? `${task}（难点）` : task;
-        })
-        .join("、");
-      return `${group.title}：${items}`;
-    });
-    const moduleNames = groups.map((group) => group.title).filter(meaningful).slice(0, 4);
-    return {
-      title: `${item.priority || `P${Math.min(index, 2)}`}｜${cleanBusinessText(item.title || "功能项", 44)}`,
-      claim: `按“${cleanBusinessText(item.title || "功能项", 56)}”拆成功能模块，难点只标在具体二级功能项上。`,
-      fields: [
-        { label: "一级功能模块", value: moduleNames.join("、") || "业务应用、数据/知识底座、系统连接和运营后台" },
-        { label: "二级功能项", value: taskLines.join("；") },
-        { label: "难点标识", value: hardTasks.length ? hardTasks.join("、") : "当前未标出高难点，按常规功能项核对样例、接口、权限和验收口径。" }
-      ],
-      kind: "sow-fields",
-      sourceIds: normalizeSourceIdList(item),
-      forceDisplay: true
-    };
+  const rows = workItems.flatMap((item, index) => sowTaskRowsForSolution(item, index));
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = `${row.priority}|${row.solutionTitle}|${row.moduleTitle}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        priority: row.priority,
+        solutionTitle: row.solutionTitle,
+        moduleTitle: row.moduleTitle,
+        solutionIndex: row.solutionIndex,
+        moduleIndex: row.moduleIndex,
+        tasks: [],
+        sourceIds: []
+      });
+    }
+    const group = groups.get(key);
+    group.tasks.push({ label: row.task, description: row.description, hard: row.hard });
+    group.sourceIds = uniqueTexts([...group.sourceIds, ...arr(row.sourceIds)], 8);
   });
+  return [...groups.values()]
+    .sort((a, b) => (a.moduleIndex || 0) - (b.moduleIndex || 0) || priorityRank(a.priority) - priorityRank(b.priority) || (a.solutionIndex || 0) - (b.solutionIndex || 0))
+    .slice(0, 8)
+    .map((group) => ({
+    title: `${group.priority}｜${group.solutionTitle}`,
+    claim: `一级功能：${group.moduleTitle}`,
+    rows: group.tasks.slice(0, 10),
+    evidence: group.tasks.map((task) => task.label).slice(0, 4),
+    kind: "sow-module-fields",
+    sourceIds: group.sourceIds,
+    forceDisplay: true
+  }));
 }
 
 function sowTaskList(group = {}, solution = {}, complexityMap = null, groupIndex = 0) {
@@ -7097,9 +7598,11 @@ function salesPerspective(report, round, sources = []) {
 
 function presalesPerspective(report, round, sources = []) {
   const strategy = buildSolutionStrategy(report, round);
-  const pains = arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity));
-  const solutions = arr(round.solutionCards).filter((item) => meaningful(item.title));
-  const topPain = pains[0] || {};
+  const rawPains = arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity));
+  const operationalPains = operationalInsightItems(report, round, sources);
+  const solutions = visibleSolutionCards(arr(round.solutionCards).filter((item) => meaningful(item.title)), 5);
+  const pains = painItemsForVisibleSolutions(mergeOperationalPainItems(rawPains, operationalPains, 8), solutions, solutions.length || 5);
+  const topPain = pains[0] || rawPains[0] || {};
   const topSolution = solutions[0] || {};
   const painSummary =
     firstRoundInfoText(round, /business|业务|digital|数字化/) ||
@@ -7186,8 +7689,8 @@ function presalesPerspective(report, round, sources = []) {
     kind,
     forceDisplay: true
   });
-  const solutionBranches = solutions.slice(0, 5).map((item, index) => {
-    const relatedPain = pains[index] || topPain || {};
+  const solutionBranches = solutions.map((item, index) => {
+    const relatedPain = relatedPainForSolution(item, pains, index) || topPain || {};
     const customerPain = safeFieldText(
       item.customerPain || item.pain || item.sourceBasis || relatedPain.pain || relatedPain.customerSignal || "",
       "本方案的痛点仍需通过客户原话、样例或现场流程进一步确认。",
@@ -7222,21 +7725,21 @@ function presalesPerspective(report, round, sources = []) {
     ];
     return structuredBranch(
       `${item.priority || "P1"}｜${cleanBusinessText(item.title || "方案", 44)}`,
-      `${item.priority || "P1"} 方案是“${cleanBusinessText(item.title || "建议方案", 70)}”。`,
+      `${normalizePriorityLabel(item.priority, index)} 方案是“${cleanBusinessText(item.title || "建议方案", 70)}”。`,
       fields,
       normalizeSourceIdList(item),
       "solution-fields"
     );
   });
-  const painBranches = pains.slice(0, 5).map((item, index) =>
+  const painBranches = pains.map((item, index) =>
     structuredBranch(
-      `${index === 0 ? "P0" : `P${Math.min(index, 2)}`}｜${cleanBusinessText(item.title || "痛点机会", 42)}`,
+      `${normalizePriorityLabel(item.priority, index)}｜${cleanBusinessText(item.title || "痛点机会", 42)}`,
       safeFieldText(item.opportunity || item.pain || item.customerSignal || item.title, "当前只形成待验证机会，需由客户场景、样例数据和价值指标确认后再展开方案。", 170),
       [
         { label: "客户现象", value: safeFieldText(item.customerSignal || item.sourceBasis || "", "未形成足够具体的客户现象，需现场补客户原话或流程样例。", 260) },
         { label: "痛点判断", value: safeFieldText(item.pain || item.reasoning || "", "痛点强度暂不稳定，需确认发生频率、影响岗位和损失指标。", 260) },
         { label: "我方机会", value: safeFieldText(item.opportunity || item.aiEntry || "", "当前只形成待验证机会，需由客户场景、样例数据和价值指标确认后再展开方案。", 260) },
-        { label: "现场验证", value: safeFieldText(uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 3).join("；"), "确认场景优先级、样例数据、责任人和可衡量成效。", 260) }
+        { label: item.evidenceLevel || "现场验证", value: safeFieldText(item.evidenceLevel ? `${item.reasoning || ""} ${uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 2).join("；")}` : uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 3).join("；"), "确认场景优先级、样例数据、责任人和可衡量成效。", 280) }
       ],
       normalizeSourceIdList(item),
       "pain-fields"
@@ -7261,9 +7764,9 @@ function presalesPerspective(report, round, sources = []) {
     {
       label: "痛点机会",
       claim: topPain.opportunity || topPain.pain || "未查到可支撑的痛点机会。",
-      evidence: pains.slice(0, 4).map((item) => item.pain || item.opportunity || item.customerSignal || item.title),
+      evidence: pains.slice(0, 8).map((item) => item.pain || item.opportunity || item.customerSignal || item.title),
       branches: painBranches.length ? painBranches : [boundaryBranch("未查到能支撑痛点判断的客户现象、项目记录或业务线索。")],
-      sourceIds: collectSourceIds(pains.slice(0, 4)),
+      sourceIds: collectSourceIds(pains.slice(0, 8)),
       forceDisplay: true,
       allowBoundaryEvidence: true,
       useExplicitBranchesOnly: true,
@@ -7386,30 +7889,24 @@ function deliveryWorkPackageSection(round, report = {}) {
     : [];
   const workItems = solutions.length ? solutions : fallbackWorkItems;
   if (!workItems.length) return "";
+  const rows = workItems.flatMap((item, index) => sowTaskRowsForSolution(item, index));
+  if (!rows.length) return "";
   return `<section class="battle-section delivery-work-section">
     <h2>SOW分解</h2>
     <p class="section-lead">按可交付功能项拆到一级模块和二级能力，不按实施流程拆分，也不在会前报告里承诺投入规模、上线节奏或商务条款。</p>
     <div class="sow-table">
-      <div class="sow-table-head"><span>优先级 / 功能项</span><span>二级功能点</span></div>
-      ${workItems.map((item, index) => {
-        const groups = solutionWorkPackages(item);
-        const complexityMap = relativeTaskComplexityMap(groups, item);
-        return `<article class="sow-table-row">
-        <div class="sow-package-title">
-          <span>${e(item.priority || `P${Math.min(index + 1, 2)}`)}</span>
-          <h3>${e(item.title)}</h3>
-          <p>${e(cleanBusinessText(item.introduction || item.value || item.expectedImpact || "按该功能模块拆出二级能力、输入输出、系统边界和客户侧准备项。", 180))}</p>
+      <div class="sow-table-head"><span>方案/一级功能</span><span>二级功能项</span><span>难点</span></div>
+      ${rows.map((row) => `<article class="sow-table-row${row.hard ? " hard-row" : ""}">
+        <div class="sow-primary-cell">
+          <span>${e(row.priority)}</span>
+          <b>${e(row.solutionTitle)}</b>
+          <small>${e(row.moduleTitle)}</small>
         </div>
-        <div class="work-package-breakdown">
-          ${groups.map((group, groupIndex) => {
-            return `<div class="sow-work-group">
-            <div class="sow-work-head"><b>${e(group.title)}</b></div>
-            ${sowTaskList(group, item, complexityMap, groupIndex)}
-          </div>`;
-          }).join("")}
+        <div class="sow-task-cell">
+          <b>${e(row.task)}</b>
         </div>
-      </article>`;
-      }).join("")}
+        <div class="sow-difficulty-cell">${row.hard ? `<i class="sow-task-complexity hard">难点</i>` : `<span class="sow-empty">-</span>`}</div>
+      </article>`).join("")}
     </div>
     <p class="sow-note">这里只拆工作项目；后续再按数据、接口、硬件、现场环境和验收口径单独核算。</p>
   </section>`;
@@ -7525,6 +8022,10 @@ function deliveryArgumentSection(report, round) {
   const sowBranches = sowArgumentBranches(report, round, delivery);
   const riskBranches = deliveryRiskResponseBranches(report, round, delivery);
   const dependencyBranches = technicalDependencyBranches(delivery, round);
+  const riskTitles = uniqueTexts(riskBranches.map((branch) => String(branch.title || "").replace(/｜.*/, "").trim()).filter(meaningful), 3);
+  const riskClaim = riskTitles.length
+    ? `主要交付风险集中在${riskTitles.join("、")}，首轮只能承诺已核验边界内的轻量验证。`
+    : "主要交付风险集中在接口、权限、数据样例和验收口径，首轮只能承诺已核验边界内的轻量验证。";
   return argumentTreeSection({
     className: "delivery-argument-section",
     kicker: "交付分析",
@@ -7543,7 +8044,7 @@ function deliveryArgumentSection(report, round) {
       },
       {
         label: "风险与应对",
-        claim: "交付风险必须和应对方案绑定展示，避免只列风险不说明控制方式。",
+        claim: riskClaim,
         evidence: riskBranches.flatMap((branch) => branch.evidence),
         branches: riskBranches,
         forceDisplay: true,
@@ -7552,7 +8053,7 @@ function deliveryArgumentSection(report, round) {
       },
       {
         label: "前置依赖",
-        claim: "前置依赖只保留技术条件，重点看数据、接口、权限、安全、部署和验收口径。",
+        claim: "落地前置条件集中在数据、接口、权限、安全、部署和验收口径，任一缺口都会压缩可承诺范围。",
         evidence: dependencyBranches.flatMap((branch) => branch.evidence),
         branches: dependencyBranches,
         forceDisplay: true,
@@ -7604,21 +8105,23 @@ function actionQuestionnaireBranches(report = {}, round = {}) {
       "哪些安全、权限、部署或验收条件不到位会导致项目延期或降级？"
     ]
   };
-  const fieldsForQuestions = (title, questions, goal) => {
+  const rowsForQuestions = (title, questions) => {
     const picked = uniqueTexts([...arr(questions), ...arr(fallbackQuestions[title])], 5).slice(0, 4);
-    return [
-      ...picked.map((question, index) => ({ label: `问题${index + 1}`, value: cleanBusinessText(question, 260) })),
-      { label: "验证目的", value: cleanBusinessText(goal, 220) }
-    ];
+    return picked.map((question, index) => ({
+      label: `${index + 1}. ${cleanBusinessText(question, 220)}`
+    }));
   };
-  const make = (title, questions, goal, claim) => ({
-    title,
-    claim: cleanBusinessText(claim, 170),
-    fields: fieldsForQuestions(title, questions, goal),
-    kind: "questionnaire-fields",
-    evidence: arr(questions).filter(meaningful).slice(0, 4),
-    forceDisplay: true
-  });
+  const make = (title, questions, _goal, claim) => {
+    const rows = rowsForQuestions(title, questions);
+    return {
+      title,
+      claim: cleanBusinessText(claim, 170),
+      rows,
+      kind: "questionnaire-row-list",
+      evidence: rows.map((row) => row.label).slice(0, 4),
+      forceDisplay: true
+    };
+  };
   return [
     make(
       "业务场景",
@@ -7670,7 +8173,7 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
     ...concreteSensitive.map((item) => item.summary || item.statusLabel || item.label)
   ]).filter((text) => /被执行|失信|诉讼|行政处罚|经营异常|付款|回款|安全|合规|数据|接口|采购|预算/.test(text));
   const technicalDeps = technicalDependencyBranches(delivery, round).flatMap((branch) => branch.evidence).slice(0, 3);
-  const make = (title, claim, evidence = [], kind = "attention-fields") => ({
+  const make = (title, claim, evidence = [], kind = "attention-compact-fields") => ({
     title,
     claim: cleanBusinessText(claim, 180),
     fields: [
@@ -7686,11 +8189,19 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
   if (arr(procurementSignal.evidence).length) {
     branches.push(make("甲方采购线索", "已查到客户作为采购人/招标人/采购单位的记录，采购路径可作为商务重点复核。", arr(procurementSignal.evidence)));
   } else if (financeRows.length) {
-    branches.push(make("推测信息", "仅有经营金额可辅助判断预算承载，尚不能证明本项目预算、采购窗口或采购意愿。", evidenceTexts(financeRows, 5), "attention-fields inferred"));
+    branches.push(make("推测信息", "仅有经营金额可辅助判断预算承载，尚不能证明本项目预算、采购窗口或采购意愿。", evidenceTexts(financeRows, 5), "attention-compact-fields inferred"));
   }
   if (arr(entrySignal.evidence).length) {
     branches.push(make("进入窗口", entryWindowClaimFromEvidence(arr(entrySignal.evidence)), arr(entrySignal.evidence)));
   }
+  operationalInsightItems(report, round, sources).forEach((item) => {
+    branches.push(make(
+      item.title,
+      `${item.evidenceLevel === "推测信息" ? "推测信息：" : ""}${item.opportunity || item.pain} ${arr(item.toConfirm)[0] || ""}`,
+      [item.sourceBasis, item.reasoning, item.customerSignal, item.pain].filter(meaningful),
+      item.evidenceLevel === "推测信息" ? "attention-compact-fields inferred" : "attention-compact-fields"
+    ));
+  });
   if (topPain.title || topPain.pain || topPain.opportunity) {
     branches.push(make(
       "需求真实性",
@@ -7702,7 +8213,7 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
       "方案边界",
       `“${shortSceneTitle(topSolution.title)}”只能作为推测信息，需由客户场景证据确认后再扩大方案范围。`,
       [topSolution.customerPain, topSolution.introduction, topSolution.value].filter(meaningful),
-      "attention-fields inferred"
+      "attention-compact-fields inferred"
     ));
   }
   if (technicalDeps.length) {
@@ -7712,9 +8223,9 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
     branches.push(make("敏感风险", "敏感风险只引用具体事实；没有硬风险时不把财务/经营核验写成风险。", riskTexts));
   }
   if (!branches.length) {
-    branches.push(make("推测信息", "当前公开证据不足，只能把预算、需求和技术边界作为待验证事项。", ["公开资料未形成可直接支撑的商务或方案强判断。"], "attention-fields inferred"));
+    branches.push(make("推测信息", "当前公开证据不足，只能把预算、需求和技术边界作为待验证事项。", ["公开资料未形成可直接支撑的商务或方案强判断。"], "attention-compact-fields inferred"));
   }
-  return branches.slice(0, 5);
+  return branches.slice(0, 7);
 }
 
 function actionPerspective(report, round, sources = []) {
@@ -7729,7 +8240,7 @@ function actionPerspective(report, round, sources = []) {
       allowConfirmEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      open: true,
+      open: false,
       wide: true,
       tone: "watch"
     },
@@ -7741,7 +8252,7 @@ function actionPerspective(report, round, sources = []) {
       allowConfirmEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      open: true,
+      open: false,
       wide: true,
       tone: "risk"
     }
@@ -8001,6 +8512,27 @@ section{width:min(calc(100% - 20px),1120px);margin:10px auto 0;padding:0}.battle
 .argument-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.argument-field{border:1px solid rgba(15,23,42,.08);border-radius:14px;background:#fff;padding:11px 12px}.argument-field em{display:inline-flex;width:max-content;max-width:100%;margin:0 0 6px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-style:normal;font-size:11px;font-weight:900;padding:2px 8px}.argument-field p{margin:0!important;color:#172033!important;font-size:13px!important;line-height:1.68!important}.argument-field-grid.solution-fields{grid-template-columns:repeat(5,minmax(0,1fr))}.argument-field-grid.solution-fields .argument-field:first-child{grid-column:span 2}.argument-field-grid.solution-fields .argument-field:nth-child(2){grid-column:span 3}.argument-field-grid.solution-fields .argument-field:nth-child(3),.argument-field-grid.solution-fields .argument-field:nth-child(4),.argument-field-grid.solution-fields .argument-field:nth-child(5){grid-column:span 1}.argument-field-grid.pain-fields{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-field-grid.finance-kpi-board{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-field-grid.finance-kpi-board .argument-field:last-child:nth-child(n+4){grid-column:1/-1;background:#f8fafc}.argument-field-grid.risk-response-fields,.argument-field-grid.questionnaire-fields,.argument-field-grid.attention-fields,.argument-field-grid.dependency-fields{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-field-grid.risk-response-fields .argument-field:nth-child(2),.argument-field-grid.risk-response-fields .argument-field:nth-child(4),.argument-field-grid.questionnaire-fields .argument-field:nth-child(2),.argument-field-grid.attention-fields .argument-field:nth-child(2),.argument-field-grid.attention-fields .argument-field:nth-child(3),.argument-field-grid.dependency-fields .argument-field:nth-child(2){grid-column:span 2}.argument-field-grid.inferred .argument-field{background:#f8fafc}.argument-field-grid.inferred .argument-field em{background:#e5e7eb;color:#475569}.argument-node.invalid{border-left-color:#94a3b8!important;background:#f8fafc!important;box-shadow:none!important}.argument-node.invalid summary span,.argument-branch.invalid span{background:#e5e7eb!important;color:#64748b!important}.argument-node.invalid summary b,.argument-branch.invalid b{color:#64748b!important}.argument-branch.invalid{background:#f8fafc!important;border-style:dashed!important;border-color:#cbd5e1!important}.argument-branch.invalid .argument-field{background:#f8fafc!important}.argument-branch.invalid .argument-field p{color:#64748b!important}.argument-node.wide{grid-column:1/-1}.presales-argument-section .argument-node summary b{font-size:17px!important;line-height:1.58!important}.presales-argument-section .argument-branch{background:#fff!important}.presales-argument-section .argument-branch b{font-size:14px!important;line-height:1.62!important}.delivery-work-section .work-package-grid{grid-template-columns:1fr!important;gap:12px!important}.delivery-work-section .work-package-grid article{display:grid!important;grid-template-columns:minmax(260px,.44fr) minmax(0,1fr);gap:14px 18px;align-items:start;border:1px solid rgba(15,23,42,.08)!important;background:#fff!important;padding:16px 18px!important}.delivery-work-section .work-package-grid article>span,.delivery-work-section .work-package-grid article>h3,.delivery-work-section .work-package-grid article>p,.delivery-work-section .work-package-grid article>.work-item-kicker,.delivery-work-section .work-package-grid article>.package-complexity{grid-column:1}.delivery-work-section .work-package-grid article>.work-package-breakdown{grid-column:2;grid-row:1 / span 6;margin-top:0!important}.delivery-work-section .work-package-grid h3{font-size:17px!important;line-height:1.5!important;margin:8px 0 7px!important}.delivery-work-section .work-package-grid p{font-size:13px!important;line-height:1.7!important;color:#334155!important}.delivery-work-section .work-item-kicker{display:block;margin-top:10px;color:#1d4ed8!important;font-size:13px;font-weight:900}.package-complexity{display:inline-flex;width:max-content;max-width:100%;border-radius:999px;padding:3px 9px;background:#eef2ff;color:#334155;font-style:normal;font-size:12px;font-weight:900}.package-complexity.hard,.sow-work-group.hard summary i,.sow-work-group.hard .sow-work-head i{background:#fef2f2;color:#b91c1c}.package-complexity.medium,.sow-work-group.medium summary i,.sow-work-group.medium .sow-work-head i{background:#fff7ed;color:#b45309}.package-complexity.easy,.sow-work-group.easy summary i,.sow-work-group.easy .sow-work-head i{background:#ecfdf5;color:#047857}.delivery-work-section .work-package-breakdown{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px!important}.delivery-work-section .sow-work-group{border-color:rgba(15,23,42,.08)!important;background:#f8fafc!important}.delivery-work-section .sow-work-group summary{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#eef2ff!important;color:#172033!important;border-bottom:1px solid rgba(15,23,42,.06)}.delivery-work-section .sow-work-group summary b{margin:0!important;color:inherit!important}.delivery-work-section .sow-work-group summary i{font-style:normal;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap}.delivery-work-section .sow-work-group ul{font-size:13px!important;line-height:1.68!important;color:#243244!important}.delivery-work-section .sow-note{border-left:3px solid #2563eb;border-radius:10px;background:#f8fafc;padding:9px 11px;color:#334155!important;line-height:1.62!important}.delivery-work-section .sow-table{display:grid;gap:0;border:1px solid rgba(15,23,42,.10);border-radius:22px;background:#fff;box-shadow:0 14px 34px rgba(15,23,42,.07);overflow:hidden}.delivery-work-section .sow-table-head,.delivery-work-section .sow-table-row{display:grid;grid-template-columns:minmax(220px,.9fr) minmax(130px,.35fr) minmax(0,1.7fr)}.delivery-work-section .sow-table-head{background:#0f172a;color:#fff;font-size:12px;font-weight:900}.delivery-work-section .sow-table-head span{padding:10px 12px}.delivery-work-section .sow-table-row{border-top:1px solid rgba(15,23,42,.08)}.delivery-work-section .sow-table-row>div{padding:13px 14px}.delivery-work-section .sow-package-title span{display:inline-flex;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;font-size:12px;font-weight:900;padding:2px 8px}.delivery-work-section .sow-package-title h3{margin:8px 0 6px!important;color:#0f172a!important;font-size:16px!important;line-height:1.45!important}.delivery-work-section .sow-package-title p,.delivery-work-section .sow-complexity-cell small{display:block;margin:0!important;color:#64748b!important;font-size:12px!important;line-height:1.6!important}.delivery-work-section .sow-complexity-cell{border-left:1px solid rgba(15,23,42,.08);border-right:1px solid rgba(15,23,42,.08)}.delivery-work-section .sow-complexity-cell small{margin-top:8px!important}.delivery-work-section .work-package-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px!important;margin:0!important}.delivery-work-section .sow-work-group{padding:0;overflow:hidden}.delivery-work-section .sow-work-head{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f1f5f9;border-bottom:1px solid rgba(15,23,42,.06);padding:8px 9px}.delivery-work-section .sow-work-head b{color:#172033!important;font-size:13px!important;line-height:1.45!important}.delivery-work-section .sow-work-head i{font-style:normal;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap;background:#e2e8f0;color:#475569}.delivery-work-section .sow-work-group ul{padding:8px 12px 10px 26px!important;margin:0!important}.delivery-section .delivery-risk-table{margin-top:10px}.delivery-section .delivery-risk-row p{font-size:13px!important;line-height:1.68!important}
 @media(max-width:850px){.hero.battle-cover{padding:20px!important}.battle-cover h1{font-size:22px!important;line-height:1.38!important}.battle-cover p{font-size:13px!important;line-height:1.75!important}.cover-actions{grid-template-columns:1fr!important}.cover-actions span{padding:12px 13px!important;font-size:13px!important;line-height:1.72!important}.argument-tree,.question-grid{grid-template-columns:1fr!important;gap:10px!important}.argument-node summary{padding:15px!important}.argument-node-body{padding:13px 15px 16px!important}.argument-node-body ul{font-size:14px!important;line-height:1.72!important}.argument-node .evidence-links a,.argument-node .evidence-links .evidence-item{width:100%!important;max-width:100%!important}.argument-field-grid,.argument-field-grid.solution-fields,.argument-field-grid.pain-fields,.argument-field-grid.finance-kpi-board,.argument-field-grid.risk-response-fields,.argument-field-grid.questionnaire-fields,.argument-field-grid.attention-fields,.argument-field-grid.dependency-fields{grid-template-columns:1fr!important}.argument-field-grid.solution-fields .argument-field,.argument-field-grid.risk-response-fields .argument-field,.argument-field-grid.questionnaire-fields .argument-field,.argument-field-grid.attention-fields .argument-field,.argument-field-grid.dependency-fields .argument-field{grid-column:auto!important}.delivery-work-section .work-package-grid article{grid-template-columns:1fr!important}.delivery-work-section .work-package-grid article>.work-package-breakdown{grid-column:1;grid-row:auto;margin-top:8px!important}.delivery-work-section .work-package-breakdown{grid-template-columns:1fr!important}.delivery-work-section .sow-table-head{display:none}.delivery-work-section .sow-table-row{grid-template-columns:1fr;border-top:12px solid #f1f5f9}.delivery-work-section .sow-table-row:first-of-type{border-top:0}.delivery-work-section .sow-table-row>div{padding:12px}.delivery-work-section .sow-complexity-cell{border-left:0;border-right:0;border-top:1px solid rgba(15,23,42,.08);border-bottom:1px solid rgba(15,23,42,.08)}}
 .cover-rating-popover{background:#fff!important;color:#0f172a!important;border-color:rgba(15,23,42,.12)!important}.cover-rating-popover strong{color:#0f172a!important}.cover-rating-model{margin:10px 0;border:1px solid rgba(37,99,235,.16);border-radius:14px;background:#eff6ff;padding:10px 11px}.cover-rating-model b{display:block;color:#1d4ed8!important;margin-bottom:4px;font-size:12px}.cover-rating-model p{margin:0;color:#1e293b!important;font-size:12px;line-height:1.58}.cover-rating-dims article{background:#f8fafc!important;border:1px solid rgba(15,23,42,.08)!important}.cover-rating-dims p,.cover-rating-dims small{color:#334155!important}.argument-node.invalid,.argument-node.strong.invalid,.argument-node.watch.invalid,.argument-node.risk.invalid{border:1px dashed #cbd5e1!important;border-left:1px dashed #cbd5e1!important;background:#f8fafc!important;box-shadow:none!important}.argument-node.invalid summary{padding:15px 16px!important}.argument-node.invalid summary span,.argument-branch.invalid span{background:#e5e7eb!important;color:#475569!important}.argument-node.invalid summary b,.argument-branch.invalid b{color:#475569!important}.argument-node.invalid .argument-node-body{border-top:1px dashed #cbd5e1!important}.argument-branch.invalid{background:#f8fafc!important;border:1px dashed #cbd5e1!important;box-shadow:none!important}.argument-branch.invalid b,.argument-branch.invalid .argument-field p{color:#475569!important}.delivery-work-section .sow-table-head,.delivery-work-section .sow-table-row{grid-template-columns:minmax(240px,.85fr) minmax(0,1.75fr)!important}.delivery-work-section .sow-complexity-cell{display:none!important}.decision-chain-compact{width:min(calc(100% - 20px),1120px);margin:10px auto 0;padding:0}.decision-chain-head{border-radius:22px;background:#fff;box-shadow:var(--ios-shadow);padding:16px 18px}.decision-chain-head.invalid{border:1px dashed #cbd5e1;background:#f8fafc;box-shadow:none}.decision-chain-head span{display:inline-flex;border-radius:999px;background:rgba(0,122,255,.12);color:var(--ios-blue);font-size:12px;font-weight:900;padding:3px 9px;margin-bottom:8px}.decision-chain-head b{display:block;color:#0f172a;font-size:16px;line-height:1.55}.decision-chain-empty{margin:8px 0 0;color:#475569;font-size:14px;line-height:1.65}.decision-chain-evidence{display:grid;gap:8px;margin-top:12px}.decision-chain-evidence article{border:1px solid rgba(15,23,42,.08);border-radius:14px;background:#f8fafc;padding:10px 11px}.decision-chain-evidence em{display:inline-flex;margin-bottom:5px;border-radius:999px;background:#eef2ff;color:#334155;font-style:normal;font-size:11px;font-weight:900;padding:2px 8px}.decision-chain-evidence p{margin:0;color:#172033;font-size:13px;line-height:1.68}.sow-task-list{display:grid;gap:6px;padding:8px 10px 10px!important;margin:0!important;list-style:none!important}.sow-task-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;margin:0!important;padding:7px 8px;border-radius:11px;background:#fff;border:1px solid rgba(15,23,42,.06)}.sow-task-list span{color:#172033;font-size:13px;line-height:1.55}.sow-task-complexity{display:inline-flex;align-items:center;justify-content:center;min-width:28px;border-radius:999px;padding:2px 7px;font-style:normal;font-size:11px;font-weight:900}.sow-task-complexity.hard{background:#fef2f2;color:#b91c1c}.sow-task-complexity.medium{background:#fff7ed;color:#b45309}.sow-task-complexity.easy{background:#ecfdf5;color:#047857}@media(max-width:850px){.decision-chain-compact{width:calc(100% - 18px)}.delivery-work-section .sow-table-row{grid-template-columns:1fr!important}.sow-task-list li{grid-template-columns:minmax(0,1fr) auto}}
+/* OAC desktop readability and table-density override */
+body{font-size:16px!important;line-height:1.62!important;background:linear-gradient(180deg,#07111f 0%,#101b2f 300px,#eef3f8 300px,#f6f8fb 100%)!important}
+.page{width:min(1180px,calc(100% - 32px))!important;max-width:1180px!important;margin:0 auto!important;border-left:1px solid #dbe5f0!important;border-right:1px solid #dbe5f0!important;box-shadow:0 18px 50px rgba(23,33,43,.12)!important}
+.hero.battle-cover{padding:38px 44px 34px!important}
+.report-perspective-shell,.round-history-section,.decision-chain-compact{width:min(calc(100% - 40px),1120px)!important}
+.argument-node summary b{font-size:17px!important;line-height:1.58!important}.argument-branch b{font-size:15px!important;line-height:1.58!important}.argument-field p{font-size:14px!important;line-height:1.62!important}
+.argument-field-grid.solution-fields,.argument-field-grid.pain-fields{grid-template-columns:repeat(2,minmax(0,1fr))!important}.argument-field-grid.solution-fields .argument-field,.argument-field-grid.pain-fields .argument-field{grid-column:auto!important}
+.argument-field-grid.questionnaire-compact-fields{grid-template-columns:minmax(110px,.35fr) minmax(0,1.45fr) minmax(220px,.75fr)!important}
+.argument-field-grid.attention-compact-fields{grid-template-columns:minmax(140px,.45fr) minmax(0,1.15fr) minmax(240px,.85fr)!important}
+.action-argument-section .argument-field-grid.attention-compact-fields .argument-field p{font-size:14px!important;line-height:1.62!important}
+.argument-field-grid.sow-row-fields{grid-template-columns:minmax(260px,.8fr) minmax(0,1.55fr) minmax(84px,.25fr)!important;align-items:stretch}
+.argument-field-grid.sow-row-fields .argument-field{border-radius:10px!important;padding:9px 10px!important}.argument-field-grid.sow-row-fields .argument-field:nth-child(3) p{font-weight:900;color:#b91c1c!important}.argument-field-grid.sow-row-fields:not(.hard-row) .argument-field:nth-child(3) p{color:#64748b!important}
+.argument-branch{padding:0!important;overflow:hidden}.argument-branch>summary{display:grid!important;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;cursor:pointer;list-style:none;padding:11px 12px}.argument-branch>summary::-webkit-details-marker{display:none}.argument-branch>summary::after{content:"展开";grid-column:1/-1;justify-self:start;border-radius:999px;background:#eef2ff;color:#334155;font-size:11px;font-weight:900;padding:2px 8px}.argument-branch[open]>summary::after{content:"收起"}.argument-branch-body{border-top:1px solid rgba(15,23,42,.08);padding:0 11px 11px}.argument-branch:not([open]){background:#fff!important}.argument-branch:not([open])>summary b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sow-module-rows{display:grid;margin:0 -11px -11px;border-top:1px solid rgba(15,23,42,.08);background:#fff}.sow-module-row{display:grid;grid-template-columns:minmax(0,1fr) 84px;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid rgba(15,23,42,.07);color:#172033;font-size:14px;line-height:1.5}.sow-module-row:last-child{border-bottom:0}.sow-module-row.head{background:#f8fafc;color:#64748b;font-size:12px;font-weight:900}.sow-module-row.hard span:last-child{display:inline-flex;width:max-content;align-items:center;border-radius:999px;background:#fef2f2;color:#b91c1c;font-size:12px;font-weight:900;padding:2px 8px}.sow-module-row span:last-child{justify-self:start;color:#94a3b8}.argument-branch.sow-module-fields>summary{grid-template-columns:minmax(0,1fr)}.argument-branch.sow-module-fields>summary span{white-space:normal}.argument-branch.questionnaire-row-list>summary{grid-template-columns:auto!important}.argument-branch.questionnaire-row-list>summary b{display:none!important}.argument-branch.questionnaire-row-list>summary::after{content:"展开问题"}.argument-branch.questionnaire-row-list[open]>summary::after{content:"收起问题"}.sow-module-rows.questionnaire-row-list{background:#fff}.sow-module-rows.questionnaire-row-list .sow-module-row{grid-template-columns:minmax(0,1fr);padding:8px 12px}.sow-module-rows.questionnaire-row-list .sow-module-row.head{display:none}.sow-module-rows.questionnaire-row-list .sow-module-row span:last-child{display:none}
+.argument-branch.pain-fields>summary,.argument-branch.solution-fields>summary{grid-template-columns:minmax(0,1fr)!important;gap:7px!important}.argument-branch.pain-fields>summary span,.argument-branch.solution-fields>summary span{width:max-content;max-width:100%;margin:0!important}.argument-branch.pain-fields>summary b,.argument-branch.solution-fields>summary b{font-size:16px!important;line-height:1.58!important}.sow-module-rows.sow-module-fields .sow-module-row{grid-template-columns:minmax(0,1fr) auto;padding:10px 14px}.sow-module-rows.sow-module-fields .sow-module-row span:first-child{display:block!important;margin:0!important;padding:0!important;border-radius:0!important;background:transparent!important;color:#172033!important;font-size:15px!important;font-weight:500!important;line-height:1.55!important}.sow-module-rows.sow-module-fields .sow-row-main em{display:block!important;margin:0!important;color:#172033!important;font-style:normal!important;font-size:15px!important;font-weight:500!important;line-height:1.45!important}.sow-module-rows.sow-module-fields .sow-row-main small{display:block!important;margin:3px 0 0!important;color:#64748b!important;font-size:13px!important;font-weight:500!important;line-height:1.45!important}.sow-module-rows.sow-module-fields .sow-module-row span:last-child{margin:0!important}
+.argument-branch.sow-module-fields .argument-branch-body{padding:0!important}.argument-branch.sow-module-fields .evidence-links{display:block;margin:0!important;padding:9px 14px 12px!important;border-top:1px solid rgba(15,23,42,.07);background:#f8fafc}.argument-branch.sow-module-fields .evidence-links>summary{margin:0!important}
+.argument-branch.questionnaire-row-list>summary{min-height:0!important;padding:8px 12px!important;align-items:center!important}.argument-branch.questionnaire-row-list>summary span{margin:0!important;padding:2px 8px!important;font-size:13px!important;line-height:1.35!important}.sow-module-rows.questionnaire-row-list .sow-module-row{padding:7px 12px!important;min-height:0!important}.sow-module-rows.questionnaire-row-list .sow-module-row span:first-child{display:block!important;margin:0!important;padding:0!important;border-radius:0!important;background:transparent!important;color:#334155!important;font-size:13px!important;font-weight:650!important;line-height:1.48!important}.action-argument-section .sow-module-rows.questionnaire-row-list .sow-module-row{font-size:13px!important;line-height:1.48!important}
+.argument-branch>summary::after,.argument-branch[open]>summary::after,.argument-branch.questionnaire-row-list>summary::after,.argument-branch.questionnaire-row-list[open]>summary::after{content:none!important;display:none!important}
+.delivery-work-section .sow-table-head,.delivery-work-section .sow-table-row{grid-template-columns:minmax(260px,.85fr) minmax(0,1.6fr) minmax(86px,.25fr)!important}.delivery-work-section .sow-table-head span{font-size:13px!important}.delivery-work-section .sow-table-row>div{padding:11px 13px!important}.delivery-work-section .sow-primary-cell span{display:inline-flex;border-radius:999px;background:#2563eb;color:#fff;font-size:12px;font-weight:900;padding:2px 8px}.delivery-work-section .sow-primary-cell b{display:block;margin-top:6px;color:#0f172a;font-size:15px;line-height:1.45}.delivery-work-section .sow-primary-cell small{display:block;margin-top:3px;color:#64748b;font-size:13px;line-height:1.45}.delivery-work-section .sow-task-cell b{display:block;color:#172033;font-size:14px;line-height:1.55}.delivery-work-section .sow-difficulty-cell{display:flex!important;align-items:center!important;justify-content:flex-start}.delivery-work-section .sow-empty{color:#94a3b8;font-weight:900}.delivery-work-section .sow-complexity-cell{display:none!important}
+.action-argument-section .argument-node:not([open]) summary{border-bottom:0!important}.action-argument-section .argument-node:not([open]){min-height:auto!important}
+@media(max-width:850px){body{font-size:16px!important}.page{width:100%!important;max-width:none!important;border:0!important;box-shadow:none!important}.report-perspective-shell,.round-history-section,.decision-chain-compact{width:calc(100% - 18px)!important}.argument-field-grid,.argument-field-grid.solution-fields,.argument-field-grid.pain-fields,.argument-field-grid.questionnaire-compact-fields,.argument-field-grid.attention-compact-fields,.argument-field-grid.sow-row-fields{grid-template-columns:1fr!important}.delivery-work-section .sow-table-head{display:none!important}.delivery-work-section .sow-table-row{grid-template-columns:1fr!important}.hero.battle-cover{padding:22px 18px!important}}
 </style>
 </head>
 <body>
@@ -8030,6 +8562,22 @@ document.querySelectorAll(".round-tabs button").forEach(function(button){
     document.querySelectorAll(".round-panel").forEach(function(panel){ panel.classList.toggle("active", panel.getAttribute("data-round-panel") === target); });
   });
 });
+document.querySelectorAll(".report-view-tabs label").forEach(function(label){
+  label.addEventListener("click", function(){
+    var input = document.getElementById(label.getAttribute("for"));
+    if (input) input.checked = true;
+  });
+});
+var requestedView = new URLSearchParams(window.location.search).get("view");
+if (requestedView) {
+  var requestedInput = document.getElementById("view-" + requestedView);
+  if (requestedInput) requestedInput.checked = true;
+}
+if (new URLSearchParams(window.location.search).get("open") === "all") {
+  document.querySelectorAll("details.argument-node, details.argument-branch").forEach(function(details){
+    details.open = true;
+  });
+}
 </script>
 </body>
 </html>`;
