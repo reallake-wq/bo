@@ -15,6 +15,16 @@ const TENANT_SCOPED_NAMESPACES = new Set([
   "reports"
 ]);
 
+function envValue(name) {
+  try {
+    const value = globalThis.Netlify?.env?.get?.(name);
+    if (value) return value;
+  } catch {
+    // Ignore non-Netlify runtime.
+  }
+  return process.env[name] || "";
+}
+
 function cleanTenantId(value) {
   return String(value || "internal-demo")
     .trim()
@@ -48,14 +58,19 @@ function route(namespace, key = "") {
 }
 
 async function blobStore(namespace) {
+  const explicitSiteId = envValue("OAC_BLOBS_SITE_ID") || envValue("NETLIFY_SITE_ID") || envValue("SITE_ID");
+  const explicitToken = envValue("OAC_BLOBS_TOKEN") || envValue("NETLIFY_BLOBS_TOKEN");
   const isNetlifyRuntime =
     process.env.NETLIFY === "true" ||
     process.env.NETLIFY_DEV === "true" ||
     Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
-  if (!isNetlifyRuntime) return null;
+  if (!isNetlifyRuntime && !(explicitSiteId && explicitToken)) return null;
 
   try {
     const { getStore } = await import("@netlify/blobs");
+    if (explicitSiteId && explicitToken) {
+      return getStore({ name: namespace, siteID: explicitSiteId, token: explicitToken, consistency: "strong" });
+    }
     return getStore({ name: namespace, consistency: "strong" });
   } catch {
     return null;
