@@ -1,11 +1,11 @@
 import { BRIEF_SOURCE_MIN } from "./report-quality.mjs";
 
-export const OPPORTUNITY_RATING_VERSION = "presales-v4";
+export const OPPORTUNITY_RATING_VERSION = "presales-v5";
 
 const MODEL_BASIS =
   "OAC 初访优先级模型参考 BANT（预算/权限/需求/时机）、MEDDICC（指标/经济买方/决策标准/痛点）和售前交付可行性评估，重心是判断初次拜访前是否值得投入售前资源。";
 const SCORING_METHOD =
-  "评分采用“加权评分 + 关键短板封顶 + 风险闸门 + 置信度分离”。总分不是简单平均，也不是直接取最低分；预算/付款、ROI价值、真实需求、决策风险等关键短板会限制最高等级。公开资料不足的维度标记为“未知”，不按低分处理，只降低置信度并进入拜访问卷。";
+  "评分采用“加权评分 + BANT/MEDDICC关键项闸门 + 关键短板封顶 + 风险闸门 + 置信度分离”。总分不是简单平均，也不是直接取最低分；预算/付款、权限/经济买方、真实需求/痛点、时机、指标价值和决策风险会限制最高等级。公开资料不足的维度标记为“未知”，不按低分处理，只降低置信度并进入拜访问卷。";
 
 const DIMENSIONS = [
   { key: "budgetAbility", title: "预算与付款能力", weight: 20 },
@@ -114,6 +114,16 @@ function hasConcreteBudgetEvidence(text = "") {
   );
 }
 
+function timingSignalCount(text = "") {
+  return countMatches(String(text || ""), [
+    /采购意向|采购预算|预算金额|采购公告|招标公告|招标计划|政府采购|项目编号|合同公告/,
+    /项目金额|合同金额|中标金额|投资额/,
+    /新建|新设|扩产|投产|新基地|技改|改造|产能/,
+    /融资|募资|IPO|上市|募投|并购|专项资金|政府补助|补贴|重点研发/,
+    /组织调整|高管变更/
+  ]);
+}
+
 function dimension(key, score, evidence = [], deductions = [], questions = []) {
   const base = DIMENSIONS.find((item) => item.key === key) || { title: key, weight: 0 };
   return {
@@ -164,7 +174,7 @@ function markAssessedDimension(item) {
   } else if (item.key === "decisionRiskControl") {
     const text = textOf(item);
     if (item.score >= 72) item.conclusion = "公开风险较可控，首轮重点锁定能推动立项和采购的项目负责人。";
-    else if (/经营\/控制角色相对集中/.test(text)) item.conclusion = "经营层线索相对清楚，但项目级预算归属、推进人和IT/安全审批决定是否升级重方案投入。";
+    else if (/经营\/控制角色相对集中/.test(text)) item.conclusion = "经营层线索相对清楚，但仍不能替代项目级预算归属、需求发起人和最终拍板路径。";
     else if (/项目级采购权|预算归属|最终拍板人/.test(text)) item.conclusion = "项目级决策人和预算归属尚未确认，适合先找到业务推进人。";
     else if (/数据安全|系统接入|合规审批/.test(text)) item.conclusion = "组织风险不在信用层面，主要是数据、系统接入和审批边界需要核实。";
     else item.conclusion = "决策或落地边界会限制推进效率，拿到拍板路径前只做轻量推进。";
@@ -450,19 +460,20 @@ export function buildOpportunityRating(report = {}) {
     (hasDecisionConcentration(fullText) ? 2 : 0);
   const decisionUnknown = decisionUnknownSignals(fullText);
   const systemBoundaryRisk = systemBoundarySignals(fullText);
+  const timingHits = timingSignalCount(fullText);
   const decisionRiskDimension = dimension(
     "decisionRiskControl",
     64 + Math.min(18, decisionPositive * 3) - Math.min(14, decisionUnknown * 7) - Math.min(12, systemBoundaryRisk * 3) - Math.min(8, warnings.length * 2),
     [
-      hasDecisionConcentration(fullText) ? "公开资料显示经营/控制角色相对集中，项目级拍板人是首轮要锁定的关键入口。" : "",
+      hasDecisionConcentration(fullText) ? "公开资料显示经营/控制角色相对集中，只能说明经营入口较清楚，不能替代项目级拍板路径。" : "",
       decisionPositive >= 3 ? "报告已识别经营管理层或相关职能线索。" : "",
       sourceCount >= BRIEF_SOURCE_MIN ? `可校验来源 ${sourceCount} 条，达到初访判断门槛。` : ""
     ],
     [
-      decisionUnknown > 0 ? "项目级采购权、预算归属或最终拍板人决定是否升级重方案投入。" : "",
-      systemBoundaryRisk >= 2 ? "数据安全、系统接入或合规审批可能影响落地，IT/法务/信息化边界必须前置锁定。" : ""
+      decisionUnknown > 0 ? "项目级采购权、预算归属或最终拍板人未在公开资料中闭环，重方案投入前仍需确认。" : "",
+      systemBoundaryRisk >= 2 ? "涉及数据安全、系统接入或合规审批时，落地节奏取决于客户IT、法务或信息化审批流程。" : ""
     ],
-    ["本次参会人是否具备采购、立项或影响预算的权力？", "付款条件、合同主体、数据边界和安全审批谁负责？"]
+    ["本次参会人能否影响采购、立项或预算？", "数据边界、安全审批、系统接入和合同主体分别由哪一方负责？"]
   );
 
   const infoDimension = dimension(
@@ -537,10 +548,20 @@ export function buildOpportunityRating(report = {}) {
   if (budgetDimension.status !== "unknown" && budgetDimension.score < 55) score = Math.min(score, 78);
   if (budgetDimension.status !== "unknown" && budgetDimension.score < 48) score = Math.min(score, 70);
   if (finance.profitYi != null && finance.profitYi < 0.1 && budgetHits < 4) score = Math.min(score, 76);
+  const bantMeddiccGaps = [
+    budgetDimension.status === "unknown" || budgetDimension.score < 68 ? "预算" : "",
+    decisionRiskDimension.status === "unknown" || decisionRiskDimension.score < 62 || decisionUnknown > 0 ? "权限/经济买方" : "",
+    triggerDimension.status === "unknown" || triggerDimension.score < 68 ? "需求/痛点" : "",
+    timingHits < 1 && triggerDimension.score < 78 ? "时机" : "",
+    roiDimension.status === "unknown" || roiDimension.score < 64 ? "指标/价值" : "",
+    implementationDimension.status !== "unknown" && implementationDimension.score < 58 ? "决策标准/落地条件" : ""
+  ].filter(Boolean);
+  if (score >= 86 && bantMeddiccGaps.length) score = Math.min(score, 84);
   let grade = gradeOf(score);
   let level = levelOf(grade, infoDimension.score);
   const confidence = confidenceLabel(infoDimension.score);
   const riskFlags = [
+    bantMeddiccGaps.length ? `BANT/MEDDICC关键项未闭环：${bantMeddiccGaps.slice(0, 3).join("、")}` : "",
     budgetDimension.score < 62 ? "预算/付款能力待确认" : "",
     roiDimension.score < 62 ? "ROI价值需要量化" : "",
     decisionRiskDimension.score < 62 && decisionUnknown > 0 ? "项目级决策人/预算归属待确认" : "",

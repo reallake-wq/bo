@@ -93,6 +93,12 @@ const BAD_PATTERNS = {
   roughEffort: "\u7c97\u4eba\u5929|\u4eba\u5929\u533a\u95f4|\\d+\\s*[-~]\\s*\\d+\\s*\u4eba\u5929",
   deliveryInstruction:
     "\u4ea4\u4ed8\u5206\u6790[\\s\\S]{0,2600}(?:\u63a8\u8fdb\u524d\u8981\u9501\u5b9a|IT\u63a5\u53e3\u4eba|\u5ba2\u6237\u8d23\u4efb\u4eba|\u73b0\u573a\u8054\u7cfb\u4eba)",
+  oldDeliveryScaffold:
+    "\u4ea4\u4ed8\u5206\u6790[\\s\\S]{0,2600}(?:\u76f8\u5bf9\u96be\u70b9|\u4ea4\u4ed8\u8fb9\u754c|\u6574\u4f53\u590d\u6742\u6027|SOW\u5de5\u4f5c\u62c6\u5206)",
+  ratingEcho:
+    "\u51b3\u7b56\u98ce\u9669\u9700\u56f4\u7ed5\u5177\u4f53\u98ce\u9669\u590d\u6838|IT\\/\u6cd5\u52a1\\/\u4fe1\u606f\u5316\u8fb9\u754c\u5fc5\u987b\u524d\u7f6e\u9501\u5b9a|\u9879\u76ee\u7ea7\u9884\u7b97\u5f52\u5c5e\u3001\u63a8\u8fdb\u4eba\u548cIT\\/\u5b89\u5168\u5ba1\u6279\u51b3\u5b9a\u662f\u5426\u5347\u7ea7\u91cd\u65b9\u6848\u6295\u5165",
+  incompleteSolutionField:
+    "<em>(?:\u6211\u65b9\u673a\u4f1a|\u5ba2\u6237\u75db\u70b9|\u65b9\u6848\u4ecb\u7ecd|\u65b9\u6848\u4ef7\u503c|\u9002\u7528\u524d\u63d0)<\\/em><p>\\s*(?:\u80fd|\u53ef|\u53ef\u4ee5|\u80fd\u591f)?\\s*(?:\\.{2,}|\u2026|[，,：:；;])",
   weakWindow:
     "(?:\u5b58\u5728\u53ef\u8ddf\u8fdb\u7a97\u53e3|\u9884\u7b97\u7a97\u53e3\u6765\u81ea)[^<\n]{0,180}(?:\u672a\u660e\u786e|\u672a\u786e\u8ba4|\u672a\u8bc1\u5b9e|\u6700\u4f73\u5207\u5165\u70b9|\u878d\u8d44\u670d\u52a1)",
   financeAsBusinessQuestion:
@@ -353,6 +359,9 @@ function scoreHtml(html, report = {}) {
     !/(?:场景|痛点|负责人|推进|验证|样例|方案|业务|流程)/.test(coverActionSegment);
   if (headerFinanceOnlyAction) bad.coverFinanceOnlyAction = (bad.coverFinanceOnlyAction || 0) + 1;
   if ([...coverActionSegment].length > 220) bad.coverActionTooLong = (bad.coverActionTooLong || 0) + 1;
+  const actionSectionHtml = firstSectionHtml(html, "battle-section argument-section action-argument-section");
+  const actionQuestionFieldCount = (actionSectionHtml.match(/<em>\u95ee\u9898\d+<\/em>/g) || []).length;
+  if (actionQuestionFieldCount < 12) bad.questionnaireTooThin = (bad.questionnaireTooThin || 0) + 1;
   const argumentsInfo = argumentStats(html);
   const roleCoverage = roleArgumentCoverage(argumentsInfo);
   const activeRound =
@@ -389,7 +398,9 @@ function scoreHtml(html, report = {}) {
     workPackages:
       html.includes("delivery-argument-section") &&
       html.includes("sow-fields") &&
-      hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879|\u76f8\u5bf9\u96be\u70b9"),
+      hasText(text, "\u4e00\u7ea7\u529f\u80fd\u6a21\u5757") &&
+      hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") &&
+      hasText(text, "\u96be\u70b9\u6807\u8bc6"),
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
     deliveryAssessment: html.includes("delivery-argument-section") && html.includes("sow-fields"),
     deliveryOrder:

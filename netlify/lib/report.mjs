@@ -1,7 +1,7 @@
 ﻿import { callModel, extractJson } from "./ai.mjs";
 import { ChevronDown, CircleAlert, Trophy } from "lucide";
 import { clip } from "./util.mjs";
-import { buildOpportunityRating } from "./opportunity-rating.mjs";
+import { OPPORTUNITY_RATING_VERSION, buildOpportunityRating } from "./opportunity-rating.mjs";
 import { TOPIC_NAMES, buildEvidencePool, cleanUrl, formatQualityWarnings, isHttpUrl, normalizeReportSources } from "./report-quality.mjs?v=oac-insight-20260531a";
 import { applyFreshnessGuardrails } from "./evidence-freshness.mjs";
 
@@ -920,7 +920,13 @@ function repairAnnualMetric(item = {}) {
 }
 
 function compactText(value, max = 240) {
-  return clip(String(value || "").replace(/\s+/g, " ").trim(), max);
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  const sliced = text.slice(0, max);
+  const stops = ["。", "；", ";", "！", "？", ".", "，", ","].map((mark) => sliced.lastIndexOf(mark));
+  const boundary = Math.max(...stops);
+  if (boundary >= Math.floor(max * 0.55)) return sliced.slice(0, boundary + 1).trim();
+  return sliced.replace(/[，,、：:；;\s]+$/g, "").trim();
 }
 
 function tidyPunctuation(value = "") {
@@ -1039,6 +1045,7 @@ function cleanBusinessText(value = "", max = 260) {
     .replace(/^历史集团线索\s*[：:]\s*历史集团财务线索\s*[：:]\s*/i, "历史集团财务线索：");
   text = text.replace(/信用\/法律风险线索只作为商务复核项[。；;]?/g, "");
   text = text.replace(/前置条件是确认/g, "前置条件是");
+  text = text.replace(/未在公开资料中闭环，重方案投入前仍决定是否升级重方案投入/g, "未在公开资料中闭环，重方案投入前仍需确认");
   const freshnessMarker = "该数据期为";
   const firstFreshness = text.indexOf(freshnessMarker);
   const secondFreshness = firstFreshness >= 0 ? text.indexOf(freshnessMarker, firstFreshness + freshnessMarker.length) : -1;
@@ -1046,6 +1053,24 @@ function cleanBusinessText(value = "", max = 260) {
     text = `${text.slice(0, secondFreshness).replace(/[。；;，,\s]+$/g, "")}。`;
   }
   return dedupeSentences(text);
+}
+
+function isIncompleteFieldText(value = "") {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return true;
+  if (/\.{2,}|…/.test(text)) return true;
+  if (/^[能可]$|^(?:能|可|可以|能够|需|需要|通过|用于|以|对|将|在|与|及|和|或|为|把|让)\s*[。；;，,：:]?$/.test(text)) return true;
+  if (/[，,、：:；;]$/.test(text)) return true;
+  if (/(?:能|可|可以|能够|需要|通过|用于|围绕|基于|面向|对接|支撑|形成|提供|解决|实现|提升)\s*$/.test(text)) return true;
+  if (/^(?:我方机会|客户痛点|解决方案|方案价值|适用前提)\s*(?:能|可|可以|能够)?\s*$/.test(text)) return true;
+  const compact = text.replace(/[。；;，,、：:\s'"“”‘’()（）【】\[\]\-—_·|/\\.!！？?]/g, "");
+  return compact.length < 4;
+}
+
+function safeFieldText(value = "", fallback = "", max = 260) {
+  const text = cleanBusinessText(value, max);
+  if (meaningful(text) && !isIncompleteFieldText(text)) return text;
+  return cleanBusinessText(fallback, max);
 }
 
 function substantiveText(value = "", minChars = 6) {
@@ -1741,6 +1766,19 @@ function joinReadable(items = [], separator = "；") {
   return values.join(separator);
 }
 
+function joinRatingReadable(items = [], separator = "；") {
+  const seen = new Set();
+  const values = [];
+  for (const item of arr(items)) {
+    const value = cleanBusinessText(item, 180).replace(/[。；;，,\s]+$/g, "");
+    const key = ratingTextKey(value);
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    values.push(value);
+  }
+  return values.join(separator);
+}
+
 function stripFieldPrefix(value, labels = []) {
   let text = compactText(value, 260);
   for (let i = 0; i < 2; i += 1) {
@@ -2349,7 +2387,7 @@ function finalPrompt(company, sourcePack, topicBriefs, quality) {
 18d. solutions 不只写“能做 AI”，要体现“客户场景 -> 方案介绍 -> 价值 -> 成效 -> 前提”。若来源包含产品手册、部署周期、价格区间或系统集成信息，应转化为方案边界和切入建议。
 19. salesThesis 必须站在销售视角回答四个问题：这个客户是否值得继续跟；有没有预算/买单能力；决策链和拍板路径可能在哪里；如果想成单应该怎么运作。必须先按维度收集证据，再形成观点，不能先写观点再硬配论据；采购能力只能用企业规模、财务/融资、客户作为甲方的招采/采购记录支撑；客户对外交付案例只能用于理解业务场景，不能证明客户有采购能力、采购习惯、同类项目采购或竞品供应商。
 20. solutionStrategy 必须站在售前视角回答四个问题：客户现状与问题；总体解决思路；分项方案优先级；落地路径。不要只列产品名，要把客户现状、痛点、方案价值和推进路径串起来。
-21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW工作拆分。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写技术条件（数据、接口、权限、安全、部署、验收口径），不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
+21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW分解。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写技术条件（数据、接口、权限、安全、部署、验收口径），不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
 22. 拜访问卷必须随“我的企业信息”变化。若我的企业不是软件/IT/数字化服务商，不要默认生成 IT/数据/系统类问题；应围绕我方主营业务和核心产品生成业务场景、产品技术匹配、采购交付、质量/合规/付款等问题。
 
 企业信息：${JSON.stringify(company, null, 2)}
@@ -2457,7 +2495,7 @@ function buildFallbackStructuredReport(company, sourcePack, topicBriefs, quality
       sourceIds: item.sourceIds || arr(pain.sourceIds).slice(0, 2)
     })),
     solutions: [
-      { priority: "P1", title: "先做轻量场景确认", customerPain: "当前已形成可交流线索，需先把业务场景和成功指标收敛清楚。", introduction: "以证据池和用户线索锁定一个可验证小场景。", value: "把交流从标准功能介绍收敛到可确认的客户问题和成功指标。", expectedImpact: "形成下一步是否进入方案深化和轻量验证的判断依据。", prerequisite: "确认业务目标、系统边界、数据样例和客户责任人。", why: "先以证据池和用户线索锁定小场景。", how: "确认业务目标、系统边界、数据样例和成功指标后再进入方案。", sourceIds: sourcePack.slice(0, 2).map((item) => item.id) }
+      { priority: "P1", title: "先做轻量场景确认", customerPain: "当前已形成可交流线索，需先把业务场景和成功指标收敛清楚。", introduction: "以证据池和用户线索锁定一个可验证小场景。", value: "把交流从标准功能介绍收敛到可确认的客户问题和成功指标。", expectedImpact: "形成下一步是否进入方案深化和轻量验证的判断依据。", prerequisite: "确认业务目标、系统边界、数据样例和验收口径。", why: "先以证据池和用户线索锁定小场景。", how: "确认业务目标、系统边界、数据样例和成功指标后再进入方案。", sourceIds: sourcePack.slice(0, 2).map((item) => item.id) }
     ],
     solutionStrategy: {
       currentSituation: firstTexts(pain.painSignals, "body", 1)[0] || "客户现状和问题需结合现场信息继续确认。",
@@ -2467,8 +2505,8 @@ function buildFallbackStructuredReport(company, sourcePack, topicBriefs, quality
     },
     deliveryAssessment: {
       architectureSketch: "业务数据/文档/系统样例 → 知识库或场景智能体 → 工作台/报表/告警输出。",
-      deliveryRisks: ["数据样例、系统接口、权限边界和客户责任人会直接影响正式交付范围。"],
-      dependencies: ["业务负责人确认场景", "IT确认系统和数据边界", "提供脱敏样例或流程材料"],
+      deliveryRisks: ["数据样例、系统接口、权限边界和验收口径会直接影响正式交付范围。"],
+      dependencies: ["现有系统清单和接口边界", "脱敏样例、字段字典或流程材料", "权限、安全和部署要求"],
       sowOutline: ["业务应用前台", "知识/数据底座", "系统连接器", "运营管理后台"]
     },
     requirements: {
@@ -3294,7 +3332,9 @@ export async function improveStructuredReport(report, userInput) {
 }
 
 function ratingOf(report) {
-  return report.opportunityRating || buildOpportunityRating(report);
+  const rating = report.opportunityRating;
+  if (rating?.version === OPPORTUNITY_RATING_VERSION) return rating;
+  return buildOpportunityRating(report);
 }
 
 function ratingClass(rating) {
@@ -3312,7 +3352,27 @@ function usefulRatingEvidence(items = []) {
     .map((item) => cleanBusinessText(item, 180))
     .filter(meaningful)
     .filter((item) => !isNonDecisionClaim(item))
+    .filter((item) => !/[？?]$/.test(item) && !/本次项目的预算来源、审批流程、付款主体和决策链分别由谁负责/.test(item))
     .filter((item) => !/资料中出现|可读来源|主题覆盖|初访判断门槛|系统已检索信用\/法律风险方向|报告已识别可能相关|资料显示客户具备一定信息化|已绑定我的企业|目标客户线索与我的企业存在关键词重合|报告形成了\s*\d+\s*个|来源质量提醒|项目级预算归属、推进人和IT\/安全审批决定是否升级重方案投入/.test(item))
+    .slice(0, 3);
+}
+
+function ratingTextKey(value = "") {
+  return cleanBusinessText(value, 260).replace(/[。；;，,、：:\s'"“”‘’()（）【】\[\]\-—_·|/\\.!！？?]/g, "");
+}
+
+function dedupeRatingItems(items = [], blocked = []) {
+  const blockedKeys = arr(blocked).map(ratingTextKey).filter(Boolean);
+  const seen = new Set();
+  return arr(items)
+    .filter((item) => {
+      const key = ratingTextKey(item);
+      if (!key) return false;
+      if (blockedKeys.some((blockedKey) => key.includes(blockedKey) || blockedKey.includes(key))) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .slice(0, 3);
 }
 
@@ -3331,19 +3391,30 @@ function ratingDisplaySummary(report = {}, item = {}) {
   const scene = shortSceneTitle(topSolution.title || topPain.title || topPain.pain || topPain.opportunity || "");
   const scenarioBasis = buildScenarioCoreBasis(report);
   const decisionPeople = firstDecisionPeopleSummary(arr(report.sources));
-  const concreteRisks = usefulRatingEvidence([
+  const riskEvidence = usefulRatingEvidence([
     ...arr(item.deductions),
     ...arr(item.evidence),
     ...arr(report.opportunityRating?.riskFlags),
     report.opportunityRating?.riskGate?.summary,
     ...arr(report.opportunityRating?.riskGate?.reasons)
-  ]).filter((text) => /被执行|失信|诉讼|行政处罚|经营异常|付款|回款|采购人|招标人|预算金额|安全|合规|数据|接口|审批|系统/.test(text));
+  ]);
+  const hardRisks = riskEvidence.filter((text) => /被执行|失信|诉讼|行政处罚|经营异常|付款|回款|合同纠纷|信用\/法律/.test(text));
+  const boundaryRisks = riskEvidence.filter((text) => /安全|合规|数据|接口|审批|系统/.test(text));
 
   if (key === "budgetAbility") {
     if (budgetMetrics.length) {
       return {
         conclusion: `预算承载只能由已查到的经营金额辅助判断：${budgetMetrics.slice(0, 4).join("；")}。项目级预算仍需单独核实，不把经营规模直接等同采购意愿。`,
         evidence: budgetMetrics
+      };
+    }
+    const indirectBudgetEvidence = usefulRatingEvidence([...arr(item.evidence), ...arr(item.deductions)])
+      .filter((text) => /融资|注册资本|人员规模|资质|营收|利润|现金流|预算|采购|项目|经营实力|经营体量/.test(text))
+      .filter((text) => !/当前主要是间接经营实力线索/.test(text));
+    if (indirectBudgetEvidence.length) {
+      return {
+        conclusion: `预算证据偏间接：${indirectBudgetEvidence.slice(0, 2).join("；")}。本轮只能按小闭环验证处理，不能写成项目级预算已明确。`,
+        evidence: indirectBudgetEvidence
       };
     }
     return {
@@ -3363,10 +3434,22 @@ function ratingDisplaySummary(report = {}, item = {}) {
       };
   }
   if (key === "decisionRiskControl") {
-    if (concreteRisks.length) {
+    if (hardRisks.length) {
       return {
-        conclusion: `决策风险需围绕具体风险复核：${concreteRisks.slice(0, 2).join("；")}。`,
-        evidence: concreteRisks
+        conclusion: `存在明确商务或信用风险，当前应降低投入优先级：${hardRisks[0]}。`,
+        evidence: hardRisks
+      };
+    }
+    if (decisionPeople && boundaryRisks.length) {
+      return {
+        conclusion: `决策风险中等：公开资料能看到${decisionPeople}等组织线索，但系统接入、数据安全或合规审批仍可能影响落地节奏。`,
+        evidence: [decisionPeople]
+      };
+    }
+    if (boundaryRisks.length) {
+      return {
+        conclusion: "决策风险中等：未发现信用或法律否决项，但系统接入、数据安全或合规审批属于落地变量，不能据此直接放大投入。",
+        evidence: []
       };
     }
     if (decisionPeople) {
@@ -3421,6 +3504,14 @@ function ratingDisplaySummary(report = {}, item = {}) {
   };
 }
 
+function ratingDisplayParts(report = {}, item = {}) {
+  const display = ratingDisplaySummary(report, item);
+  const conclusion = cleanBusinessText(display.conclusion || item.conclusion, 260);
+  const evidence = dedupeRatingItems(usefulRatingEvidence(display.evidence?.length ? display.evidence : item.evidence), [conclusion]);
+  const deductions = dedupeRatingItems(usefulRatingEvidence(item.deductions), [conclusion, ...evidence]);
+  return { display: { ...display, conclusion }, evidence, deductions };
+}
+
 function ratingPanel(report) {
   const rating = ratingOf(report);
   const basis = usefulDecisionText(rating.modelBasis) || "OAC 初访优先级模型参考 BANT、MEDDICC 和售前交付可行性评估，用于判断初次拜访前是否值得投入售前资源。";
@@ -3472,15 +3563,13 @@ function ratingPanel(report) {
               .filter((item) => item.status !== "unknown")
               .filter((item) => usefulDecisionText(ratingDisplaySummary(report, item).conclusion || item.conclusion || ""))
               .map((item) => {
-                const display = ratingDisplaySummary(report, item);
-                const evidence = usefulRatingEvidence(display.evidence.length ? display.evidence : item.evidence);
-                const deductions = usefulRatingEvidence(item.deductions);
+                const { display, evidence, deductions } = ratingDisplayParts(report, item);
                 return `<article class="rating-dim">
                   <div class="rating-dim-head"><b>${e(item.title)}</b><strong>${e(item.displayScore || `${item.score}分`)}</strong></div>
                   <div class="rating-bar"><i style="width:${Math.max(0, Math.min(Number(item.score) || 0, 100))}%"></i></div>
                   <p><b>结论</b>${e(cleanBusinessText(display.conclusion || item.conclusion, 260))}</p>
-                  ${evidence.length ? `<p><b>论据</b>${e(joinReadable(evidence))}</p>` : ""}
-                  ${deductions.length ? `<p><b>关键短板</b>${e(joinReadable(deductions))}</p>` : ""}
+                  ${evidence.length ? `<p><b>论据</b>${e(joinRatingReadable(evidence))}</p>` : ""}
+                  ${deductions.length ? `<p><b>关键短板</b>${e(joinRatingReadable(deductions))}</p>` : ""}
                 </article>`;
               })
               .join("")}
@@ -3527,14 +3616,12 @@ function ratingBadge(report) {
       </div>` : ""}
       ${dimensions.length ? `<div class="cover-rating-dims">${dimensions
         .map((item) => {
-          const display = ratingDisplaySummary(report, item);
-          const evidence = usefulRatingEvidence(display.evidence.length ? display.evidence : item.evidence);
-          const deductions = usefulRatingEvidence(item.deductions);
+          const { display, evidence, deductions } = ratingDisplayParts(report, item);
           return `<article>
             <div><b>${e(item.title)}</b><span>${e(item.displayScore || `${item.score}分`)}</span></div>
             <p>${e(cleanBusinessText(display.conclusion || item.conclusion, 220))}</p>
-            ${evidence.length ? `<small>依据：${e(joinReadable(evidence))}</small>` : ""}
-            ${deductions.length ? `<small>扣分：${e(joinReadable(deductions))}</small>` : ""}
+            ${evidence.length ? `<small>论据：${e(joinRatingReadable(evidence))}</small>` : ""}
+            ${deductions.length ? `<small>短板：${e(joinRatingReadable(deductions))}</small>` : ""}
           </article>`;
         })
         .join("")}</div>` : ""}
@@ -3657,7 +3744,7 @@ function opportunityFitSection(report) {
     {
       title: "承诺边界",
       facts: arr(fit.noCommitments).length ? fit.noCommitments : arr(profile.noCommitments),
-      insight: "避免在需求、数据和交付边界不清时过度承诺。"
+      insight: "避免在需求、数据和验收口径不清时过度承诺。"
     }
   ];
   return `<section><h2>2. 我方能力匹配</h2><div class="grid four">${evidenceCards(cards)}</div>${arr(fit.validationQuestions).length ? `<div class="card fit-questions"><h3>会前验证问题</h3>${list(fit.validationQuestions)}</div>` : ""}</section>`;
@@ -4975,7 +5062,7 @@ function actionGuideSection(report, round) {
     },
     {
       title: "暂时不要承诺",
-      body: notes.length ? joinReadable(notes) : brief.risk || "需求、数据和交付边界未清楚前，不承诺重交付范围、周期和免费验证。",
+      body: notes.length ? joinReadable(notes) : brief.risk || "需求、数据和验收口径未清楚前，不承诺重交付范围、周期和免费验证。",
       tone: "risk"
     }
   ].filter((item) => meaningful(item.body));
@@ -5091,7 +5178,7 @@ function argumentBranchTitles(label = "") {
   if (/可能已有系统/.test(text)) return ["系统线索", "集成关系", "业务约束"];
   if (/替换机会/.test(text)) return ["替换触发", "增量价值", "替换边界"];
   if (/方案风险点/.test(text)) return ["风险来源", "落地影响", "应对边界"];
-  if (/SOW|工作拆分/.test(text)) return ["一级工作包", "二级工作项", "交付边界"];
+  if (/SOW|工作拆分/.test(text)) return ["一级工作包", "二级工作项", "难点标识"];
   if (/前置条件|内部边界/.test(text)) return ["客户侧输入", "我方边界", "推进条件"];
   if (/必问问题/.test(text)) return ["业务验证", "预算验证", "数据验证"];
   if (/会后更新/.test(text)) return ["新增事实", "判断刷新", "下一轮动作"];
@@ -5914,7 +6001,7 @@ function visitValidationSection(report, round, sources = []) {
       {
         title: "内部承诺边界",
         verdict: notes[0] || "需求、数据、预算和决策链锁定前，不承诺范围、效果和免费验证。",
-        body: "这一项是给销售/售前自己看的，用来保护交付边界和投入空间。",
+        body: "这一项是给销售/售前自己看的，用来保护投入空间和验收口径。",
         evidence: notes.slice(0, 4),
         tone: "risk"
       },
@@ -6483,31 +6570,23 @@ function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
       .filter((row) => row.complexity.className === "hard")
       .map((row) => `${row.group.title}-${row.task}`)
       .slice(0, 3);
-    const mediumTasks = allTasks
-      .filter((row) => row.complexity.className === "medium")
-      .map((row) => `${row.group.title}-${row.task}`)
-      .slice(0, 3);
     const taskLines = groups.map((group, groupIndex) => {
       const items = arr(group.items)
         .map((task, taskIndex) => {
           const complexity = complexityMap.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(task, group, item);
-          return `${task}（${complexity.label}）`;
+          return complexity.className === "hard" ? `${task}（难点）` : task;
         })
         .join("、");
       return `${group.title}：${items}`;
     });
-    const attention = hardTasks.length
-      ? hardTasks.join("、")
-      : mediumTasks.length
-        ? mediumTasks.join("、")
-        : "客户样例、接口边界和验收口径";
+    const moduleNames = groups.map((group) => group.title).filter(meaningful).slice(0, 4);
     return {
       title: `${item.priority || `P${Math.min(index, 2)}`}｜${cleanBusinessText(item.title || "功能项", 44)}`,
-      claim: `相对难点在${attention}；其余功能按中低复杂度推进，不把全部工作都标成难。`,
+      claim: `按“${cleanBusinessText(item.title || "功能项", 56)}”拆成功能模块，难点只标在具体二级功能项上。`,
       fields: [
+        { label: "一级功能模块", value: moduleNames.join("、") || "业务应用、数据/知识底座、系统连接和运营后台" },
         { label: "二级功能项", value: taskLines.join("；") },
-        { label: "相对难点", value: attention },
-        { label: "交付边界", value: cleanBusinessText(item.prerequisite || arr(delivery.dependencies)[index] || "先确认客户侧样例、系统边界、权限和验收口径。", 180) }
+        { label: "难点标识", value: hardTasks.length ? hardTasks.join("、") : "当前未标出高难点，按常规功能项核对样例、接口、权限和验收口径。" }
       ],
       kind: "sow-fields",
       sourceIds: normalizeSourceIdList(item),
@@ -6516,13 +6595,14 @@ function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
   });
 }
 
-function sowTaskList(group = {}, solution = {}) {
+function sowTaskList(group = {}, solution = {}, complexityMap = null, groupIndex = 0) {
   const items = arr(group.items).filter(meaningful);
   if (!items.length) return "";
   return `<ul class="sow-task-list">${items
-    .map((item) => {
-      const complexity = workTaskComplexity(item, group, solution);
-      return `<li><span>${e(item)}</span><i class="sow-task-complexity ${e(complexity.className)}">${e(complexity.label)}</i></li>`;
+    .map((item, taskIndex) => {
+      const complexity = complexityMap?.get(`${groupIndex}:${taskIndex}`) || workTaskComplexity(item, group, solution);
+      const marker = complexity.className === "hard" ? `<i class="sow-task-complexity hard">难点</i>` : "";
+      return `<li><span>${e(item)}</span>${marker}</li>`;
     })
     .join("")}</ul>`;
 }
@@ -7108,17 +7188,37 @@ function presalesPerspective(report, round, sources = []) {
   });
   const solutionBranches = solutions.slice(0, 5).map((item, index) => {
     const relatedPain = pains[index] || topPain || {};
-    const customerPain = cleanBusinessText(item.customerPain || item.pain || item.sourceBasis || relatedPain.pain || relatedPain.customerSignal || "", 260);
-    const intro = cleanBusinessText(item.introduction || item.solutionIntro || item.how || item.body || "", 280);
-    const value = cleanBusinessText(item.value || item.solutionValue || item.why || "", 260);
-    const expected = cleanBusinessText(item.expectedImpact || item.impact || item.outcome || "", 240);
-    const prereq = cleanBusinessText(item.prerequisite || item.precondition || item.condition || "", 240);
+    const customerPain = safeFieldText(
+      item.customerPain || item.pain || item.sourceBasis || relatedPain.pain || relatedPain.customerSignal || "",
+      "本方案的痛点仍需通过客户原话、样例或现场流程进一步确认。",
+      260
+    );
+    const intro = safeFieldText(
+      item.introduction || item.solutionIntro || item.how || item.body || "",
+      `围绕“${cleanBusinessText(item.title || "建议方案", 70)}”形成一个可演示、可验证的解决闭环。`,
+      280
+    );
+    const value = safeFieldText(
+      item.value || item.solutionValue || item.why || "",
+      "用于把交流从产品功能介绍推进到客户可感知的效率、质量、成本或交付结果。",
+      260
+    );
+    const expected = safeFieldText(
+      item.expectedImpact || item.impact || item.outcome || "",
+      "预期成效暂不承诺具体数值，首轮应先锁定客户认可的衡量指标。",
+      240
+    );
+    const prereq = safeFieldText(
+      item.prerequisite || item.precondition || item.condition || "",
+      "需要客户提供业务样例、数据口径、系统边界和责任人后再进入方案深化。",
+      240
+    );
     const fields = [
-      { label: "客户痛点", value: customerPain || "本方案的痛点仍需通过客户原话、样例或现场流程进一步确认。" },
-      { label: "方案介绍", value: intro || `围绕“${cleanBusinessText(item.title || "建议方案", 70)}”形成一个可演示、可验证的解决闭环。` },
-      { label: "方案价值", value: value || "用于把交流从产品功能介绍推进到客户可感知的效率、质量、成本或交付结果。" },
-      { label: "预期成效", value: expected || "预期成效暂不承诺具体数值，首轮应先锁定客户认可的衡量指标。" },
-      { label: "适用前提", value: prereq || "需要客户提供业务样例、数据口径、系统边界和责任人后再进入方案深化。" }
+      { label: "客户痛点", value: customerPain },
+      { label: "方案介绍", value: intro },
+      { label: "方案价值", value },
+      { label: "预期成效", value: expected },
+      { label: "适用前提", value: prereq }
     ];
     return structuredBranch(
       `${item.priority || "P1"}｜${cleanBusinessText(item.title || "方案", 44)}`,
@@ -7131,12 +7231,12 @@ function presalesPerspective(report, round, sources = []) {
   const painBranches = pains.slice(0, 5).map((item, index) =>
     structuredBranch(
       `${index === 0 ? "P0" : `P${Math.min(index, 2)}`}｜${cleanBusinessText(item.title || "痛点机会", 42)}`,
-      cleanBusinessText(item.opportunity || item.pain || item.customerSignal || item.title, 170),
+      safeFieldText(item.opportunity || item.pain || item.customerSignal || item.title, "当前只形成待验证机会，需由客户场景、样例数据和价值指标确认后再展开方案。", 170),
       [
-        { label: "客户现象", value: cleanBusinessText(item.customerSignal || item.sourceBasis || "", 260) || "未形成足够具体的客户现象，需现场补客户原话或流程样例。" },
-        { label: "痛点判断", value: cleanBusinessText(item.pain || item.reasoning || "", 260) || "痛点强度暂不稳定，需确认发生频率、影响岗位和损失指标。" },
-        { label: "我方机会", value: cleanBusinessText(item.opportunity || item.aiEntry || "", 260) || "可先作为待验证机会，不包装成确定需求。" },
-        { label: "现场验证", value: uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 3).join("；") || "确认场景优先级、样例数据、责任人和可衡量成效。" }
+        { label: "客户现象", value: safeFieldText(item.customerSignal || item.sourceBasis || "", "未形成足够具体的客户现象，需现场补客户原话或流程样例。", 260) },
+        { label: "痛点判断", value: safeFieldText(item.pain || item.reasoning || "", "痛点强度暂不稳定，需确认发生频率、影响岗位和损失指标。", 260) },
+        { label: "我方机会", value: safeFieldText(item.opportunity || item.aiEntry || "", "当前只形成待验证机会，需由客户场景、样例数据和价值指标确认后再展开方案。", 260) },
+        { label: "现场验证", value: safeFieldText(uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 3).join("；"), "确认场景优先级、样例数据、责任人和可衡量成效。", 260) }
       ],
       normalizeSourceIdList(item),
       "pain-fields"
@@ -7287,25 +7387,24 @@ function deliveryWorkPackageSection(round, report = {}) {
   const workItems = solutions.length ? solutions : fallbackWorkItems;
   if (!workItems.length) return "";
   return `<section class="battle-section delivery-work-section">
-    <h2>SOW工作拆分</h2>
+    <h2>SOW分解</h2>
     <p class="section-lead">按可交付功能项拆到一级模块和二级能力，不按实施流程拆分，也不在会前报告里承诺投入规模、上线节奏或商务条款。</p>
     <div class="sow-table">
-      <div class="sow-table-head"><span>优先级 / 功能项</span><span>二级功能点与复杂性</span></div>
+      <div class="sow-table-head"><span>优先级 / 功能项</span><span>二级功能点</span></div>
       ${workItems.map((item, index) => {
         const groups = solutionWorkPackages(item);
-        const packageComplexity = workPackageComplexity(groups, item);
+        const complexityMap = relativeTaskComplexityMap(groups, item);
         return `<article class="sow-table-row">
         <div class="sow-package-title">
           <span>${e(item.priority || `P${Math.min(index + 1, 2)}`)}</span>
           <h3>${e(item.title)}</h3>
-          <i class="package-complexity ${e(packageComplexity.className)}">整体复杂性：${e(packageComplexity.level)}${packageComplexity.className === "hard" ? "｜难" : ""}</i>
           <p>${e(cleanBusinessText(item.introduction || item.value || item.expectedImpact || "按该功能模块拆出二级能力、输入输出、系统边界和客户侧准备项。", 180))}</p>
         </div>
         <div class="work-package-breakdown">
-          ${groups.map((group) => {
+          ${groups.map((group, groupIndex) => {
             return `<div class="sow-work-group">
             <div class="sow-work-head"><b>${e(group.title)}</b></div>
-            ${sowTaskList(group, item)}
+            ${sowTaskList(group, item, complexityMap, groupIndex)}
           </div>`;
           }).join("")}
         </div>
@@ -7412,7 +7511,7 @@ function technicalDependencyBranches(delivery = {}, round = {}) {
     fields: [
       { label: "技术依赖", value: cleanBusinessText(item, 180) },
       { label: "具体要求", value: defaultResponseForRisk(item) },
-      { label: "影响范围", value: /接口|系统|API|SDK|SSO/.test(item) ? "影响系统集成和上线范围。" : /数据|样例|字段|口径/.test(item) ? "影响模型、知识库和验收准确性。" : /安全|权限|审计|部署|网络/.test(item) ? "影响部署方式和安全审批。" : "影响交付边界和验收口径。" }
+      { label: "影响范围", value: /接口|系统|API|SDK|SSO/.test(item) ? "影响系统集成和上线范围。" : /数据|样例|字段|口径/.test(item) ? "影响模型、知识库和验收准确性。" : /安全|权限|审计|部署|网络/.test(item) ? "影响部署方式和安全审批。" : "影响验收口径和变更范围。" }
     ],
     kind: "dependency-fields",
     evidence: [item],
@@ -7434,7 +7533,7 @@ function deliveryArgumentSection(report, round) {
     nodes: [
       {
         label: "SOW分解",
-        claim: "本轮SOW只按可交付功能项拆分，并标出相对难点用于控范围。",
+        claim: "本轮SOW只按可交付功能项拆分，难点只标注到具体二级功能项。",
         evidence: sow,
         branches: sowBranches.length ? sowBranches : deliveryBranches(sow, "功能项"),
         forceDisplay: true,
@@ -7475,46 +7574,75 @@ function deliveryPerspective(report, round) {
 function actionQuestionnaireBranches(report = {}, round = {}) {
   const brief = buildExecutiveBrief(report, round);
   const coreQuestion = coreBusinessQuestion(report, round, brief);
-  const businessQuestions = questionsByGroup(round, /业务/, report);
-  const budgetQuestions = questionsByGroup(round, /预算|决策|采购/, report);
-  const dataQuestions = questionsByGroup(round, /IT|数据|系统|接口|风险|边界/, report);
-  const deliveryQuestions = questionsByGroup(round, /交付|部署|安全|验收|权限/, report);
-  const make = (title, question, goal, evidence = []) => ({
-    title,
-    claim: cleanBusinessText(question, 170),
-    fields: [
-      { label: "问题类别", value: title },
-      { label: "核心问题", value: cleanBusinessText(question, 240) },
-      { label: "验证目的", value: cleanBusinessText(goal, 220) }
+  const groups = normalizedQuestionnaireGroups(round, report);
+  const groupQuestions = (pattern) => groups
+    .filter((group) => pattern.test(String(group.title || "")))
+    .flatMap((group) => arr(group.questions));
+  const businessQuestions = uniqueTexts([coreQuestion, ...groupQuestions(/业务|场景|问题/)], 5);
+  const budgetQuestions = uniqueTexts(groupQuestions(/预算|决策|采购|采购与交付/), 5);
+  const dataQuestions = uniqueTexts(groupQuestions(/IT|数据|系统|接口|产品|技术/), 5);
+  const deliveryQuestions = uniqueTexts(groupQuestions(/交付|部署|安全|验收|权限|风险|边界/), 5);
+  const fallbackQuestions = {
+    "业务场景": [
+      "客户当前最优先的业务场景是什么，为什么现在要解决？",
+      "这个场景影响哪个经营指标：效率、质量、成本、交付还是合规？",
+      "如果只做一个小范围验证，客户希望覆盖哪个部门、产线、区域或流程？"
     ],
+    "预算与采购": [
+      "本项目预算来自业务部门、IT部门、集团专项、年度预算还是政府补贴项目？",
+      "决策链上谁发起需求、谁负责技术把关、谁审批预算、谁负责采购流程？",
+      "如果验证通过，下一步是方案会、POC、立项还是招采流程？"
+    ],
+    "系统与数据": [
+      "当前业务涉及哪些系统或平台，每个系统分别掌握哪些关键数据？",
+      "这些系统能否导出数据、开放接口或提供离线样例？",
+      "是否存在私有化、内网、等保、安全审计或数据不出域要求？"
+    ],
+    "交付验收": [
+      "可验收的样例范围、指标口径、异常场景和不承诺项是什么？",
+      "客户侧能否提供字段字典、样例数据、测试账号、权限和部署环境？",
+      "哪些安全、权限、部署或验收条件不到位会导致项目延期或降级？"
+    ]
+  };
+  const fieldsForQuestions = (title, questions, goal) => {
+    const picked = uniqueTexts([...arr(questions), ...arr(fallbackQuestions[title])], 5).slice(0, 4);
+    return [
+      ...picked.map((question, index) => ({ label: `问题${index + 1}`, value: cleanBusinessText(question, 260) })),
+      { label: "验证目的", value: cleanBusinessText(goal, 220) }
+    ];
+  };
+  const make = (title, questions, goal, claim) => ({
+    title,
+    claim: cleanBusinessText(claim, 170),
+    fields: fieldsForQuestions(title, questions, goal),
     kind: "questionnaire-fields",
-    evidence: evidence.filter(meaningful).slice(0, 3),
+    evidence: arr(questions).filter(meaningful).slice(0, 4),
     forceDisplay: true
   });
   return [
     make(
       "业务场景",
-      coreQuestion || businessQuestions[0] || "客户当前最优先的业务场景是什么，衡量价值的指标是什么？",
+      businessQuestions,
       "确认真实场景、影响岗位、损失指标和优先级。",
-      [coreQuestion, ...businessQuestions]
+      "业务场景要同时问清优先级、影响指标、现有做法和试点范围。"
     ),
     make(
       "预算与采购",
-      budgetQuestions[0] || "本次项目是否已有预算金额、采购窗口、采购主体或招标计划？",
+      budgetQuestions,
       "区分经营体量、推测预算和项目级预算，避免把财务能力误写成采购意愿。",
-      budgetQuestions
+      "预算采购要问清预算来源、采购路径、付款主体和下一步流程。"
     ),
     make(
       "系统与数据",
-      dataQuestions[0] || "现有系统、接口/API、数据样例、权限、安全和部署环境分别是什么边界？",
+      dataQuestions,
       "判断方案能否落地，以及哪些能力只能先做小样例验证。",
-      dataQuestions
+      "系统数据要问清系统清单、接口方式、样例数据、权限和安全要求。"
     ),
     make(
       "交付验收",
-      deliveryQuestions[0] || "可验收的样例范围、指标口径、异常场景和不承诺项是什么？",
+      deliveryQuestions,
       "把交付风险落到数据、接口、权限、部署和验收口径。",
-      deliveryQuestions
+      "交付验收要问清验收指标、边界样例、部署条件和不承诺项。"
     )
   ];
 }
@@ -7584,7 +7712,7 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
     branches.push(make("敏感风险", "敏感风险只引用具体事实；没有硬风险时不把财务/经营核验写成风险。", riskTexts));
   }
   if (!branches.length) {
-    branches.push(make("推测信息", "当前公开证据不足，只能把预算、需求和交付边界作为待验证事项。", ["公开资料未形成可直接支撑的商务或方案强判断。"], "attention-fields inferred"));
+    branches.push(make("推测信息", "当前公开证据不足，只能把预算、需求和技术边界作为待验证事项。", ["公开资料未形成可直接支撑的商务或方案强判断。"], "attention-fields inferred"));
   }
   return branches.slice(0, 5);
 }
