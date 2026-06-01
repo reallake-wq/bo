@@ -5,6 +5,7 @@ const root = process.cwd();
 const outDir = path.resolve(root, "..");
 const baseUrl = (process.env.OAC_SCENARIO_BASE_URL || "http://127.0.0.1:8888").replace(/\/+$/, "");
 const scenarioName = "oac-scenario-zhiyong-hollykube";
+const scenarioTenantName = process.env.OAC_SCENARIO_TENANT_NAME || "\u667a\u7528\u4f01\u4e1a\u7aef";
 
 function loadEnv() {
   const envPath = path.join(root, ".env");
@@ -143,7 +144,12 @@ function exactProfilePayload(profile = {}) {
 
 async function main() {
   loadEnv();
-  const health = await api("/__health");
+  let health = {};
+  try {
+    health = await api("/__health");
+  } catch {
+    health = await api("/.netlify/functions/health");
+  }
   fs.rmSync(path.join(root, "local-data", "tenant-data", scenarioName), { recursive: true, force: true });
 
   const existing = await api("/.netlify/functions/admin-licenses", {
@@ -151,7 +157,7 @@ async function main() {
     headers: adminHeaders()
   });
   for (const license of existing.licenses || []) {
-    if (license.tenantName === "\u5e7f\u5dde\u667a\u7528\u5f00\u7269" || license.tenantId === scenarioName) {
+    if (license.tenantName === scenarioTenantName || license.tenantName === "\u5e7f\u5dde\u667a\u7528\u5f00\u7269" || license.tenantId === scenarioName) {
       await api("/.netlify/functions/admin-licenses", {
         method: "DELETE",
         headers: adminHeaders(),
@@ -164,7 +170,7 @@ async function main() {
     method: "POST",
     headers: adminHeaders(),
     body: JSON.stringify({
-      tenantName: "\u5e7f\u5dde\u667a\u7528\u5f00\u7269",
+      tenantName: scenarioTenantName,
       tenantId: scenarioName,
       quotaTotal: 5,
       maxDevices: 3,
