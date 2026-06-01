@@ -333,9 +333,56 @@ function hasText(text, pattern) {
   return new RegExp(pattern, "i").test(String(text || ""));
 }
 
+function sellerProfileText(report = {}) {
+  const profile = report.sellerProfileSnapshot || report.sellerProfile || {};
+  return [
+    report.sellerProfileName,
+    profile.companyName,
+    profile.mainBusiness,
+    profile.summary,
+    profile.coreProducts,
+    profile.coreOfferings,
+    profile.keywords,
+    profile.typicalScenarios,
+    profile.strengths
+  ]
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isDigitalSeller(report = {}) {
+  const text = sellerProfileText(report);
+  return /AI|\u667a\u80fd\u4f53|\u8f6f\u4ef6|\u7cfb\u7edf|\u6570\u5b57\u5316|\u4fe1\u606f\u5316|\u6570\u636e|\u77e5\u8bc6\u5e93|\u7b97\u6cd5|\u5e73\u53f0|SaaS|\u54a8\u8be2/i.test(text);
+}
+
+function sellerPerspectiveMismatchCount(html = "", report = {}) {
+  if (isDigitalSeller(report)) return 0;
+  const profileText = sellerProfileText(report);
+  if (!profileText) return 0;
+  const forbidden = [
+    "\u667a\u7528\u5f00\u7269",
+    "HolliCube",
+    "AIOps",
+    "\u667a\u80fd\u4f53",
+    "\u77e5\u8bc6\u5e93",
+    "\u6570\u636e\u95ee\u7b54",
+    "\u6295\u6807\u6750\u6599",
+    "\u6807\u4e66",
+    "\u6750\u6599\u590d\u7528",
+    "\u751f\u6001\u5e94\u7528",
+    "\u5e94\u7528\u63a5\u5165",
+    "\u6d41\u7a0b\u667a\u80fd",
+    "\u7f16\u6392\u5de5\u4f5c\u53f0"
+  ].filter((term) => !profileText.includes(term));
+  return forbidden.reduce((sum, term) => sum + (html.split(term).length - 1), 0);
+}
+
 function scoreHtml(html, report = {}) {
   const counts = countTerms(html);
   const bad = countBad(html);
+  const sellerMismatchCount = sellerPerspectiveMismatchCount(html, report);
+  if (sellerMismatchCount) bad.sellerPerspectiveMismatch = sellerMismatchCount;
   const allowedUnknownInInvalidCards = (html.match(/argument-node[^"]*invalid[\s\S]*?(?:无法判断|暂无法判断|未查到)/g) || []).length;
   if (bad.lowValueClaim && allowedUnknownInInvalidCards) {
     bad.lowValueClaim = Math.max(0, bad.lowValueClaim - allowedUnknownInInvalidCards);
@@ -365,6 +412,16 @@ function scoreHtml(html, report = {}) {
   if (actionQuestionFieldCount < 12 && compactQuestionCategoryCount < 4) bad.questionnaireTooThin = (bad.questionnaireTooThin || 0) + 1;
   const argumentsInfo = argumentStats(html);
   const roleCoverage = roleArgumentCoverage(argumentsInfo);
+  if (!isDigitalSeller(report) && roleCoverage.presales) {
+    roleCoverage.presales.missing = (roleCoverage.presales.missing || []).filter(
+      (item) => item !== "\u6570\u5b57\u5316\u6210\u719f\u5ea6" && item !== "\u53ef\u80fd\u5df2\u6709\u7cfb\u7edf"
+    );
+    roleCoverage.presales.ok =
+      roleCoverage.presales.count >= 4 &&
+      roleCoverage.presales.branchCount >= 8 &&
+      !(roleCoverage.presales.unsupportedNodes || []).length &&
+      !roleCoverage.presales.missing.length;
+  }
   const activeRound =
     Array.isArray(report.rounds)
       ? report.rounds.find((round) => Number(round.roundNo) === Number(report.activeRoundNo)) || report.rounds[0] || {}
@@ -471,6 +528,7 @@ function scoreHtml(html, report = {}) {
     familyCount: Object.keys(familyCounts).length,
     familyCounts,
     businessDepth,
+    digitalSeller: isDigitalSeller(report),
     argumentsInfo,
     roleCoverage
   };
@@ -536,7 +594,7 @@ function failIfNeeded(result) {
   }
   if (result.sourceCount < 15) failures.push(`sourceCount too low: ${result.sourceCount}`);
   if (result.familyCount < 5) failures.push(`familyCount too low: ${result.familyCount}`);
-  if (result.businessDepth < 60) failures.push(`businessDepth too low: ${result.businessDepth}`);
+  if (result.digitalSeller && result.businessDepth < 60) failures.push(`businessDepth too low: ${result.businessDepth}`);
   if ((result.argumentsInfo?.max || 0) > 8) failures.push(`too many first-level arguments: ${result.argumentsInfo.max}`);
   if ((result.argumentsInfo?.emptyEvidenceFallbacks || 0) > 0) failures.push(`empty evidence fallback rendered: ${result.argumentsInfo.emptyEvidenceFallbacks}`);
   return failures;
