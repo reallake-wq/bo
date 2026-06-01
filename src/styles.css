@@ -5137,6 +5137,10 @@ label span {
   backdrop-filter: blur(20px);
 }
 
+.auth-card.integration-open {
+  width: min(1080px, 100%);
+}
+
 .admin-license-card {
   width: min(860px, 100%);
 }
@@ -5311,7 +5315,7 @@ label span {
 
 .integration-guide {
   margin-top: 16px;
-  padding: 16px;
+  padding: 20px;
   border: 1px solid rgba(37, 99, 235, 0.15);
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(239, 246, 255, 0.88));
@@ -5353,13 +5357,13 @@ label span {
 .integration-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
+  gap: 14px;
+  margin-top: 16px;
 }
 
 .integration-grid article {
   min-width: 0;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.84);
@@ -5378,15 +5382,63 @@ label span {
   padding-left: 18px;
 }
 
-.integration-grid pre {
-  margin: 8px 0 0;
-  padding: 10px;
-  border-radius: 13px;
+.integration-code {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 15px;
   background: #0f172a;
+}
+
+.integration-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.integration-code-head span {
+  min-width: 0;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.integration-code-head button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 10px;
   color: #dbeafe;
-  font-size: 11px;
+  background: rgba(96, 165, 250, 0.16);
+  border-color: rgba(147, 197, 253, 0.24);
+  font-size: 12px;
+}
+
+.integration-grid pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 13px;
+  background: transparent;
+  color: #dbeafe;
+  font-size: 12px;
   line-height: 1.45;
   overflow-x: auto;
+  white-space: pre;
+  word-break: normal;
+}
+
+.integration-hint {
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border-radius: 12px;
+  color: #1e3a8a !important;
+  background: rgba(37, 99, 235, 0.08);
+  font-size: 12px !important;
 }
 
 .integration-notes {
@@ -5396,6 +5448,20 @@ label span {
   padding: 12px;
   border-radius: 18px;
   background: rgba(20, 184, 166, 0.08);
+}
+
+@media (max-width: 780px) {
+  .auth-card.integration-open {
+    width: min(620px, 100%);
+  }
+
+  .integration-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-guide {
+    padding: 15px;
+  }
 }
 
 .admin-box {

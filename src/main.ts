@@ -864,7 +864,7 @@ function integrationGuideHtml() {
       <span>${icon("PlugZap")}</span>
       <div>
         <b>OAC 服务能力开放</b>
-        <p>企业开通 License 后，可以直接使用 OAC 网页，也可以把“商机挖掘、任务生成、报告获取”能力接入原有 CRM、数字劳动力平台、OA 或销售工作台。</p>
+        <p>企业开通 License 后，可以直接使用 OAC 网页，也可以把“免登录进入、任务生成、进度查询、报告读取”能力接入原有 CRM、数字劳动力平台、OA 或销售工作台。</p>
       </div>
     </div>
 
@@ -875,39 +875,86 @@ function integrationGuideHtml() {
         <ol>
           <li>OAC 为企业开通租户 License，并发放企业后端专用 Master API Key。</li>
           <li>企业后端携带 Master API Key 和员工 userId 向 OAC 换取一次性登录 code。</li>
-          <li>企业前端用 iframe 或新页面打开 OAC 的 SSO 地址。</li>
+          <li>企业前端使用返回的 url，拼到 OAC 站点域名后，用 iframe 或新页面打开。</li>
         </ol>
-        <pre>POST /.netlify/functions/auth-enterprise-session
+        <div class="integration-code">
+          <div class="integration-code-head">
+            <span>换取一次性登录 code</span>
+            <button type="button" data-copy-target="enterpriseSsoRequest" data-copy-label="复制">${icon("Copy")}复制</button>
+          </div>
+          <pre id="enterpriseSsoRequest">POST /.netlify/functions/auth-enterprise-session
 Headers:
-  x-master-api-key: oac_master_xxx
+  content-type: application/json
+  x-oac-master-key: oac_master_xxx
 Body:
 {
+  "tenantId": "企业租户ID，可选",
+  "licenseId": "lic_xxx，可选",
   "userId": "zhangsan",
-  "userName": "张三",
-  "department": "华东销售"
+  "userName": "张三"
 }</pre>
-        <pre>返回：
-{
-  "ssoUrl": "https://your-oac-site/sso?code=一次性code",
-  "expiresIn": 300
+        </div>
+        <div class="integration-code">
+          <div class="integration-code-head">
+            <span>返回示例</span>
+            <button type="button" data-copy-target="enterpriseSsoResponse" data-copy-label="复制">${icon("Copy")}复制</button>
+          </div>
+          <pre id="enterpriseSsoResponse">{
+  "ok": true,
+  "code": "oac_sso_xxx",
+  "url": "?sso=oac_sso_xxx"
 }</pre>
+        </div>
+        <div class="integration-code">
+          <div class="integration-code-head">
+            <span>企业前端打开地址</span>
+            <button type="button" data-copy-target="enterpriseSsoUrl" data-copy-label="复制">${icon("Copy")}复制</button>
+          </div>
+          <pre id="enterpriseSsoUrl">https://oac.muyang.chat/?sso=oac_sso_xxx</pre>
+        </div>
+        <p class="integration-hint">SSO code 有效期 5 分钟且只能使用一次；Master API Key 只允许放在企业后端。</p>
       </article>
 
       <article>
         <b>${icon("ServerCog")}方式二：后端 API 调用</b>
         <p>适合企业希望把 OAC 当成后台服务，由自己的系统发起任务、查询进度、读取报告。</p>
-        <pre>POST /api/v1/report-jobs
+        <div class="integration-code">
+          <div class="integration-code-head">
+            <span>创建报告任务</span>
+            <button type="button" data-copy-target="enterpriseApiCreateJob" data-copy-label="复制">${icon("Copy")}复制</button>
+          </div>
+          <pre id="enterpriseApiCreateJob">POST /api/v1/report-jobs
 Headers:
-  x-oac-license-key: oac_lic_xxx
+  content-type: application/json
+  x-oac-license-key: OAC-xxxx-xxxx
   x-oac-user-id: zhangsan
 Body:
 {
-  "sellerProfileId": "我的企业ID",
-  "targetCompanyName": "目标客户名称",
-  "knownNeeds": "已掌握的客户需求，可选"
+  "profileId": "profile_xxx",
+  "company": {
+    "name": "目标客户名称",
+    "region": "城市或区域，可选",
+    "industry": "行业，可选",
+    "aiNeeds": "已掌握的客户需求，可选"
+  },
+  "force": false
 }</pre>
-        <pre>GET /api/v1/report-jobs/{jobId}
-GET /api/v1/reports/{reportId}</pre>
+        </div>
+        <div class="integration-code">
+          <div class="integration-code-head">
+            <span>查询进度和读取报告</span>
+            <button type="button" data-copy-target="enterpriseApiRead" data-copy-label="复制">${icon("Copy")}复制</button>
+          </div>
+          <pre id="enterpriseApiRead">GET /api/v1/report-jobs/{jobId}
+Headers:
+  x-oac-license-key: OAC-xxxx-xxxx
+  x-oac-user-id: zhangsan
+
+GET /api/v1/reports/{reportId}
+Headers:
+  x-oac-license-key: OAC-xxxx-xxxx
+  x-oac-user-id: zhangsan</pre>
+        </div>
       </article>
     </div>
 
@@ -918,6 +965,34 @@ GET /api/v1/reports/{reportId}</pre>
       <span>任务成功生成报告后才扣次数；失败、取消、只查看报告不扣次数。</span>
     </div>
   `;
+}
+
+function wireIntegrationGuide(root: ParentNode = document) {
+  root.querySelectorAll("[data-copy-target]").forEach((button) => {
+    button.removeEventListener("click", copyIntegrationSnippet);
+    button.addEventListener("click", copyIntegrationSnippet);
+  });
+}
+
+async function copyIntegrationSnippet(event: Event) {
+  const button = event.currentTarget as HTMLElement;
+  const targetId = button.dataset.copyTarget || "";
+  const target = targetId ? document.getElementById(targetId) : null;
+  const text = target?.textContent || "";
+  if (!text) return;
+  const label = button.dataset.copyLabel || "复制";
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    button.innerHTML = `${icon("Check")}已复制`;
+    refreshIcons();
+    window.setTimeout(() => {
+      button.innerHTML = `${icon("Copy")}${escapeHtml(label)}`;
+      refreshIcons();
+    }, 1400);
+  } catch {
+    window.prompt("复制下面内容", text);
+  }
 }
 
 function renderAdminPage(message = "") {
@@ -1006,10 +1081,12 @@ function renderLoginOnlyGateClean(message = authError) {
       </section>
     </main>`;
   document.querySelector("#licenseLoginForm")?.addEventListener("submit", loginWithLicenseV2);
+  wireIntegrationGuide();
   document.querySelector("#integrationGuideButton")?.addEventListener("click", () => {
     const panel = document.querySelector<HTMLElement>("#integrationGuidePanel");
     if (!panel) return;
     panel.hidden = !panel.hidden;
+    panel.closest(".auth-card")?.classList.toggle("integration-open", !panel.hidden);
     refreshIcons();
   });
   refreshIcons();
