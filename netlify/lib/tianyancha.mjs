@@ -37,6 +37,15 @@ function tycEndpoint() {
   return env("TYC_MCP_ENDPOINT") || DEFAULT_TYC_ENDPOINT;
 }
 
+function tycProxySecret() {
+  return env("TYC_PROXY_SECRET") || env("TYC_MCP_PROXY_SECRET") || "";
+}
+
+function tycProxyHeaders() {
+  const secret = tycProxySecret();
+  return secret ? { "x-tyc-proxy-secret": secret } : {};
+}
+
 function tycOpenApiBase() {
   return env("TYC_OPEN_API_BASE") || "http://open.api.tianyancha.com";
 }
@@ -58,6 +67,7 @@ async function postJson(body, headers = {}, timeoutMs = TYC_TIMEOUT_MS) {
         "content-type": "application/json",
         "mcp-protocol-version": TYC_PROTOCOL_VERSION,
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OAC/1.0",
+        ...tycProxyHeaders(),
         ...headers
       },
       body: JSON.stringify(body),
