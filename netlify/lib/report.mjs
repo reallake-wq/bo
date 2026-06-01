@@ -5277,8 +5277,10 @@ function sellerProfileText(report = {}) {
 
 function sellerCapabilityMode(report = {}) {
   const text = sellerProfileText(report);
-  if (/AI|智能体|软件|系统|数字化|信息化|数据|知识库|算法|平台|SaaS|咨询/.test(text)) return "digital";
-  if (/汽车|零部件|主机厂|设备|硬件|产线|维保|备件|材料|模具|制造|电器|电子|能源|电池|光伏|机械|供应链/.test(text)) return "industrial";
+  const strongDigital = /AI|智能体|Agent|软件|数字化|信息化|工业互联网|工业大数据|数据问答|知识库|算法|SaaS|HolliCube|MES\/MOM|MOM智能制造|生态伙伴应用开发|应用定制|流程智能化/.test(text);
+  const physicalOrTrade = /汽车|零部件|主机厂|整车厂|动力系统|热管理|电驱动|执行器|车灯|PCBA|设备|硬件|产线|维保|备件|材料|模具|制造|电器|电子|能源|电池|光伏|机械|供应链|外贸|贸易|物流|报关|海外仓|大宗商品|能源化工|现货|后市场|仓储/.test(text);
+  if (strongDigital) return "digital";
+  if (physicalOrTrade) return "industrial";
   return "general";
 }
 
@@ -5393,10 +5395,11 @@ function normalizedQuestionnaireGroups(round = {}, report = {}) {
     .filter(isUsefulQuestionText)
     .filter((item) => !isUnsupportedSchedulingQuestion(item, { report, round }));
   if (sellerCapabilityMode(report) !== "digital") {
+    const sellerSafeQuestions = all.filter((item) => !digitalSolutionAssumptionText(item));
     return Object.entries(contextGroups)
       .map(([title, questions]) => ({
         title,
-        questions: uniqueTexts([...arr(questions), ...all.filter((item) => {
+        questions: uniqueTexts([...arr(questions), ...sellerSafeQuestions.filter((item) => {
           if (/业务|场景/.test(title)) return !isBudgetDecisionQuestion(item) && !isRiskQuestion(item);
           if (/产品|技术/.test(title)) return isDataQuestion(item) || /产品|质量|技术|认证|样品|图纸|BOM|工况|指标|验收/.test(item);
           if (/采购|交付/.test(title)) return isBudgetDecisionQuestion(item) || /采购|交付|合同|付款|报价|试用|小批|招标/.test(item);

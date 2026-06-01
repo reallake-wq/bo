@@ -353,7 +353,7 @@ function sellerProfileText(report = {}) {
 
 function isDigitalSeller(report = {}) {
   const text = sellerProfileText(report);
-  return /AI|\u667a\u80fd\u4f53|\u8f6f\u4ef6|\u7cfb\u7edf|\u6570\u5b57\u5316|\u4fe1\u606f\u5316|\u6570\u636e|\u77e5\u8bc6\u5e93|\u7b97\u6cd5|\u5e73\u53f0|SaaS|\u54a8\u8be2/i.test(text);
+  return /AI|\u667a\u80fd\u4f53|Agent|\u8f6f\u4ef6|\u6570\u5b57\u5316|\u4fe1\u606f\u5316|\u5de5\u4e1a\u4e92\u8054\u7f51|\u5de5\u4e1a\u5927\u6570\u636e|\u6570\u636e\u95ee\u7b54|\u77e5\u8bc6\u5e93|\u7b97\u6cd5|SaaS|HolliCube|MES\/MOM|MOM\u667a\u80fd\u5236\u9020|\u751f\u6001\u4f19\u4f34\u5e94\u7528\u5f00\u53d1|\u5e94\u7528\u5b9a\u5236|\u6d41\u7a0b\u667a\u80fd\u5316/i.test(text);
 }
 
 function sellerPerspectiveMismatchCount(html = "", report = {}) {
