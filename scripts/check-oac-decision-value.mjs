@@ -39,19 +39,19 @@ const PERSPECTIVES = [
     key: "delivery",
     title: "\u4ea4\u4ed8\u5206\u6790",
     className: "delivery-argument-section",
-    mustHave: ["SOW\u5de5\u4f5c\u62c6\u5206", "\u98ce\u9669\u8bc4\u4f30", "\u5e94\u5bf9\u65b9\u6848", "\u524d\u7f6e\u6761\u4ef6"],
+    mustHave: ["SOW\u5206\u89e3", "\u98ce\u9669\u4e0e\u5e94\u5bf9", "\u5e94\u5bf9\u65b9\u6848", "\u524d\u7f6e\u4f9d\u8d56"],
     businessQuestion: "\u5927\u6982\u8981\u505a\u54ea\u4e9b\u5de5\u4f5c\uff0c\u4ea4\u4ed8\u98ce\u9669\u548c\u524d\u7f6e\u6761\u4ef6\u662f\u4ec0\u4e48\u3002",
     min: 3,
-    max: 5
+    max: 3
   },
   {
     key: "action",
     title: "\u884c\u52a8\u6307\u5357",
     className: "action-argument-section",
-    mustHave: ["\u5f00\u573a\u5207\u5165", "\u5fc5\u95ee\u95ee\u9898", "\u5185\u90e8\u8fb9\u754c", "\u4f1a\u540e\u66f4\u65b0"],
-    businessQuestion: "\u8fd9\u6b21\u62dc\u8bbf\u600e\u4e48\u5f00\u573a\u3001\u95ee\u4ec0\u4e48\u3001\u54ea\u4e9b\u8bdd\u4e0d\u80fd\u4e71\u8bf4\u3002",
-    min: 3,
-    max: 5
+    mustHave: ["\u73b0\u573a\u95ee\u5377", "\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879", "\u4e1a\u52a1\u573a\u666f", "\u9884\u7b97\u4e0e\u91c7\u8d2d", "\u7cfb\u7edf\u4e0e\u6570\u636e", "\u4ea4\u4ed8\u9a8c\u6536"],
+    businessQuestion: "\u73b0\u573a\u8981\u95ee\u4ec0\u4e48\uff0c\u54ea\u4e9b\u654f\u611f\u70b9\u9700\u8981\u91cd\u70b9\u5173\u6ce8\u3002",
+    min: 2,
+    max: 2
   }
 ];
 
@@ -190,7 +190,7 @@ function scoreReport({ file, report }, html) {
   const text = plainText(html);
   const perspectives = PERSPECTIVES.map((item) => checkPerspective(html, item));
   const deliveryPanel = plainText(panelHtml(html, "view-delivery"));
-  const sowIndex = deliveryPanel.indexOf("SOW\u5de5\u4f5c\u62c6\u5206");
+  const sowIndex = deliveryPanel.indexOf("SOW\u5206\u89e3");
   const riskIndex = firstExistingIndex(deliveryPanel, ["\u98ce\u9669\u8bc4\u4f30", "\u98ce\u9669\u4e0e\u5e94\u5bf9", "\u98ce\u9669\u5185\u5bb9", "\u98ce\u9669"], sowIndex);
   const globalChecks = {
     tabOrder: PERSPECTIVES.every((item) => text.includes(item.title)),

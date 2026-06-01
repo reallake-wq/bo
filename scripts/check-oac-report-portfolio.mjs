@@ -86,7 +86,7 @@ function allPerspectiveClaimsOk(html = "") {
     ["sales-argument-section", 6],
     ["presales-argument-section", 6],
     ["delivery-argument-section", 3],
-    ["action-argument-section", 3]
+    ["action-argument-section", 2]
   ].every(([className, min]) => {
     const claims = argumentClaims(sectionHtml(html, className));
     return claims.length >= min && claims.every(isCompleteClaim);
@@ -94,6 +94,7 @@ function allPerspectiveClaimsOk(html = "") {
 }
 
 function cleanPortfolioChecks({ text, html, sourceCount, families }) {
+  const actionText = plainText(sectionHtml(html, "action-argument-section"));
   return {
     perspectiveTabs:
       html.includes("report-view-tabs") &&
@@ -122,18 +123,14 @@ function cleanPortfolioChecks({ text, html, sourceCount, families }) {
       has(text, "\u4ea4\u4ed8\u98ce\u9669|\u4ea4\u4ed8\u4f9d\u8d56|\u6280\u672f\u8def\u5f84|\u6280\u672f\u67b6\u6784|\u524d\u7f6e\u6761\u4ef6"),
     actionValue:
       html.includes("action-argument-section") &&
-      has(text, "\u884c\u52a8\u6307\u5357|\u62dc\u8bbf\u95ee\u5377|\u5fc5\u95ee\u95ee\u9898|\u5185\u90e8\u8fb9\u754c|\u4e0b\u4e00\u6b65\u52a8\u4f5c"),
-    firstVisitIntelSection:
+      has(actionText, "\u884c\u52a8\u6307\u5357|\u73b0\u573a\u95ee\u5377|\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879|\u62dc\u8bbf\u95ee\u5377"),
+    actionGuideSection:
       html.includes("action-argument-section") &&
-      has(text, "\u884c\u52a8\u6307\u5357") &&
-      has(text, "\u5f00\u573a\u5207\u5165|\u5fc5\u95ee\u95ee\u9898|\u5185\u90e8\u8fb9\u754c|\u4f1a\u540e\u66f4\u65b0"),
-    firstVisitIntel:
+      has(actionText, "\u73b0\u573a\u95ee\u5377") &&
+      has(actionText, "\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879"),
+    actionGuideNoOldScaffold:
       html.includes("action-argument-section") &&
-      has(text, "\u5f00\u573a\u5207\u5165") &&
-      has(text, "\u5fc5\u95ee\u95ee\u9898") &&
-      has(text, "\u5185\u90e8\u8fb9\u754c") &&
-      has(text, "\u4f1a\u540e\u66f4\u65b0") &&
-      has(text, "\u4e0b\u4e00\u6b65|\u4f1a\u540e|\u63a8\u8fdb"),
+      !has(actionText, "\u5f00\u573a\u5207\u5165|\u4f1a\u540e\u66f4\u65b0|\u5185\u90e8\u8fb9\u754c|\u4e0b\u4e00\u6b65\u52a8\u4f5c"),
     presalesPlaybook:
       html.includes("presales-argument-section") &&
       has(text, "\u5ba2\u6237\u53ef\u80fd\u7684\u6838\u5fc3\u4e1a\u52a1\u573a\u666f|\u5ba2\u6237\u6838\u5fc3\u4e1a\u52a1\u573a\u666f") &&
@@ -141,12 +138,14 @@ function cleanPortfolioChecks({ text, html, sourceCount, families }) {
       has(text, "\u89e3\u51b3\u601d\u8def") &&
       has(text, "\u914d\u5957\u89e3\u51b3\u65b9\u6848") &&
       has(text, "\u65b9\u6848\u98ce\u9669\u70b9|\u65b9\u6848\u4f18\u5148\u7ea7"),
-    visitValidation:
+    questionnaireValidation:
       html.includes("action-argument-section") &&
-      has(text, "\u5f00\u573a\u5207\u5165|\u5fc5\u95ee\u95ee\u9898") &&
-      has(text, "\u9884\u7b97|\u51b3\u7b56|\u62cd\u677f|\u91c7\u8d2d\u6d41\u7a0b") &&
-      has(text, "\u6570\u636e|\u7cfb\u7edf|\u63a5\u53e3|\u6743\u9650|\u6837\u4f8b") &&
-      has(text, "\u4f1a\u540e\u66f4\u65b0|\u4f1a\u540e|\u5185\u90e8\u8fb9\u754c|\u4e0d\u80fd\u627f\u8bfa"),
+      has(actionText, "\u4e1a\u52a1\u573a\u666f") &&
+      has(actionText, "\u9884\u7b97\u4e0e\u91c7\u8d2d") &&
+      has(actionText, "\u7cfb\u7edf\u4e0e\u6570\u636e") &&
+      has(actionText, "\u4ea4\u4ed8\u9a8c\u6536") &&
+      has(actionText, "\u9884\u7b97|\u91c7\u8d2d") &&
+      has(actionText, "\u6570\u636e|\u7cfb\u7edf|\u63a5\u53e3|\u6743\u9650|\u6837\u4f8b"),
     perspectiveBranchDensity: allPerspectiveBranchesOk(html),
     perspectiveCompleteClaims: allPerspectiveClaimsOk(html),
     evidenceUsable: sourceCount >= 10,

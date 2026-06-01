@@ -10,8 +10,8 @@ const PANELS = [
   { key: "profile", label: "\u4f01\u4e1a\u753b\u50cf", className: "profile-argument-section", min: 3, max: 7 },
   { key: "sales", label: "\u5546\u52a1\u5206\u6790", className: "sales-argument-section", min: 6, max: 8 },
   { key: "presales", label: "\u65b9\u6848\u5206\u6790", className: "presales-argument-section", min: 6, max: 8 },
-  { key: "delivery", label: "\u4ea4\u4ed8\u5206\u6790", className: "delivery-argument-section", min: 3, max: 5 },
-  { key: "action", label: "\u884c\u52a8\u6307\u5357", className: "action-argument-section", min: 3, max: 5 }
+  { key: "delivery", label: "\u4ea4\u4ed8\u5206\u6790", className: "delivery-argument-section", min: 3, max: 3 },
+  { key: "action", label: "\u884c\u52a8\u6307\u5357", className: "action-argument-section", min: 2, max: 2 }
 ];
 
 const BAD_VALUE_PATTERN = /\u4fe1\u606f\u4e0d\u8db3|\u6570\u636e\u4e0d\u8db3|\u8bc1\u636e\u4e0d\u8db3|\u65e0\u6cd5\u5f62\u6210(?:\u6709\u6548)?(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba)|\u5de5\u4f5c\u91cf\u4f30\u7b97|\u4eba\u5929|\u5de5\u671f|\u4ef7\u683c\u4f30\u7b97|\u8d44\u6e90\u6295\u5165/;
@@ -128,13 +128,15 @@ function scoreReport({ file, report }, html) {
   const branchOk = Object.values(branches).every((items) => items.length && items.every((count) => count >= 1));
   const deliveryPanel = panelHtml(html, "view-delivery");
   const deliveryText = plainText(deliveryPanel);
-  const sowIndex = deliveryText.indexOf("SOW\u5de5\u4f5c\u62c6\u5206");
+  const sowIndex = firstExistingIndex(deliveryText, ["SOW\u5206\u89e3", "SOW\u5de5\u4f5c\u62c6\u5206"]);
   const riskIndex = firstExistingIndex(deliveryText, ["\u98ce\u9669\u8bc4\u4f30", "\u98ce\u9669\u4e0e\u5e94\u5bf9", "\u98ce\u9669\u5185\u5bb9", "\u98ce\u9669"], sowIndex);
+  const actionPanel = panelHtml(html, "view-action");
+  const actionText = plainText(actionPanel);
   const deliveryDecision =
     sowIndex >= 0 &&
     riskIndex >= 0 &&
     /\u5e94\u5bf9\u65b9\u6848|\u5e94\u5bf9\u63aa\u65bd/.test(deliveryText) &&
-    /\u524d\u7f6e\u6761\u4ef6|\u5ba2\u6237\u51c6\u5907/.test(deliveryText) &&
+    /\u524d\u7f6e\u4f9d\u8d56|\u524d\u7f6e\u6761\u4ef6/.test(deliveryText) &&
     sowIndex < riskIndex;
   const checks = {
     tabOrder: panelsOk,
@@ -142,12 +144,20 @@ function scoreReport({ file, report }, html) {
     everyNodeHasSupport: Object.values(counts).every((count) => count > 0),
     decisionBranchDensity: branchOk,
     completeClaimSentences: claimsOk,
-    firstVisitIntel: PANELS.every((panel) => text.includes(panel.label)) && /\u5fc5\u95ee\u95ee\u9898|\u4e0b\u4e00\u6b65|\u5f00\u573a\u5207\u5165/.test(text),
+    actionGuideStructure:
+      PANELS.every((panel) => text.includes(panel.label)) &&
+      /\u73b0\u573a\u95ee\u5377/.test(actionText) &&
+      /\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879/.test(actionText) &&
+      !/\u5f00\u573a\u5207\u5165|\u4f1a\u540e\u66f4\u65b0|\u5185\u90e8\u8fb9\u754c|\u4e0b\u4e00\u6b65\u52a8\u4f5c/.test(actionText),
     coverDecisionStrip: html.includes("cover-rating-badge"),
     salesDecision: /\u662f\u5426\u6709\u91c7\u8d2d\u80fd\u529b/.test(text) && /\u5546\u52a1\u98ce\u9669/.test(text),
     presalesDecision: /\u75db\u70b9\u673a\u4f1a/.test(text) && /\u914d\u5957\u89e3\u51b3\u65b9\u6848/.test(text),
     deliveryDecision,
-    actionDecision: /\u5f00\u573a\u5207\u5165/.test(text) && /\u5185\u90e8\u8fb9\u754c/.test(text),
+    actionDecision:
+      /\u4e1a\u52a1\u573a\u666f/.test(actionText) &&
+      /\u9884\u7b97\u4e0e\u91c7\u8d2d/.test(actionText) &&
+      /\u7cfb\u7edf\u4e0e\u6570\u636e/.test(actionText) &&
+      /\u4ea4\u4ed8\u9a8c\u6536/.test(actionText),
     noLowValueClaims: !BAD_VALUE_PATTERN.test(text),
     enoughEvidence: Array.isArray(report.sources) && report.sources.length >= 6,
     enoughFamilies: sourceFamilyCount(report) >= 2

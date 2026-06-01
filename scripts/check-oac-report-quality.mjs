@@ -369,7 +369,7 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u884c\u52a8\u6307\u5357"),
     salesPyramid: html.includes("sales-pyramid") || html.includes("sales-argument-section"),
     solutionStrategy: html.includes("solution-strategy-section") || html.includes("presales-argument-section"),
-    delivery: html.includes("delivery-argument-section") && html.includes("SOW\u5de5\u4f5c\u62c6\u5206"),
+    delivery: html.includes("delivery-argument-section") && html.includes("SOW\u5206\u89e3"),
     buying:
       html.includes("buying-section") ||
       hasText(text, "\u9884\u7b97|\u4e70\u5355|\u4ed8\u6b3e\u80fd\u529b|\u8425\u6536|\u5229\u6da6"),
@@ -389,9 +389,9 @@ function scoreHtml(html, report = {}) {
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
     deliveryAssessment: html.includes("delivery-argument-section") && html.includes("sow-fields"),
     deliveryOrder:
-      html.indexOf("SOW\u5de5\u4f5c\u62c6\u5206") >= 0 &&
-      (!html.includes("\u98ce\u9669\u4e0e\u5e94\u5bf9\u77e9\u9635") ||
-        html.indexOf("SOW\u5de5\u4f5c\u62c6\u5206") < html.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9\u77e9\u9635")),
+      html.indexOf("SOW\u5206\u89e3") >= 0 &&
+      html.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9") >= 0 &&
+      html.indexOf("SOW\u5206\u89e3") < html.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9"),
     businessInsights: Array.isArray(report.businessInsights) && report.businessInsights.length >= 4,
     coverDecisionStrip:
       html.includes("cover-rating-badge") &&
@@ -399,10 +399,11 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u4f18\u5148\u5207\u5165|\u98ce\u9669|\u4e0b\u4e00\u6b65"),
     questionnaire:
       html.includes("action-argument-section") &&
-      hasText(text, "\u5fc5\u95ee\u95ee\u9898") &&
-      hasText(text, "\u4e1a\u52a1\u4f18\u5148\u7ea7|\u4e1a\u52a1\u9a8c\u8bc1") &&
-      hasText(text, "\u9884\u7b97\/\u51b3\u7b56|\u9884\u7b97\u9a8c\u8bc1") &&
-      hasText(text, "\u6570\u636e\/\u7cfb\u7edf\u8fb9\u754c|\u6570\u636e\u9a8c\u8bc1")
+      hasText(text, "\u73b0\u573a\u95ee\u5377") &&
+      hasText(text, "\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879") &&
+      hasText(text, "\u4e1a\u52a1\u573a\u666f") &&
+      hasText(text, "\u9884\u7b97\u4e0e\u91c7\u8d2d") &&
+      hasText(text, "\u7cfb\u7edf\u4e0e\u6570\u636e")
   };
   const rankedSolutions = Array.isArray(solutionStrategy.rankedSolutions) ? solutionStrategy.rankedSolutions : [];
   const businessUsefulness = {

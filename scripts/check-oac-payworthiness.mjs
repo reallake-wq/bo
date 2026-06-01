@@ -26,7 +26,7 @@ const C = {
   solutionAnalysis: "\u65b9\u6848\u5206\u6790",
   deliveryAnalysis: "\u4ea4\u4ed8\u5206\u6790",
   actionGuide: "\u884c\u52a8\u6307\u5357",
-  sow: "SOW\u5de5\u4f5c\u62c6\u5206",
+  sow: "SOW\u5206\u89e3",
   firstVisit: "\u521d\u8bbf\u4f5c\u6218\u60c5\u62a5",
   source: "\u6765\u6e90"
 };
@@ -219,10 +219,14 @@ async function main() {
         "\u65b9\u6848\u98ce\u9669\u70b9"
       ]),
     deliveryPaysOff:
-      hasAll(deliveryText, [C.sow, "\u98ce\u9669\u8bc4\u4f30", "\u5e94\u5bf9\u65b9\u6848", "\u524d\u7f6e\u6761\u4ef6"]) &&
+      hasAll(deliveryText, [C.sow, "\u98ce\u9669\u4e0e\u5e94\u5bf9", "\u5e94\u5bf9\u65b9\u6848", "\u524d\u7f6e\u4f9d\u8d56"]) &&
+      html.includes("risk-response-fields") &&
+      html.includes("dependency-fields") &&
       !FORBIDDEN.some((term) => deliveryText.includes(term)),
     actionPaysOff:
-      hasAll(actionText, ["\u5f00\u573a\u5207\u5165", "\u5fc5\u95ee\u95ee\u9898", "\u5185\u90e8\u8fb9\u754c", "\u4f1a\u540e\u66f4\u65b0"]),
+      hasAll(actionText, ["\u73b0\u573a\u95ee\u5377", "\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879", "\u4e1a\u52a1\u573a\u666f", "\u9884\u7b97\u4e0e\u91c7\u8d2d", "\u7cfb\u7edf\u4e0e\u6570\u636e", "\u4ea4\u4ed8\u9a8c\u6536"]) &&
+      html.includes("questionnaire-fields") &&
+      !hasAny(actionText, ["\u5f00\u573a\u5207\u5165", "\u4f1a\u540e\u66f4\u65b0", "\u5185\u90e8\u8fb9\u754c", "\u4e0b\u4e00\u6b65\u52a8\u4f5c"]),
     evidenceIsRichEnough: sourceCount >= 30 && familyCount >= 8,
     clearlyBeatsV1: baselineDepth ? currentDepth >= baselineDepth * 2 : currentDepth >= 120,
     noTrustDrainers: !FORBIDDEN.some((term) => text.includes(term))

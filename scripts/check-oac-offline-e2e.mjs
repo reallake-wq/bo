@@ -89,7 +89,7 @@ function validate(report, html, index) {
     failures.push("missing role perspective panels");
   }
   if (!html.includes("presales-argument-section")) failures.push("missing strategy html section");
-  if (!html.includes("SOW工作拆分") || !html.includes("sow-fields")) failures.push("missing SOW work package section");
+  if (!html.includes("SOW分解") || !html.includes("sow-fields")) failures.push("missing SOW work package section");
   if (!html.includes("delivery-argument-section")) failures.push("missing delivery argument section");
   if (!html.includes("sales-pyramid")) failures.push("missing sales html section");
   const indexed = Array.isArray(index.reports) ? index.reports.find((item) => item.reportId === report.reportId) : null;

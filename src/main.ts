@@ -1199,6 +1199,7 @@ function renderAdminPageClean(message = "") {
           </label>
           <div class="admin-actions">
             <button id="loadLicensesButton" type="button">${icon("ListChecks")}查看已开通</button>
+            <button id="deleteAllLicensesButton" class="danger" type="button">${icon("Trash2")}删除全部 License</button>
             <button id="backToLoginButton" type="button">${icon("LogIn")}返回授权登录</button>
           </div>
         </div>
@@ -1246,12 +1247,17 @@ function renderAdminPageClean(message = "") {
   const secretInput = document.querySelector<HTMLInputElement>("[data-admin-secret-input]");
   if (secretInput) {
     secretInput.value = "";
-    secretInput.addEventListener("focus", () => secretInput.removeAttribute("readonly"), { once: true });
+    const unlockSecretInput = () => secretInput.removeAttribute("readonly");
+    ["focus", "pointerdown", "click", "keydown"].forEach((eventName) => {
+      secretInput.addEventListener(eventName, unlockSecretInput, { once: true });
+    });
+    if (document.activeElement === secretInput) unlockSecretInput();
     setTimeout(() => { secretInput.value = ""; }, 60);
   }
   wireAdminQuotaToggle();
   document.querySelector("#createLicenseButton")?.addEventListener("click", createLicenseFromAdminPage);
   document.querySelector("#loadLicensesButton")?.addEventListener("click", () => loadLicensesFromAdminPage(true));
+  document.querySelector("#deleteAllLicensesButton")?.addEventListener("click", deleteAllLicensesFromAdminPage);
   document.querySelector("#backToLoginButton")?.addEventListener("click", () => {
     window.history.pushState({}, "", "/");
     clearAuth();
@@ -1749,6 +1755,29 @@ async function deleteLicenseFromAdminPage(event: Event) {
       body: JSON.stringify({ licenseId })
     });
     if (output) output.textContent = "已删除 License。";
+    await loadLicensesFromAdminPage(false);
+  } catch (error: any) {
+    if (output) output.textContent = `删除失败：${error.message}`;
+  }
+}
+
+async function deleteAllLicensesFromAdminPage() {
+  const adminSecret = adminSecretValue();
+  const output = document.querySelector("#createdLicenseOutput");
+  const actions = document.querySelector("#createdLicenseActions");
+  if (actions) actions.innerHTML = "";
+  if (!adminSecret) {
+    if (output) output.textContent = "请先输入管理员密钥。";
+    return;
+  }
+  if (!confirm("确认删除后台全部 License？会一并清除授权索引和相关登录会话，删除后需要重新新建授权。")) return;
+  try {
+    const payload = await api("/.netlify/functions/admin-licenses", {
+      method: "DELETE",
+      headers: { "x-admin-secret": adminSecret },
+      body: JSON.stringify({ all: true })
+    });
+    if (output) output.textContent = `已删除 ${Number(payload.deletedCount || 0)} 个 License。`;
     await loadLicensesFromAdminPage(false);
   } catch (error: any) {
     if (output) output.textContent = `删除失败：${error.message}`;
@@ -2525,6 +2554,12 @@ function renderProfiles() {
       </div>
     </section>`;
   root.querySelector("#createProfileButton")?.addEventListener("click", createProfile);
+  root.querySelector("#newProfileName")?.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Enter") {
+      event.preventDefault();
+      createProfile();
+    }
+  });
   root.querySelector("#refreshLicensePanel")?.addEventListener("click", async () => {
     await refreshAuthMeQuiet();
     renderProfiles();
@@ -2587,6 +2622,7 @@ async function createProfile() {
   if (button) button.disabled = true;
   try {
     profileStatus = "正在核对企业主体，请选择最准确的一项。";
+    renderProfiles();
     const data = await api("/.netlify/functions/resolve-company", {
       method: "POST",
       body: JSON.stringify({ query: name, region: "", industry: "", aiNeeds: "用于创建我的企业资料，请优先识别企业主体、主营业务和核心产品。" })

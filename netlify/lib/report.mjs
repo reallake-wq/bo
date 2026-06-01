@@ -590,6 +590,8 @@ function deriveConclusionBody(title = "", text = "", fallback = "") {
 
 function hasImpactfulSensitiveRisk(category = {}) {
   const text = `${category.label || ""} ${category.summary || ""} ${category.disposition || ""}`;
+  if (/系统已通过.*核验到.*线索|通过官方\/法院\/信用平台等直接来源核验到|财务\/经营指标线索/.test(text)) return false;
+  if (/财务|经营指标|经营/.test(text) && !/亏损|现金流为负|资不抵债|被执行|失信|限制高消费|经营异常|行政处罚|诉讼|合同纠纷|付款|回款|融资风险|重大项目风险|补贴风险/.test(text)) return false;
   if (category.status === "conflict") return true;
   if (!["verified", "multi_source"].includes(category.status)) return false;
   if (/股权|控制权/.test(text) && !/冲突|异常|变更|冻结|失控|复杂|争议|影响采购主体/.test(text)) return false;
@@ -2338,7 +2340,7 @@ function finalPrompt(company, sourcePack, topicBriefs, quality) {
 18d. solutions 不只写“能做 AI”，要体现“客户场景 -> 方案介绍 -> 价值 -> 成效 -> 前提”。若来源包含产品手册、部署周期、价格区间或系统集成信息，应转化为方案边界和切入建议。
 19. salesThesis 必须站在销售视角回答四个问题：这个客户是否值得继续跟；有没有预算/买单能力；决策链和拍板路径可能在哪里；如果想成单应该怎么运作。必须先按维度收集证据，再形成观点，不能先写观点再硬配论据；采购能力只能用企业规模、财务/融资、客户作为甲方的招采/采购记录支撑；客户对外交付案例只能用于理解业务场景，不能证明客户有采购能力、采购习惯、同类项目采购或竞品供应商。
 20. solutionStrategy 必须站在售前视角回答四个问题：客户现状与问题；总体解决思路；分项方案优先级；落地路径。不要只列产品名，要把客户现状、痛点、方案价值和推进路径串起来。
-21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW工作拆分。交付页展示顺序必须先讲 SOW 工作拆分，再讲风险评估、应对方案和前置条件。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
+21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW工作拆分。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写技术条件（数据、接口、权限、安全、部署、验收口径），不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
 22. 拜访问卷必须随“我的企业信息”变化。若我的企业不是软件/IT/数字化服务商，不要默认生成 IT/数据/系统类问题；应围绕我方主营业务和核心产品生成业务场景、产品技术匹配、采购交付、质量/合规/付款等问题。
 
 企业信息：${JSON.stringify(company, null, 2)}
@@ -3301,8 +3303,113 @@ function usefulRatingEvidence(items = []) {
     .map((item) => cleanBusinessText(item, 180))
     .filter(meaningful)
     .filter((item) => !isNonDecisionClaim(item))
-    .filter((item) => !/资料中出现|可读来源|主题覆盖|初访判断门槛|系统已检索信用\/法律风险方向|报告已识别可能相关|资料显示客户具备一定信息化|已绑定我的企业|目标客户线索与我的企业存在关键词重合|报告形成了\s*\d+\s*个|来源质量提醒/.test(item))
+    .filter((item) => !/资料中出现|可读来源|主题覆盖|初访判断门槛|系统已检索信用\/法律风险方向|报告已识别可能相关|资料显示客户具备一定信息化|已绑定我的企业|目标客户线索与我的企业存在关键词重合|报告形成了\s*\d+\s*个|来源质量提醒|项目级预算归属、推进人和IT\/安全审批决定是否升级重方案投入/.test(item))
     .slice(0, 3);
+}
+
+function ratingDisplaySummary(report = {}, item = {}) {
+  const round = activeRound(report);
+  const key = String(item.key || "");
+  const budgetMetrics = [
+    bestMetricText(report, [/营收|营业收入|净销售|收入/]),
+    bestMetricText(report, [/净利润|利润|归母|扣非/]),
+    bestMetricText(report, [/现金流/]),
+    bestMetricText(report, [/毛利/]),
+    bestMetricText(report, [/研发/])
+  ].filter((value) => meaningful(value) && !/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验/.test(value));
+  const topPain = arr(round.painsAndOpportunities).find((pain) => meaningful(pain.title || pain.pain || pain.opportunity)) || {};
+  const topSolution = arr(round.solutionCards).find((solution) => meaningful(solution.title)) || {};
+  const scene = shortSceneTitle(topSolution.title || topPain.title || topPain.pain || topPain.opportunity || "");
+  const scenarioBasis = buildScenarioCoreBasis(report);
+  const decisionPeople = firstDecisionPeopleSummary(arr(report.sources));
+  const concreteRisks = usefulRatingEvidence([
+    ...arr(item.deductions),
+    ...arr(item.evidence),
+    ...arr(report.opportunityRating?.riskFlags),
+    report.opportunityRating?.riskGate?.summary,
+    ...arr(report.opportunityRating?.riskGate?.reasons)
+  ]).filter((text) => /被执行|失信|诉讼|行政处罚|经营异常|付款|回款|采购人|招标人|预算金额|安全|合规|数据|接口|审批|系统/.test(text));
+
+  if (key === "budgetAbility") {
+    if (budgetMetrics.length) {
+      return {
+        conclusion: `预算承载只能由已查到的经营金额辅助判断：${budgetMetrics.slice(0, 4).join("；")}。项目级预算仍需单独核实，不把经营规模直接等同采购意愿。`,
+        evidence: budgetMetrics
+      };
+    }
+    return {
+      conclusion: "未查到可展示的营收、利润、现金流或项目预算金额，本轮不形成预算强判断。",
+      evidence: []
+    };
+  }
+  if (key === "triggerStrength") {
+    return scene
+      ? {
+        conclusion: `需求方向集中在“${scene}”，评级只把它作为待验证需求，不把静态荣誉或注册地当成进入窗口。`,
+        evidence: usefulRatingEvidence([topPain.sourceBasis, topPain.reasoning, topPain.customerSignal, topSolution.customerPain, topSolution.introduction, scenarioBasis])
+      }
+      : {
+        conclusion: "未形成具体需求方向，评级不把泛数字化或行业背书当成真实需求触发。",
+        evidence: []
+      };
+  }
+  if (key === "decisionRiskControl") {
+    if (concreteRisks.length) {
+      return {
+        conclusion: `决策风险需围绕具体风险复核：${concreteRisks.slice(0, 2).join("；")}。`,
+        evidence: concreteRisks
+      };
+    }
+    if (decisionPeople) {
+      return {
+        conclusion: `公开资料只能看到${decisionPeople}等角色线索，尚不能确认本项目需求发起人、技术把关人和最终拍板路径。`,
+        evidence: [decisionPeople]
+      };
+    }
+    return {
+      conclusion: "未查到本项目真实拍板链条，不把工商高管或泛组织信息写成确定决策路径。",
+      evidence: []
+    };
+  }
+  if (key === "capabilityFit") {
+    const sellerOffer = arr(report.sellerProfileSnapshot?.coreProducts || report.sellerProfileSnapshot?.coreOfferings).slice(0, 2).join("、");
+    return scene
+      ? {
+        conclusion: `${sellerOffer ? `我方能力“${sellerOffer}”` : "我方能力"}与“${scene}”存在初步交集，只有客户确认场景、数据和系统边界后才升级方案。`,
+        evidence: usefulRatingEvidence([scenarioBasis, topSolution.introduction, topSolution.value])
+      }
+      : {
+        conclusion: "尚未形成足够具体的客户场景，能力匹配只能作为推测信息。",
+        evidence: usefulRatingEvidence([scenarioBasis])
+      };
+  }
+  if (key === "implementationReadiness") {
+    const systemEvidence = usefulRatingEvidence([
+      ...arr(item.evidence),
+      ...arr(item.deductions),
+      ...arr(round.customerInfo).flatMap((section) => arr(section.items).flatMap((entry) => [entry.body, entry.insight, entry.summary, ...arr(entry.facts)]))
+    ]).filter((text) => /数据|接口|系统|MES|APS|ERP|WMS|LIMS|SCADA|PLM|QMS|权限|安全|部署|样例/.test(text));
+    return systemEvidence.length
+      ? {
+        conclusion: `落地条件重点看数据、接口、系统和安全边界：${systemEvidence.slice(0, 2).join("；")}。`,
+        evidence: systemEvidence
+      }
+      : {
+        conclusion: "未查到具体系统、数据、接口或部署条件，交付准备度只能保守看待。",
+        evidence: []
+      };
+  }
+  const conclusion = cleanBusinessText(item.conclusion || "", 220);
+  if (/项目级预算归属、推进人和IT\/安全审批决定是否升级重方案投入/.test(conclusion)) {
+    return {
+      conclusion: "该维度缺少具体事实，本轮只作为推测信息保留，不写成确定判断。",
+      evidence: []
+    };
+  }
+  return {
+    conclusion,
+    evidence: usefulRatingEvidence(item.evidence)
+  };
 }
 
 function ratingPanel(report) {
@@ -3354,14 +3461,15 @@ function ratingPanel(report) {
           <div class="rating-dim-grid">
             ${arr(rating.dimensions)
               .filter((item) => item.status !== "unknown")
-              .filter((item) => usefulDecisionText(item.conclusion || ""))
+              .filter((item) => usefulDecisionText(ratingDisplaySummary(report, item).conclusion || item.conclusion || ""))
               .map((item) => {
-                const evidence = usefulRatingEvidence(item.evidence);
+                const display = ratingDisplaySummary(report, item);
+                const evidence = usefulRatingEvidence(display.evidence.length ? display.evidence : item.evidence);
                 const deductions = usefulRatingEvidence(item.deductions);
                 return `<article class="rating-dim">
                   <div class="rating-dim-head"><b>${e(item.title)}</b><strong>${e(item.displayScore || `${item.score}分`)}</strong></div>
                   <div class="rating-bar"><i style="width:${Math.max(0, Math.min(Number(item.score) || 0, 100))}%"></i></div>
-                  <p><b>结论</b>${e(cleanBusinessText(item.conclusion, 220))}</p>
+                  <p><b>结论</b>${e(cleanBusinessText(display.conclusion || item.conclusion, 260))}</p>
                   ${evidence.length ? `<p><b>论据</b>${e(joinReadable(evidence))}</p>` : ""}
                   ${deductions.length ? `<p><b>关键短板</b>${e(joinReadable(deductions))}</p>` : ""}
                 </article>`;
@@ -3394,7 +3502,7 @@ function ratingBadge(report) {
   const minimum = rating.minimumDimension?.title ? `当前短板：${rating.minimumDimension.title} ${rating.minimumDimension.score}分。` : "";
   const dimensions = arr(rating.dimensions)
     .filter((item) => item.status !== "unknown")
-    .filter((item) => usefulDecisionText(item.conclusion || ""))
+    .filter((item) => usefulDecisionText(ratingDisplaySummary(report, item).conclusion || item.conclusion || ""))
     .slice(0, 6);
   return `<details class="cover-rating-badge ${e(ratingClass(rating))}">
     <summary>
@@ -3410,11 +3518,12 @@ function ratingBadge(report) {
       </div>` : ""}
       ${dimensions.length ? `<div class="cover-rating-dims">${dimensions
         .map((item) => {
-          const evidence = usefulRatingEvidence(item.evidence);
+          const display = ratingDisplaySummary(report, item);
+          const evidence = usefulRatingEvidence(display.evidence.length ? display.evidence : item.evidence);
           const deductions = usefulRatingEvidence(item.deductions);
           return `<article>
             <div><b>${e(item.title)}</b><span>${e(item.displayScore || `${item.score}分`)}</span></div>
-            <p>${e(cleanBusinessText(item.conclusion, 180))}</p>
+            <p>${e(cleanBusinessText(display.conclusion || item.conclusion, 220))}</p>
             ${evidence.length ? `<small>依据：${e(joinReadable(evidence))}</small>` : ""}
             ${deductions.length ? `<small>扣分：${e(joinReadable(deductions))}</small>` : ""}
           </article>`;
@@ -3860,6 +3969,17 @@ function coverCardValue(value = "") {
   return cleanBusinessText(first, 150);
 }
 
+function coverRiskText(value = "") {
+  const risk = cleanBusinessText(value, 110)
+    .replace(/^风险[：:，,\s]*/g, "")
+    .replace(/^风险线索[：:，,\s]*/g, "")
+    .trim();
+  if (!risk) return "";
+  if (/^(?:线索|需核验|待核验)[，,、；;\s]*(?:需核验|待核验)?/.test(risk)) return "";
+  if (/商机风险优先看财务\/经营指标|系统已通过官方\/法院\/信用平台/.test(risk)) return "";
+  return risk;
+}
+
 function businessRiskSummary(report = {}, rating = {}, brief = {}) {
   const decisionRisk = dimensionByKey(report, "decisionRiskControl");
   const actionableRiskFlags = arr(rating.riskFlags)
@@ -3880,7 +4000,7 @@ function businessRiskSummary(report = {}, rating = {}, brief = {}) {
     "";
   if (!riskNote) {
     return {
-      risk: "商务避坑是不要过早承诺定制POC，先拿到预算来源、付款主体和项目推进人。",
+      risk: "",
       riskNote: ""
     };
   }
@@ -4528,10 +4648,11 @@ function isSpecificDeliveryDependency(value = "") {
 }
 
 function deliveryRiskCategory(text = "") {
-  if (/接口|系统|ERP|MES|APS|WMS|LIMS|权限|账号|日志/.test(text)) return "系统集成风险";
-  if (/数据|样例|字段|口径|脱敏|知识|文档|质量/.test(text)) return "数据与知识风险";
+  if (/接口|系统|ERP|MES|APS|WMS|LIMS|权限|账号|日志|API|SDK|SSO/.test(text)) return "系统集成风险";
+  if (/数据|样例|字段|口径|脱敏|知识|文档|质量|主数据|规则/.test(text)) return "数据风险";
   if (/现场|摄像头|视频|设备|网络|服务器|部署|PLC|硬件/.test(text)) return "现场与部署风险";
-  if (/验收|指标|范围|责任人|需求|返工|边界/.test(text)) return "范围与验收风险";
+  if (/算法|模型|识别|优化|仿真|误报|漏报/.test(text)) return "算法与模型风险";
+  if (/验收|指标|范围|需求|返工|边界|准确率|SLA/.test(text)) return "验收口径风险";
   if (/安全|合规|权限|审计/.test(text)) return "安全合规风险";
   return "交付风险";
 }
@@ -4541,9 +4662,10 @@ function responseForDeliveryRisk(risk = "", response = "") {
   if (meaningful(explicit) && !/先用一个最小业务闭环|把数据样例|把验收口径提前写清/.test(explicit)) return explicit;
   const category = deliveryRiskCategory(risk);
   if (category === "系统集成风险") return "先确认目标系统、接口方式、读写权限、调用频率和日志审计要求。";
-  if (category === "数据与知识风险") return "先拿到样例数据/文档，确认字段口径、脱敏规则、更新频率和人工复核责任。";
+  if (category === "数据风险") return "先拿到样例数据/文档，确认字段口径、脱敏规则、更新频率和人工复核口径。";
   if (category === "现场与部署风险") return "先确认设备/摄像头/网络/服务器条件，必要时现场踏勘后再承诺效果。";
-  if (category === "范围与验收风险") return "先定义本期功能范围、验收指标、客户责任人和变更处理机制。";
+  if (category === "算法与模型风险") return "先用小样本验证准确率、误报漏报和复核流程，再决定是否扩大模型范围。";
+  if (category === "验收口径风险") return "先定义本期功能范围、验收指标、边界样例和变更处理机制。";
   if (category === "安全合规风险") return "先确认部署方式、数据安全、权限分级和审计留痕要求。";
   return "先把风险对应的客户准备项列清，再决定是否进入正式交付范围。";
 }
@@ -4553,9 +4675,10 @@ function customerPrepForDeliveryRisk(risk = "", dependency = "") {
   if (isSpecificDeliveryDependency(explicit)) return explicit;
   const category = deliveryRiskCategory(risk);
   if (category === "系统集成风险") return "提供现有系统清单、接口文档、测试账号和权限负责人。";
-  if (category === "数据与知识风险") return "提供可脱敏样例、字段说明、模板文档和业务口径负责人。";
+  if (category === "数据风险") return "提供可脱敏样例、字段说明、模板文档和业务口径。";
   if (category === "现场与部署风险") return "提供现场点位、网络/服务器条件、设备型号和现场联系人。";
-  if (category === "范围与验收风险") return "指定业务负责人，确认试点范围、验收指标和变更审批人。";
+  if (category === "算法与模型风险") return "提供样本集、标注口径、边界样例和人工复核规则。";
+  if (category === "验收口径风险") return "提供试点范围、验收指标、边界样例和变更审批规则。";
   if (category === "安全合规风险") return "提供安全规范、部署要求、账号权限和审计留痕要求。";
   return "提供对应样例、系统边界和客户侧责任人。";
 }
@@ -4982,7 +5105,7 @@ function branchEvidenceMatcher(label = "", title = "") {
   if (/组织复杂度/.test(scope) && /股权/.test(scope)) return /股东|持股|股权|控股|受益所有人|法定代表人/;
   if (/组织复杂度/.test(scope) && /组织/.test(scope)) return /集团|子公司|分支机构|对外投资|区域|关联|主要人员|高管/;
   if (/组织复杂度/.test(scope) && /采购主体/.test(scope)) return /采购人|招标人|采购单位|业主单位|付款主体|合同主体|本地主体|集团/;
-  if (/行业地位/.test(scope)) return /入选|榜单|协会|政府项目|首版次|总包商|示范|典型|标杆|排名|资质|客户案例/;
+  if (/行业地位/.test(scope)) return /入选|榜单|协会|政府项目|首版次|总包商|示范|典型|标杆|排名|资质|认证|客户案例|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|奖|奖项|荣誉|获奖|获评|认定/;
   if (/管理成熟度/.test(scope)) return /IT岗位|数据岗位|算法|运维|软著|软件著作权|专利|ISO|信息安全|系统采购|平台|MES|APS|ERP|WMS|LIMS|SCADA|工业互联网|数字化|智能制造|HolliCube/;
   if (/风险状态|商务风险/.test(scope)) return /被执行|失信|限制高消费|诉讼|合同纠纷|行政处罚|经营异常|处罚|付款|回款|风险/;
   if (/采购能力|预算|买单/.test(scope) && /体量/.test(scope)) return /营收|营业收入|收入|净利润|利润|现金流|注册资本|实缴|融资|上市|研发投入/;
@@ -4991,7 +5114,7 @@ function branchEvidenceMatcher(label = "", title = "") {
   if (/采购习惯/.test(scope)) return /采购人|招标人|采购单位|采购公告|预算金额|采购预算|政府采购|采购意向|采购平台|历史采购|供应商记录/;
   if (/同类项目|可能已有系统|替换机会|核心业务场景|数字化成熟度|痛点机会|解决思路|配套解决方案|方案风险点/.test(scope)) return /客户案例|项目|系统|MES|APS|ERP|WMS|LIMS|SCADA|平台|HolliCube|数字化|工业互联网|智能制造|招标|采购|中标|交付|专利|软著|招聘|岗位|数据|算法|运维/;
   if (/供应商|竞品/.test(scope)) return /供应商|合作伙伴|服务商|实施商|集成商|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康|中标单位/;
-  if (/进入窗口|触发|开场切入/.test(scope)) return /扩张|扩产|新建|新增|招聘|高管|组织调整|政策|监管|国产化|安全|合规|转型|升级|项目|立项|合作|客户案例/;
+  if (/进入窗口|触发|开场切入/.test(scope)) return /采购意向|采购预算|预算金额|采购公告|招标公告|招标计划|政府采购|新建|扩产|投产|新基地|产能|投资|立项|项目金额|合同金额|融资|上市|IPO|募投|并购|组织调整|高管变更|专项资金|政府补助|补贴|重点研发|技改|改造/;
   return null;
 }
 
@@ -5011,6 +5134,7 @@ function branchEvidenceAllowed(label = "", title = "", value = "") {
   if (/进入窗口|近期触发|触发因素/.test(scope)) {
     if (/招聘|岗位|人才/.test(text) && !isStrategicHiringEvidenceText(text)) return false;
     if (isProductCatalogTitleOnly(text)) return false;
+    return isEntryWindowEvidenceText(text);
   }
   if (/组织复杂度|组织链路|股权主体|采购主体/.test(scope)) return isRegistryOrgEvidenceText(text) || isBuyerProcurementEvidenceText(text);
   return true;
@@ -5389,8 +5513,8 @@ function isProductCatalogTitleOnly(value = "") {
 function isScaleEvidenceText(value = "") {
   const text = cleanBusinessText(value, 260);
   if (!meaningful(text)) return false;
-  if (/产品中心|解决方案|APS|MES|ERP|WMS|LIMS|SCADA|HolliCube|软件著作权|专利|客户案例/.test(text) && !/入选|榜单|总包商|政府项目|重点研发|补助|注册资本|实缴|参保人数|员工|子公司|分支|对外投资/.test(text)) return false;
-  return /注册资本|实缴资本|参保人数|员工规模|员工数量|员工|分支机构|子公司|对外投资|注册于|成立|客户名单|行业排名|行业榜单|协会|入选|首版次|总包商|政府项目|重点研发|补助|上市|融资/.test(text);
+  if (/产品中心|解决方案|APS|MES|ERP|WMS|LIMS|SCADA|HolliCube|软件著作权|专利|客户案例/.test(text) && !/入选|榜单|总包商|政府项目|重点研发|补助|注册资本|实缴|参保人数|员工|子公司|分支|对外投资|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|荣誉|获奖|获评|认定/.test(text)) return false;
+  return /注册资本|实缴资本|参保人数|员工规模|员工数量|员工|分支机构|子公司|对外投资|注册于|成立|客户名单|行业排名|行业榜单|协会|入选|首版次|总包商|政府项目|重点研发|补助|上市|融资|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|奖项|荣誉|获奖|获评|认定/.test(text);
 }
 
 function isRegistryOrgEvidenceText(value = "") {
@@ -5402,7 +5526,7 @@ function isRegistryOrgEvidenceText(value = "") {
 
 function isIndustryPositionEvidenceText(value = "") {
   const text = cleanBusinessText(value, 260);
-  return meaningful(text) && /行业榜单|协会|入选|首版次|总包商|示范案例|客户案例|政府项目|重点研发|补助|标杆|典型|排名|资质|认证|客户名单/.test(text);
+  return meaningful(text) && /行业榜单|协会|入选|首版次|总包商|示范案例|客户案例|政府项目|重点研发|补助|标杆|典型|排名|资质|认证|客户名单|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|奖项|荣誉|获奖|获评|认定/.test(text);
 }
 
 function isMaturityEvidenceText(value = "") {
@@ -5541,8 +5665,15 @@ function isEntryWindowEvidenceText(value = "") {
   if (isProductCatalogTitleOnly(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   if (isBuyerProcurementEvidenceText(text)) return true;
-  return /新设|新建|扩张|扩产|投产|产能|融资|上市|并购|募投|组织调整|高管变更|处罚|诉讼|监管|政策|国产化|安全|合规|转型|升级|立项|采购意向|招标计划|预算金额|项目金额|合同金额|政府补助|专项资金|重点研发/.test(text) ||
-    isStrategicHiringEvidenceText(text);
+  const staticHonor = /扎根|隐形冠军|专精特新|单项冠军|高新技术企业|行业地位|政策荣誉|专业化程度|智能制造水平|获奖|获评|认定|荣誉|资质|认证/.test(text);
+  const concreteAction = /采购|招标|采购意向|招标计划|预算金额|采购预算|项目金额|合同金额|立项|投资|金额|扩产|新建|新基地|投产|产能|技改|改造|募投|融资|并购|IPO|专项资金|政府补助|补贴|重点研发/.test(text);
+  if (staticHonor && !concreteAction) return false;
+  if (/采购意向|招标计划|预算金额|采购预算|采购公告|招标公告|项目编号|合同公告|政府采购/.test(text)) return true;
+  if (/新设|新建|扩张|扩产|投产|产能|新基地|技改|改造/.test(text) && /投资|预算|金额|招标|采购|立项|建设|产能|募投|专项资金|补助/.test(text)) return true;
+  if (/融资|上市|IPO|募投|并购/.test(text) && /资金|项目|建设|扩产|研发|数字化|智能制造|改造|投资|金额/.test(text)) return true;
+  if (/组织调整|高管变更/.test(text) && /数字化|信息化|智能制造|采购|供应链|生产|质量|研发|IT|技术|数据/.test(text)) return true;
+  if (/政策|监管|国产化|安全|合规|政府补助|补贴|专项资金|重点研发/.test(text) && /项目|资金|补助|补贴|专项|申报|采购|招标|改造|建设|立项|预算|金额/.test(text)) return true;
+  return isStrategicHiringEvidenceText(text);
 }
 
 function isConcreteBudgetEvidence(value = "") {
@@ -5974,6 +6105,7 @@ function financialKpiRowsForProfile(report = {}, round = {}) {
     seen.add(dedupe);
     rows.push({
       label,
+      value: formatted,
       text: `${label}：${formatted}`,
       sourceIds: normalizeSourceIdList(meta),
       annualPage: meta.annualPage || meta.page,
@@ -6028,6 +6160,110 @@ function financialCapacityClaim(rows = []) {
     return "营收能力已有收入指标支撑，但项目预算空间仍需结合利润和现金流判断。";
   }
   return "营收能力只能做局部判断，缺少营业收入指标支撑。";
+}
+
+function financialKpiBoardBranch(rows = []) {
+  const fields = arr(rows).slice(0, 8).map((row) => ({
+    label: row.label,
+    value: row.value || String(row.text || "").replace(new RegExp(`^${row.label}[：:]?`), "")
+  }));
+  const annualRows = arr(rows).filter((row) => row.annualPage || row.annualFileName || row.evidenceExcerpt);
+  const pageSummary = uniqueTexts(
+    annualRows
+      .map((row) => [row.annualFileName || "年报", row.annualPage ? `P${row.annualPage}` : ""].filter(Boolean).join(" "))
+      .filter(meaningful),
+    3
+  ).join("；");
+  if (pageSummary) fields.push({ label: "来源口径", value: `同一财务看板合并展示，来源集中为${pageSummary}。` });
+  return {
+    title: "财务KPI看板",
+    claim: financialCapacityClaim(rows),
+    fields,
+    kind: "finance-kpi-board",
+    evidence: evidenceTexts(rows, 8),
+    sourceIds: evidenceSourceIds(rows),
+    forceDisplay: true
+  };
+}
+
+function organizationComplexityAssessment(rows = []) {
+  const evidence = arr(rows).filter((row) => meaningful(row.text));
+  const complexRows = evidence.filter((row) => /集团|子公司|分支机构|对外投资|控股|关联|受益所有人|多层|母公司/.test(row.text));
+  const basicRows = evidence.filter((row) => /统一社会信用代码|注册地址|注册于|注册资本|实缴资本|法定代表人|股东|持股|董监高|主要人员/.test(row.text));
+  if (complexRows.length) {
+    return {
+      label: "组织链条偏复杂",
+      claim: "组织链条偏复杂，依据是已查到集团、子公司、分支机构、对外投资、控股或关联等组织结构线索。",
+      evidence: evidenceTexts(complexRows, 6),
+      sourceIds: evidenceSourceIds(complexRows),
+      tone: "watch",
+      branches: [
+        {
+          title: "复杂链条证据",
+          claim: "已查到集团、子公司、分支机构、对外投资、控股或关联等组织结构线索，说明组织边界不能按单一主体理解。",
+          evidence: evidenceTexts(complexRows, 5),
+          sourceIds: evidenceSourceIds(complexRows)
+        }
+      ]
+    };
+  }
+  if (basicRows.length) {
+    return {
+      label: "组织边界相对集中",
+      claim: "公开资料只支持基础工商主体判断，未形成组织链条复杂结论。",
+      evidence: evidenceTexts(basicRows, 5),
+      sourceIds: evidenceSourceIds(basicRows),
+      tone: "",
+      branches: [
+        {
+          title: "主体边界",
+          claim: "已查到基础登记和人员信息，但缺少集团、子公司、分支机构或多层投资等复杂链条证据。",
+          evidence: evidenceTexts(basicRows, 4),
+          sourceIds: evidenceSourceIds(basicRows)
+        }
+      ]
+    };
+  }
+  return {
+    label: "组织边界未判断",
+    claim: "",
+    evidence: [],
+    sourceIds: [],
+    tone: "",
+    branches: []
+  };
+}
+
+function industryPositionClaim(rows = []) {
+  const text = arr(rows).map((row) => row.text || row).join(" ");
+  const summary = evidenceDecisionSummary(rows, "公开背书");
+  if (/专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|奖|奖项|荣誉|获奖|获评|认定/.test(text)) {
+    return `行业地位有荣誉、资质或奖项背书：${summary}。这些背书说明客户具备细分领域认可度，但不能单独证明项目预算。`;
+  }
+  return `行业地位有公开背书：${summary}。这些背书可用于判断客户可信度，但不能单独证明项目预算。`;
+}
+
+function industryPositionEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 420);
+  const sentence = splitChineseSentences(text).find((item) => isIndustryPositionEvidenceText(item));
+  return sentence ? cleanBusinessText(sentence, 180) : cleanBusinessText(text, 180);
+}
+
+function entryWindowClaimFromEvidence(values = []) {
+  const evidence = arr(values).filter(meaningful);
+  if (!evidence.length) return "未查到明确进入窗口。";
+  const text = evidence.join(" ");
+  const types = [];
+  if (/采购意向|采购预算|预算金额|采购公告|招标公告|政府采购|招标计划/.test(text)) types.push("采购/预算动作");
+  if (/项目金额|合同金额|立项|技改|改造/.test(text)) types.push("项目/改造动作");
+  if (/新建|扩产|投产|新基地|产能/.test(text)) types.push("扩产/建设动作");
+  if (/融资|上市|IPO|募投|并购/.test(text)) types.push("融资/募投动作");
+  if (/组织调整|高管变更/.test(text)) types.push("组织变化");
+  if (/专项资金|政府补助|补贴|重点研发|政策/.test(text)) types.push("政策资金项目");
+  const summary = signalTextSummary(evidence, 1, 100);
+  return summary
+    ? `存在可跟进窗口：近期出现${uniqueTexts(types, 3).join("、") || "具体触发事件"}，依据是${summary}。`
+    : "未查到明确进入窗口。";
 }
 
 function profilePriorityLevel({ metrics = [], scaleRows = [], industryRows = [] }) {
@@ -6248,7 +6484,7 @@ function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
       ? hardTasks.join("、")
       : mediumTasks.length
         ? mediumTasks.join("、")
-        : "客户样例、验收口径和责任人";
+        : "客户样例、接口边界和验收口径";
     return {
       title: `${item.priority || `P${Math.min(index, 2)}`}｜${cleanBusinessText(item.title || "功能项", 44)}`,
       claim: `相对难点在${attention}；其余功能按中低复杂度推进，不把全部工作都标成难。`,
@@ -6358,9 +6594,9 @@ function customerProfilePerspective(report, round, sources = []) {
     }).evidence.map((text) => ({ text }))
   );
   const scaleRows = mergeEvidenceRows(
-    infoEvidenceBySection(round, /local|主体|股权|区域|工商|business|业务|产品|客户|market|案例|finance|财务|经营|规模/, /注册资本|实缴资本|参保人数|员工规模|员工数量|分支机构|子公司|对外投资|客户名单|行业排名|行业榜单|协会|入选|首版次|总包商|政府项目|重点研发|补助|上市|融资/, 8)
+    infoEvidenceBySection(round, /local|主体|股权|区域|工商|business|业务|产品|客户|market|案例|finance|财务|经营|规模/, /注册资本|实缴资本|参保人数|员工规模|员工数量|分支机构|子公司|对外投资|客户名单|行业排名|行业榜单|协会|入选|首版次|总包商|政府项目|重点研发|补助|上市|融资|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|奖项|荣誉|获奖|获评|认定/, 8)
       .filter((row) => isScaleEvidenceText(row.text)),
-    combinedSignal(round, sources, /注册资本|实缴|参保人数|员工|子公司|分支|对外投资|客户名单|行业榜单|入选|首版次|总包商|政府项目|重点研发|补助|上市|融资/i, 6, {
+    combinedSignal(round, sources, /注册资本|实缴|参保人数|员工|子公司|分支|对外投资|客户名单|行业榜单|入选|首版次|总包商|政府项目|重点研发|补助|上市|融资|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|奖项|荣誉|获奖|获评|认定/i, 6, {
       sourcePredicate: (_source, text) => isScaleEvidenceText(text),
       signalPredicate: isScaleEvidenceText,
       itemPredicate: (_section, _item, candidate) => isScaleEvidenceText(candidate)
@@ -6368,11 +6604,23 @@ function customerProfilePerspective(report, round, sources = []) {
   );
   const businessRows = mergeEvidenceRows(
     infoEvidenceBySection(round, /business|业务|产品|客户|market|案例/, /.*/, 6),
-    combinedSignal(round, sources, /官网|产品|客户案例|行业|榜单|协会|政府项目|案例|平台|MES|APS|ERP|WMS|LIMS|Holli|工业互联网|智能制造/i, 6, {
+    combinedSignal(round, sources, /官网|产品|客户案例|行业|榜单|协会|政府项目|案例|平台|MES|APS|ERP|WMS|LIMS|Holli|工业互联网|智能制造|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|奖项|荣誉|获奖|获评|认定/i, 6, {
       excludeFamilies: ["subject_registry", "finance_budget", "risk_legal"]
     }).evidence.map((text) => ({ text }))
   );
-  const industryRows = mergeEvidenceRows(scaleRows.filter((row) => isIndustryPositionEvidenceText(row.text)), businessRows.filter((row) => isIndustryPositionEvidenceText(row.text)));
+  const industryDirectRows = infoEvidenceBySection(
+    round,
+    /local|主体|股权|区域|工商|business|业务|产品|客户|market|案例|finance|财务|经营|规模/,
+    /行业榜单|协会|入选|首版次|总包商|示范案例|典型示范|客户案例|政府项目|重点研发|补助|标杆|典型|排名|资质|认证|专精特新|单项冠军|隐形冠军|高新技术企业|瞪羚|企业技术中心|工程技术中心|科技进步|奖|奖项|荣誉|获奖|获评|认定/,
+    12
+  )
+    .map((row) => ({ ...row, text: industryPositionEvidenceText(row.text) }))
+    .filter((row) => isIndustryPositionEvidenceText(row.text));
+  const industryRows = mergeEvidenceRows(
+    industryDirectRows,
+    scaleRows.filter((row) => isIndustryPositionEvidenceText(row.text)),
+    businessRows.filter((row) => isIndustryPositionEvidenceText(row.text))
+  );
   const triggerRows = mergeEvidenceRows(
     combinedSignal(round, sources, /融资|上市|并购|新设|新建|基地|招聘|中标|项目|合作|扩张|扩产|转型|数字化|智能制造|升级|裁员|舆情|入选|补助|重点研发/i, 6, {
       excludeFamilies: ["subject_registry"],
@@ -6381,6 +6629,7 @@ function customerProfilePerspective(report, round, sources = []) {
       itemPredicate: (_section, _item, candidate) => isDevelopmentStageEvidenceText(candidate)
     }).evidence.map((text) => ({ text }))
   ).filter((row) => isDevelopmentStageEvidenceText(row.text));
+  const industrySupportRows = mergeEvidenceRows(industryRows, triggerRows.filter((row) => isIndustryPositionEvidenceText(row.text)));
   const maturityRows = mergeEvidenceRows(
     infoEvidenceBySection(round, /digital|AI|数字|系统|技术/, /.*/, 5),
     combinedSignal(round, sources, /数字化|IT岗位|数据岗位|软著|专利|官网技术|系统采购|软件著作权|平台|算法|运维|MES|APS|ERP|WMS|LIMS/i, 6, {
@@ -6397,7 +6646,7 @@ function customerProfilePerspective(report, round, sources = []) {
   const stage = stageLabelFromEvidence(triggerRows);
   const operatingRows = mergeEvidenceRows(metricRows, triggerRows.filter((row) => isOperatingStatusEvidenceText(row.text)), riskRows);
   const operating = operatingLabelFromEvidence(operatingRows);
-  const org = organizationComplexityLabel(registryRows);
+  const orgAssessment = organizationComplexityAssessment(registryRows);
   const riskLabel = riskLabelFromEvidence(riskRows);
   const nodes = [
     {
@@ -6406,16 +6655,7 @@ function customerProfilePerspective(report, round, sources = []) {
       evidence: evidenceTexts(financeKpiRows, 8),
       sourceIds: evidenceSourceIds(financeKpiRows),
       branches: financeKpiRows.length
-        ? financeKpiRows.slice(0, 6).map((row) => ({
-          title: row.label,
-          claim: row.text,
-          evidence: [row.text],
-          sourceIds: row.sourceIds || [],
-          annualPage: row.annualPage,
-          annualFileName: row.annualFileName,
-          evidenceExcerpt: row.evidenceExcerpt,
-          forceDisplay: true
-        }))
+        ? [financialKpiBoardBranch(financeKpiRows)]
         : [{
           title: "当前边界",
           claim: "未查到营收、利润、毛利率或现金流等可用指标。",
@@ -6445,16 +6685,19 @@ function customerProfilePerspective(report, round, sources = []) {
     },
     {
       label: "组织复杂度",
-      claim: registryRows.length ? `${org}，初访要确认项目预算主体、合同主体和实际使用部门是否一致。` : "",
-      evidence: evidenceTexts(registryRows, 6),
-      sourceIds: evidenceSourceIds(registryRows),
-      tone: /复杂/.test(org) ? "watch" : ""
+      claim: orgAssessment.claim,
+      evidence: orgAssessment.evidence,
+      sourceIds: orgAssessment.sourceIds,
+      branches: orgAssessment.branches,
+      useExplicitBranchesOnly: true,
+      forceDisplay: Boolean(orgAssessment.claim),
+      tone: orgAssessment.tone
     },
     {
       label: "行业地位",
-      claim: industryRows.length ? `行业地位有公开背书，可作为建立信任的开场依据，但不能直接推导预算。` : "",
-      evidence: evidenceTexts(industryRows, 6),
-      sourceIds: evidenceSourceIds(industryRows),
+      claim: industrySupportRows.length ? industryPositionClaim(industrySupportRows) : "",
+      evidence: evidenceTexts(industrySupportRows, 6),
+      sourceIds: evidenceSourceIds(industrySupportRows),
       tone: "strong"
     },
     {
@@ -6553,7 +6796,9 @@ function salesPerspective(report, round, sources = []) {
     budgetEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text }))
   );
   const positiveBudgetEvidence = budgetEvidence.filter((text) => !/缺少|未查到|无法|未形成|不能证明|不公示|未披露|暂无|待核验/.test(text));
-  const directPurchaseEvidence = positiveBudgetEvidence.filter((text) => /营收|营业收入|净利润|利润|现金流|采购人|招标人|采购单位|采购公告|采购意向|预算|项目金额|采购预算|合同金额|政府采购/.test(text));
+  const hardProcurementBudgetEvidence = positiveBudgetEvidence.filter((text) => /采购人|招标人|采购单位|采购公告|招标公告|采购意向|预算金额|采购预算|项目金额|合同金额|政府采购|招标计划/.test(text));
+  const financialBudgetEvidence = positiveBudgetEvidence.filter((text) => /营收|营业收入|净利润|利润|现金流|毛利|研发投入/.test(text));
+  const directPurchaseEvidence = uniqueTexts([...hardProcurementBudgetEvidence, ...financialBudgetEvidence], 6);
   const capitalOnlyEvidence = positiveBudgetEvidence.filter((text) => !directPurchaseEvidence.includes(text));
   const decisionPeople = usefulDecisionPeople(extractDecisionPeople(sources));
   const decisionPeopleEvidence = decisionPeople.map((person) =>
@@ -6568,7 +6813,9 @@ function salesPerspective(report, round, sources = []) {
   });
   const boundaryBranch = (claim) => ({ ...forcedBranch("当前边界", claim, []), invalid: true });
   const purchaseLevel = directPurchaseEvidence.length
-    ? `采购能力可以继续验证，依据是${evidenceDecisionSummary(directPurchaseEvidence, "可用财务/采购线索")}。`
+    ? hardProcurementBudgetEvidence.length
+      ? `采购能力可以继续验证，依据是${evidenceDecisionSummary(hardProcurementBudgetEvidence, "可用采购/预算线索")}。`
+      : `采购能力只能按推测信息判断，依据是${evidenceDecisionSummary(financialBudgetEvidence, "经营金额线索")}；经营金额不能证明项目级预算或采购意愿。`
     : positiveBudgetEvidence.length
     ? `只查到${evidenceCategorySummary(positiveBudgetEvidence, "基础体量线索")}，不能直接证明项目级预算。`
     : "未查到营收、现金流、预算或历史采购线索，采购能力未形成有效判断。";
@@ -6609,7 +6856,7 @@ function salesPerspective(report, round, sources = []) {
     : ["已读来源未形成被执行、失信、经营异常、付款纠纷或长期无采购记录等明确低价值信号。"];
   const entryWindowClaim =
     arr(entryWindowSignal.evidence).length
-      ? `客户存在进入窗口，触发依据是${evidenceDecisionSummary(arr(entryWindowSignal.evidence), "公开动作线索")}。`
+      ? entryWindowClaimFromEvidence(arr(entryWindowSignal.evidence))
       : "未查到明确进入窗口。";
   const entryWindowEvidence = arr(entryWindowSignal.evidence).length
     ? arr(entryWindowSignal.evidence)
@@ -6626,10 +6873,12 @@ function salesPerspective(report, round, sources = []) {
       claim: purchaseAbilityClaim,
       evidence: positiveBudgetEvidence,
       branches: [
-        directPurchaseEvidence.length
-          ? forcedBranch("可用证据", "已查到预算、财务或客户作为甲方的采购记录。", directPurchaseEvidence)
+        hardProcurementBudgetEvidence.length
+          ? forcedBranch("可用证据", "已查到预算金额、采购公告或客户作为甲方的采购记录。", hardProcurementBudgetEvidence)
+          : financialBudgetEvidence.length
+            ? forcedBranch("推测信息", "只查到经营金额线索；可辅助判断预算承载，但不能证明本项目预算或采购意愿。", financialBudgetEvidence)
           : capitalOnlyEvidence.length
-            ? forcedBranch("边界证据", "仅查到基础体量或资本信息；尚未查到项目级预算或甲方采购记录。", capitalOnlyEvidence)
+            ? forcedBranch("推测信息", "仅查到基础体量或资本信息；尚未查到项目级预算或甲方采购记录。", capitalOnlyEvidence)
             : boundaryBranch("未查到营收、融资、预算、项目金额或历史采购记录。")
       ],
       sourceIds: arr(budgetSignal.sourceIds),
@@ -6637,7 +6886,7 @@ function salesPerspective(report, round, sources = []) {
       allowBoundaryEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      tone: budget.score >= 75 ? "strong" : budget.score < 58 ? "risk" : "watch"
+      tone: hardProcurementBudgetEvidence.length ? "strong" : budget.score < 58 ? "risk" : "watch"
     },
     {
       label: "是否有采购习惯",
@@ -6714,8 +6963,8 @@ function salesPerspective(report, round, sources = []) {
       claim: entryWindowClaim,
       evidence: entryWindowEvidence,
       branches: arr(entryWindowSignal.evidence).length
-        ? [forcedBranch("进入窗口线索", "已查到组织调整、业务扩张、政策变化、旧系统替换或明确采购/立项动作。", arr(entryWindowSignal.evidence), arr(entryWindowSignal.sourceIds))]
-        : [boundaryBranch("未查到组织调整、业务扩张、政策变化、旧系统替换或明确采购/立项动作。")],
+        ? [forcedBranch("进入窗口线索", entryWindowClaimFromEvidence(arr(entryWindowSignal.evidence)), arr(entryWindowSignal.evidence), arr(entryWindowSignal.sourceIds))]
+        : [boundaryBranch("未查到采购预算、招标计划、融资募投、扩产建设、技改立项或组织变化等具体触发事件。")],
       sourceIds: arr(entryWindowSignal.sourceIds),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
@@ -7061,21 +7310,108 @@ function deliveryBranches(items = [], titlePrefix = "要点") {
   }));
 }
 
+function deliveryRiskLevel(value = "") {
+  const text = cleanBusinessText(value, 260);
+  if (/数据质量差|无法提供|接口不可用|无接口|安全禁止|权限不足|多系统|算法|模型|现场设备|PLC|摄像头|验收口径不清|准确率|误报|漏报/.test(text)) return "高";
+  if (/数据|接口|权限|系统|安全|部署|样例|验收|边界/.test(text)) return "中";
+  return "低";
+}
+
+function defaultResponseForRisk(value = "") {
+  const category = deliveryRiskCategory(value);
+  if (category === "数据风险") return "先提供脱敏样例和字段字典，确认数据口径、缺失率、更新频率和可导出范围。";
+  if (category === "系统集成风险") return "先确认现有系统清单、接口方式、调用频率、鉴权方式和测试环境，不承诺未开放接口。";
+  if (category === "安全与权限风险") return "先确认部署方式、账号权限、数据脱敏、日志审计和安全审批要求。";
+  if (category === "算法与模型风险") return "先用小样本验证准确率、误报漏报和人工复核流程，再决定是否扩大模型范围。";
+  if (category === "现场环境风险") return "先核对现场网络、服务器、设备协议、摄像头/PLC接入方式和边缘部署条件。";
+  if (category === "验收口径风险") return "先把可验收指标、样例范围、边界场景和不承诺项写清。";
+  return "先收敛范围、样例、接口、权限和验收口径，边界外内容不进入本轮承诺。";
+}
+
+function deliveryRiskResponseBranches(report = {}, round = {}, delivery = {}) {
+  const risks = uniqueTexts(arr(delivery.deliveryRisks).filter(meaningful).filter((item) => !isDeliveryEstimateText(item)), 5);
+  const responses = uniqueTexts(arr(delivery.responsePlan).filter(meaningful).filter((item) => !isDeliveryEstimateText(item)), 5);
+  const solutionRisks = arr(round.solutionCards)
+    .flatMap((item) => [item.prerequisite, item.risk, item.deliveryRisk, item.boundary])
+    .filter(meaningful)
+    .filter((item) => /数据|接口|系统|权限|安全|部署|验收|模型|算法|现场|设备/.test(item));
+  const mergedRisks = uniqueTexts([...risks, ...solutionRisks], 5);
+  const sourceItems = mergedRisks.length
+    ? mergedRisks
+    : ["数据样例、系统接口、权限安全和验收口径未确认时，交付范围不能扩大。"];
+  return sourceItems.slice(0, 5).map((risk, index) => {
+    const response = responses[index] || responses.find((item) => deliveryRiskCategory(item) === deliveryRiskCategory(risk)) || defaultResponseForRisk(risk);
+    return {
+      title: `${deliveryRiskCategory(risk)}｜${deliveryRiskLevel(risk)}`,
+      claim: cleanBusinessText(risk, 160),
+      fields: [
+        { label: "风险类别", value: deliveryRiskCategory(risk) },
+        { label: "风险说明", value: cleanBusinessText(risk, 220) },
+        { label: "风险级别", value: deliveryRiskLevel(risk) },
+        { label: "应对方案", value: cleanBusinessText(response, 220) }
+      ],
+      kind: "risk-response-fields",
+      evidence: [risk, response].filter(meaningful),
+      forceDisplay: true
+    };
+  });
+}
+
+function isTechnicalDependencyText(value = "") {
+  const text = cleanBusinessText(value, 240);
+  if (!meaningful(text)) return false;
+  if (/负责人|责任人|参会|沟通|会后|下一步|预算|商务|采购流程|拍板|决策链|合同|付款|优先级|内部推动|锁定负责人/.test(text)) return false;
+  return /数据|样例|字段|口径|接口|API|SDK|系统|MES|APS|ERP|WMS|LIMS|SCADA|PLM|QMS|CRM|OA|SSO|权限|账号|安全|合规|审计|脱敏|日志|部署|私有化|网络|服务器|数据库|硬件|设备|PLC|摄像头|视频|RTSP|边缘|验收|指标/.test(text);
+}
+
+function normalizeTechnicalDependency(value = "") {
+  const text = cleanBusinessText(value, 220)
+    .replace(/^(?:需(?:要)?|先|现场|推进前|客户侧)?(?:确认|核对|厘清|明确)\s*/g, "")
+    .replace(/负责人|责任人|参会角色|预算窗口|采购流程|拍板路径/g, "")
+    .replace(/[，,；;\s]+$/g, "");
+  if (!isTechnicalDependencyText(text)) return "";
+  return text;
+}
+
+function technicalDependencyBranches(delivery = {}, round = {}) {
+  const dependencies = uniqueTexts([
+    ...arr(delivery.dependencies),
+    ...arr(round.solutionCards).flatMap((item) => [item.prerequisite, item.precondition, item.condition])
+  ], 8)
+    .map(normalizeTechnicalDependency)
+    .filter(meaningful)
+    .slice(0, 5);
+  const base = dependencies.length
+    ? dependencies
+    : ["数据样例、字段字典、系统接口/API、部署环境、安全权限、日志审计和验收数据口径。"];
+  return base.slice(0, 5).map((item, index) => ({
+    title: `技术依赖${index + 1}`,
+    claim: cleanBusinessText(item, 180),
+    fields: [
+      { label: "技术依赖", value: cleanBusinessText(item, 180) },
+      { label: "具体要求", value: defaultResponseForRisk(item) },
+      { label: "影响范围", value: /接口|系统|API|SDK|SSO/.test(item) ? "影响系统集成和上线范围。" : /数据|样例|字段|口径/.test(item) ? "影响模型、知识库和验收准确性。" : /安全|权限|审计|部署|网络/.test(item) ? "影响部署方式和安全审批。" : "影响交付边界和验收口径。" }
+    ],
+    kind: "dependency-fields",
+    evidence: [item],
+    forceDisplay: true
+  }));
+}
+
 function deliveryArgumentSection(report, round) {
   const delivery = buildDeliveryAssessment(report, round);
   const sow = arr(delivery.sowOutline).filter(meaningful).slice(0, 4);
-  const risks = arr(delivery.deliveryRisks).filter(meaningful).slice(0, 4);
-  const responses = arr(delivery.responsePlan).filter(meaningful).slice(0, 4);
-  const dependencies = arr(delivery.dependencies).filter(meaningful).slice(0, 4);
   const sowBranches = sowArgumentBranches(report, round, delivery);
+  const riskBranches = deliveryRiskResponseBranches(report, round, delivery);
+  const dependencyBranches = technicalDependencyBranches(delivery, round);
   return argumentTreeSection({
     className: "delivery-argument-section",
     kicker: "交付分析",
     thesis: delivery.architectureSketch || "交付应先按功能项拆范围，再锁定数据、接口、权限和验收边界。",
-    summary: "这一页站在交付视角，先拆功能项，再看风险、应对和客户侧前置条件；不在会前报告里承诺投入规模、上线节奏或商务条款。",
+    summary: "这一页只保留交付视角需要的三件事：SOW分解、风险与应对、技术前置依赖。",
     nodes: [
       {
-        label: "SOW工作拆分",
+        label: "SOW分解",
         claim: "本轮SOW只按可交付功能项拆分，并标出相对难点用于控范围。",
         evidence: sow,
         branches: sowBranches.length ? sowBranches : deliveryBranches(sow, "功能项"),
@@ -7085,29 +7421,22 @@ function deliveryArgumentSection(report, round) {
         wide: true
       },
       {
-        label: "风险评估",
-        claim: risks.length ? `主要交付风险集中在${evidenceDecisionSummary(risks, "系统、数据、权限和验收边界")}。` : "未形成具体交付风险，不扩大承诺范围。",
-        evidence: risks,
-        branches: deliveryBranches(risks, "风险"),
+        label: "风险与应对",
+        claim: "交付风险必须和应对方案绑定展示，避免只列风险不说明控制方式。",
+        evidence: riskBranches.flatMap((branch) => branch.evidence),
+        branches: riskBranches,
         forceDisplay: true,
         useExplicitBranchesOnly: true,
         tone: "risk"
       },
       {
-        label: "应对方案",
-        claim: responses.length ? `应对策略是${evidenceDecisionSummary(responses, "先锁边界再轻量验证")}。` : "先用最小业务闭环验证价值，把边界外内容留到二次方案或正式项目中确认。",
-        evidence: responses,
-        branches: deliveryBranches(responses, "应对"),
+        label: "前置依赖",
+        claim: "前置依赖只保留技术条件，重点看数据、接口、权限、安全、部署和验收口径。",
+        evidence: dependencyBranches.flatMap((branch) => branch.evidence),
+        branches: dependencyBranches,
         forceDisplay: true,
-        useExplicitBranchesOnly: true
-      },
-      {
-        label: "前置条件",
-        claim: dependencies.length ? `客户侧前置条件是${evidenceDecisionSummary(dependencies, "责任人、样例、系统边界和验收口径")}。` : "客户需先给出责任人、样例数据、系统边界和验收口径，否则交付范围不能放大。",
-        evidence: dependencies,
-        branches: deliveryBranches(dependencies, "条件"),
-        forceDisplay: true,
-        useExplicitBranchesOnly: true
+        useExplicitBranchesOnly: true,
+        tone: "watch"
       }
     ],
     sources: arr(report.sources),
@@ -7121,135 +7450,158 @@ function deliveryPerspective(report, round) {
   </div>`;
 }
 
-function actionPerspective(report, round, sources = []) {
+function actionQuestionnaireBranches(report = {}, round = {}) {
   const brief = buildExecutiveBrief(report, round);
   const coreQuestion = coreBusinessQuestion(report, round, brief);
-  const questions = allRenderedQuestions(round, report);
   const businessQuestions = questionsByGroup(round, /业务/, report);
-  const budgetQuestions = questionsByGroup(round, /预算|决策/, report);
-  const dataQuestions = questionsByGroup(round, /IT|数据|风险|边界/, report);
-  const notes = arr(round.internalNotes).map(usableActionNote).filter(isActionableInternalNote);
-  const opening = actionOpeningSentence(report, round, brief);
-  const openingTopic = cleanBusinessText(opening, 120)
-    .replace(/^开场先/, "先")
-    .replace(/[。！？.!?]+$/g, "");
-  const nextAction = actionNextStepText(brief.next);
-  const notCommit = notes[0] || usableActionNote(brief.risk) || "客户业务优先级、预算路径和数据/系统边界未确认前，不承诺正式方案范围、上线周期、效果指标或免费验证。";
+  const budgetQuestions = questionsByGroup(round, /预算|决策|采购/, report);
+  const dataQuestions = questionsByGroup(round, /IT|数据|系统|接口|风险|边界/, report);
+  const deliveryQuestions = questionsByGroup(round, /交付|部署|安全|验收|权限/, report);
+  const make = (title, question, goal, evidence = []) => ({
+    title,
+    claim: cleanBusinessText(question, 170),
+    fields: [
+      { label: "问题类别", value: title },
+      { label: "核心问题", value: cleanBusinessText(question, 240) },
+      { label: "验证目的", value: cleanBusinessText(goal, 220) }
+    ],
+    kind: "questionnaire-fields",
+    evidence: evidence.filter(meaningful).slice(0, 3),
+    forceDisplay: true
+  });
+  return [
+    make(
+      "业务场景",
+      coreQuestion || businessQuestions[0] || "客户当前最优先的业务场景是什么，衡量价值的指标是什么？",
+      "确认真实场景、影响岗位、损失指标和优先级。",
+      [coreQuestion, ...businessQuestions]
+    ),
+    make(
+      "预算与采购",
+      budgetQuestions[0] || "本次项目是否已有预算金额、采购窗口、采购主体或招标计划？",
+      "区分经营体量、推测预算和项目级预算，避免把财务能力误写成采购意愿。",
+      budgetQuestions
+    ),
+    make(
+      "系统与数据",
+      dataQuestions[0] || "现有系统、接口/API、数据样例、权限、安全和部署环境分别是什么边界？",
+      "判断方案能否落地，以及哪些能力只能先做小样例验证。",
+      dataQuestions
+    ),
+    make(
+      "交付验收",
+      deliveryQuestions[0] || "可验收的样例范围、指标口径、异常场景和不承诺项是什么？",
+      "把交付风险落到数据、接口、权限、部署和验收口径。",
+      deliveryQuestions
+    )
+  ];
+}
+
+function actionFocusBranches(report = {}, round = {}, sources = []) {
+  const rating = ratingOf(report);
+  const delivery = buildDeliveryAssessment(report, round);
+  const financeRows = financialKpiRowsForProfile(report, round);
+  const topPain = arr(round.painsAndOpportunities).find((item) => meaningful(item.title || item.pain || item.opportunity)) || {};
+  const topSolution = arr(round.solutionCards).find((item) => meaningful(item.title)) || {};
+  const concreteSensitive = arr(report.sensitiveVerification?.categories).filter(hasImpactfulSensitiveRisk);
+  const procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 4, {
+    sourcePredicate: (_source, text) => isBuyerProcurementEvidenceText(text),
+    signalPredicate: isBuyerProcurementEvidenceText,
+    itemPredicate: (_section, _item, candidate) => isBuyerProcurementEvidenceText(candidate)
+  });
+  const entrySignal = filterSignal(
+    combinedSignal(round, sources, /采购意向|招标计划|预算金额|采购预算|采购公告|招标公告|新建|扩产|投产|融资|募投|并购|专项资金|政府补助|技改|改造|组织调整|高管变更/i, 5),
+    isEntryWindowEvidenceText
+  );
+  const riskTexts = usefulRatingEvidence([
+    ...arr(rating.riskFlags),
+    rating.riskGate?.summary,
+    ...arr(rating.riskGate?.reasons),
+    ...concreteSensitive.map((item) => item.summary || item.statusLabel || item.label)
+  ]).filter((text) => /被执行|失信|诉讼|行政处罚|经营异常|付款|回款|安全|合规|数据|接口|采购|预算/.test(text));
+  const technicalDeps = technicalDependencyBranches(delivery, round).flatMap((branch) => branch.evidence).slice(0, 3);
+  const make = (title, claim, evidence = [], kind = "attention-fields") => ({
+    title,
+    claim: cleanBusinessText(claim, 180),
+    fields: [
+      { label: "关注项", value: title },
+      { label: "判断依据", value: cleanBusinessText(evidenceDecisionSummary(evidence, claim), 220) },
+      { label: "处理边界", value: cleanBusinessText(claim, 220) }
+    ],
+    kind,
+    evidence: evidence.filter(meaningful).slice(0, 4),
+    forceDisplay: true
+  });
+  const branches = [];
+  if (arr(procurementSignal.evidence).length) {
+    branches.push(make("甲方采购线索", "已查到客户作为采购人/招标人/采购单位的记录，采购路径可作为商务重点复核。", arr(procurementSignal.evidence)));
+  } else if (financeRows.length) {
+    branches.push(make("推测信息", "仅有经营金额可辅助判断预算承载，尚不能证明本项目预算、采购窗口或采购意愿。", evidenceTexts(financeRows, 5), "attention-fields inferred"));
+  }
+  if (arr(entrySignal.evidence).length) {
+    branches.push(make("进入窗口", entryWindowClaimFromEvidence(arr(entrySignal.evidence)), arr(entrySignal.evidence)));
+  }
+  if (topPain.title || topPain.pain || topPain.opportunity) {
+    branches.push(make(
+      "需求真实性",
+      `“${shortSceneTitle(topPain.title || topPain.pain || topPain.opportunity)}”需要用客户原话、流程样例和价值指标证明，不按泛场景硬推方案。`,
+      [topPain.sourceBasis, topPain.reasoning, topPain.customerSignal, topPain.pain, topPain.opportunity].filter(meaningful)
+    ));
+  } else if (topSolution.title) {
+    branches.push(make(
+      "方案边界",
+      `“${shortSceneTitle(topSolution.title)}”只能作为推测信息，需由客户场景证据确认后再扩大方案范围。`,
+      [topSolution.customerPain, topSolution.introduction, topSolution.value].filter(meaningful),
+      "attention-fields inferred"
+    ));
+  }
+  if (technicalDeps.length) {
+    branches.push(make("技术前置依赖", "数据、接口、权限、安全、部署和验收口径会决定方案是否能落地。", technicalDeps));
+  }
+  if (riskTexts.length) {
+    branches.push(make("敏感风险", "敏感风险只引用具体事实；没有硬风险时不把财务/经营核验写成风险。", riskTexts));
+  }
+  if (!branches.length) {
+    branches.push(make("推测信息", "当前公开证据不足，只能把预算、需求和交付边界作为待验证事项。", ["公开资料未形成可直接支撑的商务或方案强判断。"], "attention-fields inferred"));
+  }
+  return branches.slice(0, 5);
+}
+
+function actionPerspective(report, round, sources = []) {
+  const questionBranches = actionQuestionnaireBranches(report, round);
+  const focusBranches = actionFocusBranches(report, round, sources);
   const nodes = [
     {
-      label: "开场切入",
-      claim: openingTopic
-        ? `${openingTopic}，目标是验证业务优先级，不从产品功能清单开讲。`
-        : "开场先验证客户最优先的业务场景，不从产品功能清单开讲。",
-      evidence: [brief.entry, brief.reason, brief.oneLine],
-      branches: [
-        {
-          title: "开场句",
-          claim: openingTopic || "先从客户最关心的业务场景开场，不从产品功能清单开场。",
-          evidence: [brief.entry, brief.reason]
-        },
-        {
-          title: "为什么这样开场",
-          claim: brief.reason || brief.oneLine || "开场目标是让客户先确认问题是否重要，再判断我方方案是否值得展开。",
-          evidence: [brief.reason, brief.oneLine].filter(Boolean)
-        },
-        {
-          title: "顺势追问",
-          claim: coreQuestion ? `顺势追问：${cleanBusinessText(coreQuestion, 130)}` : "追问重点应放在现状、损失、目标指标和当前做法上。",
-          evidence: [coreQuestion, ...businessQuestions].filter(Boolean).slice(0, 3)
-        }
-      ],
-      forceDisplay: true,
-      useExplicitBranchesOnly: true,
-      open: true,
-      tone: "strong"
-    },
-    {
-      label: "必问问题",
-      claim: "现场必须先问清业务优先级、预算/拍板路径和数据/系统边界，否则不升级方案投入。",
-      evidence: uniqueTexts([coreQuestion, ...businessQuestions, ...questions], 8),
-      branches: [
-        {
-          title: "业务优先级",
-          claim: coreQuestion || businessQuestions[0] || "业务验证应锁定当前场景、损失、优先级和衡量指标。",
-          evidence: [coreQuestion, ...businessQuestions].filter(Boolean).slice(0, 3)
-        },
-        {
-          title: "预算/决策",
-          claim: budgetQuestions[0] || "预算验证应锁定预算来源、采购流程、付款主体和拍板路径。",
-          evidence: budgetQuestions.slice(0, 3)
-        },
-        {
-          title: "数据/系统边界",
-          claim: dataQuestions[0] || "数据验证应锁定数据样例、系统边界、部署方式和安全要求。",
-          evidence: dataQuestions.slice(0, 3)
-        }
-      ],
+      label: "现场问卷",
+      claim: "现场问卷按业务场景、预算采购、系统数据和交付验收分类，问题只服务于判断。",
+      evidence: questionBranches.flatMap((branch) => branch.evidence),
+      branches: questionBranches,
       allowConfirmEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
       open: true,
+      wide: true,
       tone: "watch"
     },
     {
-      label: "内部边界",
-      claim: `当前不能承诺的是：${cleanBusinessText(notCommit, 150)}。`,
-      evidence: notes.length ? notes.slice(0, 6) : [notCommit],
-      branches: [
-        {
-          title: "不能承诺",
-          claim: notCommit,
-          evidence: notes.slice(0, 2)
-        },
-        {
-          title: "先确认",
-          claim: notes[1] || "先锁定场景、样例、接口、部署、安全和验收口径，再讨论正式方案。",
-          evidence: notes.slice(1, 3)
-        },
-        {
-          title: "升级条件",
-          claim: notes[2] || "只有客户明确责任人、预算窗口和下一步验证动作后，才升级投入售前资源。",
-          evidence: notes.slice(2, 4)
-        }
-      ],
+      label: "重点关注事项",
+      claim: "重点关注事项来自商务、方案和交付页中会影响判断的敏感点。",
+      evidence: focusBranches.flatMap((branch) => branch.evidence),
+      branches: focusBranches,
       allowConfirmEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
+      open: true,
+      wide: true,
       tone: "risk"
-    },
-    {
-      label: "会后更新",
-      claim: "会后只更新客户原话、已确认事实和下一步动作，用它们刷新评级、痛点、方案优先级和内部边界。",
-      evidence: ["会后会议纪要会进入最新轮次，用于刷新商机评级、痛点排序、方案优先级和下一步动作。"],
-      branches: [
-        {
-          title: "新增事实",
-          claim: "把客户原话、场景细节、已有系统、预算线索和责任人补进系统。",
-          evidence: ["客户原话和会议纪要用于刷新最新轮次。"]
-        },
-        {
-          title: "判断刷新",
-          claim: "只用已确认的新事实刷新评级、痛点、方案优先级、风险和下一步动作。",
-          evidence: ["会后补充信息用于刷新最新轮次，公开证据和客户原话在页面中分开呈现。"]
-        },
-        {
-          title: "下一轮动作",
-          claim: "输出下一轮要约谁、带什么材料、验证什么样例，以及哪些边界不能承诺。",
-          evidence: ["会后更新服务于下一轮推进。"]
-        }
-      ],
-      allowConfirmEvidence: true,
-      forceDisplay: true,
-      useExplicitBranchesOnly: true,
-      tone: "normal"
     }
   ];
   return `<div class="report-view-panel view-action">
     ${argumentTreeSection({
       className: "action-argument-section",
       kicker: "行动指南",
-      thesis: opening || nextAction || brief.next,
-      summary: "这一页把会前判断翻译成现场动作：怎么开场、先问什么、哪些边界不能承诺，以及会后怎么刷新判断。",
+      thesis: "行动指南只保留现场问卷和重点关注事项。",
+      summary: "这一页不再展示开场话术、会后更新或通用推进说明。",
       nodes,
       sources,
       showClaim: false
@@ -7429,6 +7781,7 @@ export function renderReportHtml(report) {
   const currentRound = activeRound(report);
   const cover = buildExecutiveBrief(report, currentRound);
   const coverNext = salesForwardNextAction(report, currentRound, cover);
+  const coverRisk = coverRiskText(cover.risk);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -7477,6 +7830,7 @@ section{width:min(calc(100% - 20px),1120px);margin:10px auto 0;padding:0}.battle
 .cover-actions span{display:block!important;width:auto!important;max-width:none!important;border:1px solid rgba(148,163,184,.24)!important;border-radius:18px!important;background:rgba(255,255,255,.08)!important;padding:13px 15px!important;color:#eef4ff!important;font-size:14px!important;line-height:1.72!important}
 .cover-actions .risk{background:rgba(15,23,42,.34)!important;color:#e8eef7!important;border-color:rgba(148,163,184,.28)!important}
 .cover-rating-badge>summary{background:rgba(255,255,255,.12)!important;border-color:rgba(226,232,240,.24)!important}
+.cover-rating-badge.rating-a,.cover-rating-badge.rating-b,.cover-rating-badge.rating-c,.cover-rating-badge.rating-d,.cover-rating-badge.rating-not-rated{border-left:0!important;background:transparent!important}
 .cover-rating-badge .icon{color:#93c5fd!important}.cover-rating-badge>summary span{color:#cbd5e1!important}
 .report-view-tabs{box-shadow:0 10px 28px rgba(15,23,42,.07)!important}.report-view-tabs label{color:#64748b!important}
 #view-profile:checked~.report-view-tabs label[for="view-profile"],#view-sales:checked~.report-view-tabs label[for="view-sales"],#view-presales:checked~.report-view-tabs label[for="view-presales"],#view-delivery:checked~.report-view-tabs label[for="view-delivery"],#view-action:checked~.report-view-tabs label[for="view-action"]{background:#0f172a!important;color:#fff!important;box-shadow:none!important}
@@ -7494,8 +7848,8 @@ section{width:min(calc(100% - 20px),1120px);margin:10px auto 0;padding:0}.battle
 .argument-node-body li{margin:6px 0!important}.argument-branch{background:#f8fafc!important;border-color:rgba(15,23,42,.08)!important}.argument-branch span{background:#eef2ff!important;color:#334155!important}.argument-branch b{font-size:13px!important;line-height:1.64!important;color:#172033!important}
 .argument-note{margin:0 0 10px!important;border-left:3px solid #2563eb;border-radius:10px;background:#f8fafc;padding:9px 11px!important;color:#334155!important;font-size:13px!important;line-height:1.62!important}
 .question-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}.question-card{padding:17px 18px!important}.question-card h3{margin-bottom:6px!important;color:#0f172a!important;font-size:16px!important}.question-goal{margin:0 0 12px!important;border-left:3px solid #2563eb;border-radius:10px;background:#f8fafc;padding:8px 10px!important;color:#334155!important;font-size:13px!important;line-height:1.62!important}.question-card ul{display:grid;gap:7px;margin:0!important;padding-left:20px!important;color:#172033!important;font-size:14px!important;line-height:1.72!important}.question-card li{margin:0!important}
-.argument-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.argument-field{border:1px solid rgba(15,23,42,.08);border-radius:14px;background:#fff;padding:11px 12px}.argument-field em{display:inline-flex;width:max-content;max-width:100%;margin:0 0 6px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-style:normal;font-size:11px;font-weight:900;padding:2px 8px}.argument-field p{margin:0!important;color:#172033!important;font-size:13px!important;line-height:1.68!important}.argument-field-grid.solution-fields{grid-template-columns:repeat(5,minmax(0,1fr))}.argument-field-grid.solution-fields .argument-field:first-child{grid-column:span 2}.argument-field-grid.solution-fields .argument-field:nth-child(2){grid-column:span 3}.argument-field-grid.solution-fields .argument-field:nth-child(3),.argument-field-grid.solution-fields .argument-field:nth-child(4),.argument-field-grid.solution-fields .argument-field:nth-child(5){grid-column:span 1}.argument-field-grid.pain-fields{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-node.invalid{border-left-color:#94a3b8!important;background:#f8fafc!important;box-shadow:none!important}.argument-node.invalid summary span,.argument-branch.invalid span{background:#e5e7eb!important;color:#64748b!important}.argument-node.invalid summary b,.argument-branch.invalid b{color:#64748b!important}.argument-branch.invalid{background:#f8fafc!important;border-style:dashed!important;border-color:#cbd5e1!important}.argument-branch.invalid .argument-field{background:#f8fafc!important}.argument-branch.invalid .argument-field p{color:#64748b!important}.argument-node.wide{grid-column:1/-1}.presales-argument-section .argument-node summary b{font-size:17px!important;line-height:1.58!important}.presales-argument-section .argument-branch{background:#fff!important}.presales-argument-section .argument-branch b{font-size:14px!important;line-height:1.62!important}.delivery-work-section .work-package-grid{grid-template-columns:1fr!important;gap:12px!important}.delivery-work-section .work-package-grid article{display:grid!important;grid-template-columns:minmax(260px,.44fr) minmax(0,1fr);gap:14px 18px;align-items:start;border:1px solid rgba(15,23,42,.08)!important;background:#fff!important;padding:16px 18px!important}.delivery-work-section .work-package-grid article>span,.delivery-work-section .work-package-grid article>h3,.delivery-work-section .work-package-grid article>p,.delivery-work-section .work-package-grid article>.work-item-kicker,.delivery-work-section .work-package-grid article>.package-complexity{grid-column:1}.delivery-work-section .work-package-grid article>.work-package-breakdown{grid-column:2;grid-row:1 / span 6;margin-top:0!important}.delivery-work-section .work-package-grid h3{font-size:17px!important;line-height:1.5!important;margin:8px 0 7px!important}.delivery-work-section .work-package-grid p{font-size:13px!important;line-height:1.7!important;color:#334155!important}.delivery-work-section .work-item-kicker{display:block;margin-top:10px;color:#1d4ed8!important;font-size:13px;font-weight:900}.package-complexity{display:inline-flex;width:max-content;max-width:100%;border-radius:999px;padding:3px 9px;background:#eef2ff;color:#334155;font-style:normal;font-size:12px;font-weight:900}.package-complexity.hard,.sow-work-group.hard summary i,.sow-work-group.hard .sow-work-head i{background:#fef2f2;color:#b91c1c}.package-complexity.medium,.sow-work-group.medium summary i,.sow-work-group.medium .sow-work-head i{background:#fff7ed;color:#b45309}.package-complexity.easy,.sow-work-group.easy summary i,.sow-work-group.easy .sow-work-head i{background:#ecfdf5;color:#047857}.delivery-work-section .work-package-breakdown{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px!important}.delivery-work-section .sow-work-group{border-color:rgba(15,23,42,.08)!important;background:#f8fafc!important}.delivery-work-section .sow-work-group summary{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#eef2ff!important;color:#172033!important;border-bottom:1px solid rgba(15,23,42,.06)}.delivery-work-section .sow-work-group summary b{margin:0!important;color:inherit!important}.delivery-work-section .sow-work-group summary i{font-style:normal;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap}.delivery-work-section .sow-work-group ul{font-size:13px!important;line-height:1.68!important;color:#243244!important}.delivery-work-section .sow-note{border-left:3px solid #2563eb;border-radius:10px;background:#f8fafc;padding:9px 11px;color:#334155!important;line-height:1.62!important}.delivery-work-section .sow-table{display:grid;gap:0;border:1px solid rgba(15,23,42,.10);border-radius:22px;background:#fff;box-shadow:0 14px 34px rgba(15,23,42,.07);overflow:hidden}.delivery-work-section .sow-table-head,.delivery-work-section .sow-table-row{display:grid;grid-template-columns:minmax(220px,.9fr) minmax(130px,.35fr) minmax(0,1.7fr)}.delivery-work-section .sow-table-head{background:#0f172a;color:#fff;font-size:12px;font-weight:900}.delivery-work-section .sow-table-head span{padding:10px 12px}.delivery-work-section .sow-table-row{border-top:1px solid rgba(15,23,42,.08)}.delivery-work-section .sow-table-row>div{padding:13px 14px}.delivery-work-section .sow-package-title span{display:inline-flex;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;font-size:12px;font-weight:900;padding:2px 8px}.delivery-work-section .sow-package-title h3{margin:8px 0 6px!important;color:#0f172a!important;font-size:16px!important;line-height:1.45!important}.delivery-work-section .sow-package-title p,.delivery-work-section .sow-complexity-cell small{display:block;margin:0!important;color:#64748b!important;font-size:12px!important;line-height:1.6!important}.delivery-work-section .sow-complexity-cell{border-left:1px solid rgba(15,23,42,.08);border-right:1px solid rgba(15,23,42,.08)}.delivery-work-section .sow-complexity-cell small{margin-top:8px!important}.delivery-work-section .work-package-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px!important;margin:0!important}.delivery-work-section .sow-work-group{padding:0;overflow:hidden}.delivery-work-section .sow-work-head{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f1f5f9;border-bottom:1px solid rgba(15,23,42,.06);padding:8px 9px}.delivery-work-section .sow-work-head b{color:#172033!important;font-size:13px!important;line-height:1.45!important}.delivery-work-section .sow-work-head i{font-style:normal;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap;background:#e2e8f0;color:#475569}.delivery-work-section .sow-work-group ul{padding:8px 12px 10px 26px!important;margin:0!important}.delivery-section .delivery-risk-table{margin-top:10px}.delivery-section .delivery-risk-row p{font-size:13px!important;line-height:1.68!important}
-@media(max-width:850px){.hero.battle-cover{padding:20px!important}.battle-cover h1{font-size:22px!important;line-height:1.38!important}.battle-cover p{font-size:13px!important;line-height:1.75!important}.cover-actions{grid-template-columns:1fr!important}.cover-actions span{padding:12px 13px!important;font-size:13px!important;line-height:1.72!important}.argument-tree,.question-grid{grid-template-columns:1fr!important;gap:10px!important}.argument-node summary{padding:15px!important}.argument-node-body{padding:13px 15px 16px!important}.argument-node-body ul{font-size:14px!important;line-height:1.72!important}.argument-node .evidence-links a,.argument-node .evidence-links .evidence-item{width:100%!important;max-width:100%!important}.argument-field-grid,.argument-field-grid.solution-fields,.argument-field-grid.pain-fields{grid-template-columns:1fr!important}.argument-field-grid.solution-fields .argument-field{grid-column:auto!important}.delivery-work-section .work-package-grid article{grid-template-columns:1fr!important}.delivery-work-section .work-package-grid article>.work-package-breakdown{grid-column:1;grid-row:auto;margin-top:8px!important}.delivery-work-section .work-package-breakdown{grid-template-columns:1fr!important}.delivery-work-section .sow-table-head{display:none}.delivery-work-section .sow-table-row{grid-template-columns:1fr;border-top:12px solid #f1f5f9}.delivery-work-section .sow-table-row:first-of-type{border-top:0}.delivery-work-section .sow-table-row>div{padding:12px}.delivery-work-section .sow-complexity-cell{border-left:0;border-right:0;border-top:1px solid rgba(15,23,42,.08);border-bottom:1px solid rgba(15,23,42,.08)}}
+.argument-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}.argument-field{border:1px solid rgba(15,23,42,.08);border-radius:14px;background:#fff;padding:11px 12px}.argument-field em{display:inline-flex;width:max-content;max-width:100%;margin:0 0 6px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-style:normal;font-size:11px;font-weight:900;padding:2px 8px}.argument-field p{margin:0!important;color:#172033!important;font-size:13px!important;line-height:1.68!important}.argument-field-grid.solution-fields{grid-template-columns:repeat(5,minmax(0,1fr))}.argument-field-grid.solution-fields .argument-field:first-child{grid-column:span 2}.argument-field-grid.solution-fields .argument-field:nth-child(2){grid-column:span 3}.argument-field-grid.solution-fields .argument-field:nth-child(3),.argument-field-grid.solution-fields .argument-field:nth-child(4),.argument-field-grid.solution-fields .argument-field:nth-child(5){grid-column:span 1}.argument-field-grid.pain-fields{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-field-grid.finance-kpi-board{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-field-grid.finance-kpi-board .argument-field:last-child:nth-child(n+4){grid-column:1/-1;background:#f8fafc}.argument-field-grid.risk-response-fields,.argument-field-grid.questionnaire-fields,.argument-field-grid.attention-fields,.argument-field-grid.dependency-fields{grid-template-columns:repeat(4,minmax(0,1fr))}.argument-field-grid.risk-response-fields .argument-field:nth-child(2),.argument-field-grid.risk-response-fields .argument-field:nth-child(4),.argument-field-grid.questionnaire-fields .argument-field:nth-child(2),.argument-field-grid.attention-fields .argument-field:nth-child(2),.argument-field-grid.attention-fields .argument-field:nth-child(3),.argument-field-grid.dependency-fields .argument-field:nth-child(2){grid-column:span 2}.argument-field-grid.inferred .argument-field{background:#f8fafc}.argument-field-grid.inferred .argument-field em{background:#e5e7eb;color:#475569}.argument-node.invalid{border-left-color:#94a3b8!important;background:#f8fafc!important;box-shadow:none!important}.argument-node.invalid summary span,.argument-branch.invalid span{background:#e5e7eb!important;color:#64748b!important}.argument-node.invalid summary b,.argument-branch.invalid b{color:#64748b!important}.argument-branch.invalid{background:#f8fafc!important;border-style:dashed!important;border-color:#cbd5e1!important}.argument-branch.invalid .argument-field{background:#f8fafc!important}.argument-branch.invalid .argument-field p{color:#64748b!important}.argument-node.wide{grid-column:1/-1}.presales-argument-section .argument-node summary b{font-size:17px!important;line-height:1.58!important}.presales-argument-section .argument-branch{background:#fff!important}.presales-argument-section .argument-branch b{font-size:14px!important;line-height:1.62!important}.delivery-work-section .work-package-grid{grid-template-columns:1fr!important;gap:12px!important}.delivery-work-section .work-package-grid article{display:grid!important;grid-template-columns:minmax(260px,.44fr) minmax(0,1fr);gap:14px 18px;align-items:start;border:1px solid rgba(15,23,42,.08)!important;background:#fff!important;padding:16px 18px!important}.delivery-work-section .work-package-grid article>span,.delivery-work-section .work-package-grid article>h3,.delivery-work-section .work-package-grid article>p,.delivery-work-section .work-package-grid article>.work-item-kicker,.delivery-work-section .work-package-grid article>.package-complexity{grid-column:1}.delivery-work-section .work-package-grid article>.work-package-breakdown{grid-column:2;grid-row:1 / span 6;margin-top:0!important}.delivery-work-section .work-package-grid h3{font-size:17px!important;line-height:1.5!important;margin:8px 0 7px!important}.delivery-work-section .work-package-grid p{font-size:13px!important;line-height:1.7!important;color:#334155!important}.delivery-work-section .work-item-kicker{display:block;margin-top:10px;color:#1d4ed8!important;font-size:13px;font-weight:900}.package-complexity{display:inline-flex;width:max-content;max-width:100%;border-radius:999px;padding:3px 9px;background:#eef2ff;color:#334155;font-style:normal;font-size:12px;font-weight:900}.package-complexity.hard,.sow-work-group.hard summary i,.sow-work-group.hard .sow-work-head i{background:#fef2f2;color:#b91c1c}.package-complexity.medium,.sow-work-group.medium summary i,.sow-work-group.medium .sow-work-head i{background:#fff7ed;color:#b45309}.package-complexity.easy,.sow-work-group.easy summary i,.sow-work-group.easy .sow-work-head i{background:#ecfdf5;color:#047857}.delivery-work-section .work-package-breakdown{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px!important}.delivery-work-section .sow-work-group{border-color:rgba(15,23,42,.08)!important;background:#f8fafc!important}.delivery-work-section .sow-work-group summary{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#eef2ff!important;color:#172033!important;border-bottom:1px solid rgba(15,23,42,.06)}.delivery-work-section .sow-work-group summary b{margin:0!important;color:inherit!important}.delivery-work-section .sow-work-group summary i{font-style:normal;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap}.delivery-work-section .sow-work-group ul{font-size:13px!important;line-height:1.68!important;color:#243244!important}.delivery-work-section .sow-note{border-left:3px solid #2563eb;border-radius:10px;background:#f8fafc;padding:9px 11px;color:#334155!important;line-height:1.62!important}.delivery-work-section .sow-table{display:grid;gap:0;border:1px solid rgba(15,23,42,.10);border-radius:22px;background:#fff;box-shadow:0 14px 34px rgba(15,23,42,.07);overflow:hidden}.delivery-work-section .sow-table-head,.delivery-work-section .sow-table-row{display:grid;grid-template-columns:minmax(220px,.9fr) minmax(130px,.35fr) minmax(0,1.7fr)}.delivery-work-section .sow-table-head{background:#0f172a;color:#fff;font-size:12px;font-weight:900}.delivery-work-section .sow-table-head span{padding:10px 12px}.delivery-work-section .sow-table-row{border-top:1px solid rgba(15,23,42,.08)}.delivery-work-section .sow-table-row>div{padding:13px 14px}.delivery-work-section .sow-package-title span{display:inline-flex;border-radius:999px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;font-size:12px;font-weight:900;padding:2px 8px}.delivery-work-section .sow-package-title h3{margin:8px 0 6px!important;color:#0f172a!important;font-size:16px!important;line-height:1.45!important}.delivery-work-section .sow-package-title p,.delivery-work-section .sow-complexity-cell small{display:block;margin:0!important;color:#64748b!important;font-size:12px!important;line-height:1.6!important}.delivery-work-section .sow-complexity-cell{border-left:1px solid rgba(15,23,42,.08);border-right:1px solid rgba(15,23,42,.08)}.delivery-work-section .sow-complexity-cell small{margin-top:8px!important}.delivery-work-section .work-package-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px!important;margin:0!important}.delivery-work-section .sow-work-group{padding:0;overflow:hidden}.delivery-work-section .sow-work-head{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f1f5f9;border-bottom:1px solid rgba(15,23,42,.06);padding:8px 9px}.delivery-work-section .sow-work-head b{color:#172033!important;font-size:13px!important;line-height:1.45!important}.delivery-work-section .sow-work-head i{font-style:normal;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:900;white-space:nowrap;background:#e2e8f0;color:#475569}.delivery-work-section .sow-work-group ul{padding:8px 12px 10px 26px!important;margin:0!important}.delivery-section .delivery-risk-table{margin-top:10px}.delivery-section .delivery-risk-row p{font-size:13px!important;line-height:1.68!important}
+@media(max-width:850px){.hero.battle-cover{padding:20px!important}.battle-cover h1{font-size:22px!important;line-height:1.38!important}.battle-cover p{font-size:13px!important;line-height:1.75!important}.cover-actions{grid-template-columns:1fr!important}.cover-actions span{padding:12px 13px!important;font-size:13px!important;line-height:1.72!important}.argument-tree,.question-grid{grid-template-columns:1fr!important;gap:10px!important}.argument-node summary{padding:15px!important}.argument-node-body{padding:13px 15px 16px!important}.argument-node-body ul{font-size:14px!important;line-height:1.72!important}.argument-node .evidence-links a,.argument-node .evidence-links .evidence-item{width:100%!important;max-width:100%!important}.argument-field-grid,.argument-field-grid.solution-fields,.argument-field-grid.pain-fields,.argument-field-grid.finance-kpi-board,.argument-field-grid.risk-response-fields,.argument-field-grid.questionnaire-fields,.argument-field-grid.attention-fields,.argument-field-grid.dependency-fields{grid-template-columns:1fr!important}.argument-field-grid.solution-fields .argument-field,.argument-field-grid.risk-response-fields .argument-field,.argument-field-grid.questionnaire-fields .argument-field,.argument-field-grid.attention-fields .argument-field,.argument-field-grid.dependency-fields .argument-field{grid-column:auto!important}.delivery-work-section .work-package-grid article{grid-template-columns:1fr!important}.delivery-work-section .work-package-grid article>.work-package-breakdown{grid-column:1;grid-row:auto;margin-top:8px!important}.delivery-work-section .work-package-breakdown{grid-template-columns:1fr!important}.delivery-work-section .sow-table-head{display:none}.delivery-work-section .sow-table-row{grid-template-columns:1fr;border-top:12px solid #f1f5f9}.delivery-work-section .sow-table-row:first-of-type{border-top:0}.delivery-work-section .sow-table-row>div{padding:12px}.delivery-work-section .sow-complexity-cell{border-left:0;border-right:0;border-top:1px solid rgba(15,23,42,.08);border-bottom:1px solid rgba(15,23,42,.08)}}
 .cover-rating-popover{background:#fff!important;color:#0f172a!important;border-color:rgba(15,23,42,.12)!important}.cover-rating-popover strong{color:#0f172a!important}.cover-rating-model{margin:10px 0;border:1px solid rgba(37,99,235,.16);border-radius:14px;background:#eff6ff;padding:10px 11px}.cover-rating-model b{display:block;color:#1d4ed8!important;margin-bottom:4px;font-size:12px}.cover-rating-model p{margin:0;color:#1e293b!important;font-size:12px;line-height:1.58}.cover-rating-dims article{background:#f8fafc!important;border:1px solid rgba(15,23,42,.08)!important}.cover-rating-dims p,.cover-rating-dims small{color:#334155!important}.argument-node.invalid,.argument-node.strong.invalid,.argument-node.watch.invalid,.argument-node.risk.invalid{border:1px dashed #cbd5e1!important;border-left:1px dashed #cbd5e1!important;background:#f8fafc!important;box-shadow:none!important}.argument-node.invalid summary{padding:15px 16px!important}.argument-node.invalid summary span,.argument-branch.invalid span{background:#e5e7eb!important;color:#475569!important}.argument-node.invalid summary b,.argument-branch.invalid b{color:#475569!important}.argument-node.invalid .argument-node-body{border-top:1px dashed #cbd5e1!important}.argument-branch.invalid{background:#f8fafc!important;border:1px dashed #cbd5e1!important;box-shadow:none!important}.argument-branch.invalid b,.argument-branch.invalid .argument-field p{color:#475569!important}.delivery-work-section .sow-table-head,.delivery-work-section .sow-table-row{grid-template-columns:minmax(240px,.85fr) minmax(0,1.75fr)!important}.delivery-work-section .sow-complexity-cell{display:none!important}.decision-chain-compact{width:min(calc(100% - 20px),1120px);margin:10px auto 0;padding:0}.decision-chain-head{border-radius:22px;background:#fff;box-shadow:var(--ios-shadow);padding:16px 18px}.decision-chain-head.invalid{border:1px dashed #cbd5e1;background:#f8fafc;box-shadow:none}.decision-chain-head span{display:inline-flex;border-radius:999px;background:rgba(0,122,255,.12);color:var(--ios-blue);font-size:12px;font-weight:900;padding:3px 9px;margin-bottom:8px}.decision-chain-head b{display:block;color:#0f172a;font-size:16px;line-height:1.55}.decision-chain-empty{margin:8px 0 0;color:#475569;font-size:14px;line-height:1.65}.decision-chain-evidence{display:grid;gap:8px;margin-top:12px}.decision-chain-evidence article{border:1px solid rgba(15,23,42,.08);border-radius:14px;background:#f8fafc;padding:10px 11px}.decision-chain-evidence em{display:inline-flex;margin-bottom:5px;border-radius:999px;background:#eef2ff;color:#334155;font-style:normal;font-size:11px;font-weight:900;padding:2px 8px}.decision-chain-evidence p{margin:0;color:#172033;font-size:13px;line-height:1.68}.sow-task-list{display:grid;gap:6px;padding:8px 10px 10px!important;margin:0!important;list-style:none!important}.sow-task-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;margin:0!important;padding:7px 8px;border-radius:11px;background:#fff;border:1px solid rgba(15,23,42,.06)}.sow-task-list span{color:#172033;font-size:13px;line-height:1.55}.sow-task-complexity{display:inline-flex;align-items:center;justify-content:center;min-width:28px;border-radius:999px;padding:2px 7px;font-style:normal;font-size:11px;font-weight:900}.sow-task-complexity.hard{background:#fef2f2;color:#b91c1c}.sow-task-complexity.medium{background:#fff7ed;color:#b45309}.sow-task-complexity.easy{background:#ecfdf5;color:#047857}@media(max-width:850px){.decision-chain-compact{width:calc(100% - 18px)}.delivery-work-section .sow-table-row{grid-template-columns:1fr!important}.sow-task-list li{grid-template-columns:minmax(0,1fr) auto}}
 </style>
 </head>
@@ -7511,7 +7865,7 @@ section{width:min(calc(100% - 20px),1120px);margin:10px auto 0;padding:0}.battle
     <p>${e(report.standardName)}｜${e(cleanBusinessText(coverNext, 150))}</p>
     <div class="cover-actions">
       <span>优先切入：${e(cleanBusinessText(cover.entry, 96))}</span>
-      ${cover.risk ? `<span class="risk">风险：${e(cleanBusinessText(cover.risk, 110))}</span>` : ""}
+      ${coverRisk ? `<span class="risk">风险：${e(coverRisk)}</span>` : ""}
     </div>
   </header>
   ${isDiagnostic ? renderDiagnosticSections(report) : renderNormalSections(report)}

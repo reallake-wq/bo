@@ -56,6 +56,13 @@ export default async function handler(request) {
     }
     if (request.method === "DELETE") {
       const body = await readBody(request);
+      if (body.all === true || body.deleteAll === true) {
+        const results = [];
+        for (const license of await listLicenses()) {
+          results.push(await deleteLicenseRecord(license.licenseId));
+        }
+        return json({ ok: true, deletedCount: results.length, results });
+      }
       const licenseId = String(body.licenseId || "").trim();
       if (!licenseId) return fail("缺少 licenseId", 400);
       const result = await deleteLicenseRecord(licenseId);

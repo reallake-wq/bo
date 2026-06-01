@@ -55,8 +55,8 @@ const VIEW_REQUIREMENTS = {
       "\u65b9\u6848\u98ce\u9669\u70b9"
     ]
   },
-  delivery: { min: 3, max: 5, orderedLabels: ["SOW\u5de5\u4f5c\u62c6\u5206", "\u98ce\u9669\u8bc4\u4f30", "\u5e94\u5bf9\u65b9\u6848", "\u524d\u7f6e\u6761\u4ef6"] },
-  action: { min: 3, max: 5, orderedLabels: ["\u5f00\u573a\u5207\u5165", "\u5fc5\u95ee\u95ee\u9898", "\u5185\u90e8\u8fb9\u754c", "\u4f1a\u540e\u66f4\u65b0"] }
+  delivery: { min: 3, max: 3, orderedLabels: ["SOW\u5206\u89e3", "\u98ce\u9669\u4e0e\u5e94\u5bf9", "\u524d\u7f6e\u4f9d\u8d56"] },
+  action: { min: 2, max: 2, orderedLabels: ["\u73b0\u573a\u95ee\u5377", "\u91cd\u70b9\u5173\u6ce8\u4e8b\u9879"] }
 };
 
 const INVALID_POINT_PATTERN =
@@ -219,8 +219,8 @@ async function main() {
     if (!result.labelOrder.ok) failures.push(`${result.key}: expected business labels missing or out of order`);
     if (result.invalidPointCount) failures.push(`${result.key}: invalid non-decision point leaked`);
   }
-  if (!(deliveryText.indexOf("SOW\u5de5\u4f5c\u62c6\u5206") >= 0 && deliveryText.indexOf("\u98ce\u9669\u8bc4\u4f30") >= 0 && deliveryText.indexOf("SOW\u5de5\u4f5c\u62c6\u5206") < deliveryText.indexOf("\u98ce\u9669\u8bc4\u4f30"))) {
-    failures.push("delivery SOW must appear before risk assessment");
+  if (!(deliveryText.indexOf("SOW\u5206\u89e3") >= 0 && deliveryText.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9") >= 0 && deliveryText.indexOf("SOW\u5206\u89e3") < deliveryText.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9"))) {
+    failures.push("delivery SOW must appear before risk response");
   }
   if (DELIVERY_ESTIMATE_PATTERN.test(deliveryText)) failures.push("delivery estimate wording leaked");
   if (invalidPointCount(text)) failures.push("invalid non-decision point leaked globally");
@@ -230,7 +230,7 @@ async function main() {
     tabIndexes,
     panelResults,
     delivery: {
-      hasSowBeforeRisk: failures.includes("delivery SOW must appear before risk assessment") ? false : true,
+      hasSowBeforeRisk: failures.includes("delivery SOW must appear before risk response") ? false : true,
       hasEstimateWords: DELIVERY_ESTIMATE_PATTERN.test(deliveryText)
     },
     failures
