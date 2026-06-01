@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = path.resolve(root, "..");
-const staticRoot = path.resolve(workspaceRoot, "oac-local-dist");
+const staticRoot = path.resolve(process.env.OAC_DIST_DIR || path.join(root, "dist"));
 const screenshotPath = path.resolve(workspaceRoot, "oac-mobile-workbench-check.png");
 const summaryPath = path.resolve(workspaceRoot, "oac-workbench-render-summary.json");
 

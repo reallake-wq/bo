@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && node scripts/build-app.mjs",
-    "start:local": "npm run build && node scripts/start-local-detached.mjs",
+    "build:local": "tsc --noEmit && node scripts/build-app.mjs --local",
+    "start:local": "npm run build:local && node scripts/start-local-detached.mjs",
     "check:oac-quality": "node scripts/check-oac-report-quality.mjs",
     "check:oac-persistence": "node scripts/check-oac-persistence.mjs",
     "check:oac-offline-e2e": "node scripts/check-oac-offline-e2e.mjs",

@@ -173,7 +173,7 @@ async function renderCase({ name, url, screenshot }) {
 }
 
 const reportPath = path.resolve(workspaceRoot, "oac-preview-latest.html");
-const appPath = path.resolve(workspaceRoot, "oac-local-dist", "index.html");
+const appPath = path.resolve(process.env.OAC_DIST_DIR || path.join(root, "dist"), "index.html");
 const appServer = await startStaticServer(path.dirname(appPath));
 const cases = [
   {

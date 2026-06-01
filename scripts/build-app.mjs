@@ -3,7 +3,7 @@ import { build } from "vite";
 
 const outDir =
   process.env.OAC_DIST_DIR ||
-  (process.env.NETLIFY ? "dist" : path.join("..", "oac-local-dist"));
+  (process.argv.includes("--local") ? path.join("..", "oac-local-dist") : "dist");
 
 await build({
   build: {
