@@ -99,9 +99,10 @@ export default async function handler(request) {
 
     const retryableError = job.status === "error" && job.checkpoint && !job.reportId;
     if ((isStale(job) || job.status === "needs_resume" || retryableError) && canAutoResume(job)) {
+      const currentProgress = Number(job.progress || 0);
       await updateJob(jobId, {
         status: "running",
-        progress: Math.max(Number(job.progress || 0), 80),
+        progress: Number.isFinite(currentProgress) ? Math.max(0, Math.min(99, currentProgress)) : 0,
         phaseKey: job.phaseKey || "analysis",
         stage: "断点续跑",
         detail: "检测到任务长时间未更新，已保留 checkpoint，正在从上次卡点继续。",

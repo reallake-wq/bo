@@ -6,11 +6,12 @@ import { collectTianyanchaEvidence, hasTianyanchaKey, resolveTianyanchaCandidate
 import { sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260531a";
 
 const SEARCH_RESULT_LIMIT = 10;
-const TOPIC_READ_LIMIT = 40;
-const RESCUE_READ_LIMIT = 100;
+const TOPIC_READ_LIMIT = 36;
+const RESCUE_READ_LIMIT = 48;
 const SOURCE_POOL_TARGET = 60;
 const SEARCH_TIMEOUT_MS = 12000;
 const MODEL_PLANNING_TIMEOUT_MS = 60000;
+const STRONG_SOURCE_POOL_TARGET = 72;
 
 const RESEARCH_MODEL_ROUTES = [
   { model: DEEPSEEK_FLASH_MODEL },
@@ -1403,9 +1404,10 @@ export async function collectSources(company, onProgress = async () => {}, optio
   const seed = seedSources(company);
   const found = uniqBy([...seed, ...arr(checkpoint.candidateSources), ...arr(checkpoint.foundCandidates)], (source) => source.url);
   const sources = Array.isArray(checkpoint.sources) ? [...checkpoint.sources] : [];
-  const readUrls = new Set(sources.map((source) => source.url).filter(Boolean));
+  const readUrls = new Set([...sources.map((source) => source.url).filter(Boolean), ...arr(checkpoint.readUrls).filter(Boolean)]);
   const usedModels = [...arr(checkpoint.usedModels)];
   const completedSourceTopics = new Set(arr(checkpoint.completedSourceTopics));
+  const completedRescueRounds = new Set(arr(checkpoint.completedRescueRounds).map(Number).filter(Number.isFinite));
   let expanded = checkpoint.expandedPlan || null;
 
   const checkpointSources = async (stage, extra = {}) => {
@@ -1417,7 +1419,9 @@ export async function collectSources(company, onProgress = async () => {}, optio
       candidateSources,
       foundCandidates: candidateSources,
       expandedPlan: expanded,
+      readUrls: [...readUrls],
       completedSourceTopics: [...completedSourceTopics],
+      completedRescueRounds: [...completedRescueRounds],
       usedModels,
       quality,
       ...extra
@@ -1589,12 +1593,24 @@ export async function collectSources(company, onProgress = async () => {}, optio
       continue;
     }
     const topicFound = [...seed.filter((item) => item.topic === topic), ...arr(expanded.candidateUrls).filter((item) => item.topic === topic)];
-    const topicPlan = [...plan.filter((item) => item.topic === topic), ...arr(expanded.queries).filter((item) => item.topic === topic)];
+    let topicPlan = [...plan.filter((item) => item.topic === topic), ...arr(expanded.queries).filter((item) => item.topic === topic)];
     if (topicPlan.length < 5) topicPlan.push(...buildRescuePlan(company, [topic]).slice(0, 5 - topicPlan.length));
+    const startingQuality = evaluateSourceQuality(sources);
+    const hasStrongPool =
+      startingQuality.qualityLevel === "formal" &&
+      startingQuality.verifiedSourceCount >= SOURCE_POOL_TARGET &&
+      startingQuality.topicCoverageCount >= 4;
+    const hasVeryStrongPool =
+      startingQuality.qualityLevel === "formal" &&
+      startingQuality.verifiedSourceCount >= STRONG_SOURCE_POOL_TARGET &&
+      startingQuality.topicCoverageCount >= 5;
+    const topicPlanLimit = hasVeryStrongPool ? 4 : hasStrongPool ? 6 : topicPlan.length;
+    topicPlan = topicPlan.slice(0, topicPlanLimit);
+    const topicReadTarget = hasVeryStrongPool ? 12 : hasStrongPool ? 18 : TOPIC_READ_LIMIT;
 
     await onProgress(topicStart, `分主题检索：${topic}`, {
       phaseKey: "search",
-      detail: `开始专题检索，计划 ${topicPlan.length} 组搜索词，目标读取 ${TOPIC_READ_LIMIT} 个高优先级来源。`,
+      detail: `开始专题检索，计划 ${topicPlan.length} 组搜索词，目标读取 ${topicReadTarget} 个高优先级来源。`,
       completed: 0,
       total: topicPlan.length,
       foundCount: uniqBy(found, (source) => source.url).length,
@@ -1623,8 +1639,9 @@ export async function collectSources(company, onProgress = async () => {}, optio
     }
 
     const topicCandidates = uniqBy(topicFound, (item) => item.url)
+      .filter((item) => !readUrls.has(item.url))
       .sort((a, b) => priorityScore(b) - priorityScore(a))
-      .slice(0, TOPIC_READ_LIMIT);
+      .slice(0, topicReadTarget);
 
     let topicRead = 0;
     await mapLimit(topicCandidates, 4, async (item) => {
@@ -1702,13 +1719,38 @@ export async function collectSources(company, onProgress = async () => {}, optio
       /专利|软著|软件著作权|知识产权|patent|copyright/.test(corpus)
     ].filter(Boolean).length;
   };
-  const needsMoreEvidence = () =>
-    quality.verifiedSourceCount < SOURCE_POOL_TARGET ||
-    businessSignalCount() < 20 ||
-    businessCoverageCount() < 6 ||
-    Boolean(stock && financeMetricHitCount() < 3) ||
-    Boolean(company.annualReportEvidence && annualMetricHitCount() < 4);
+  const hasRequiredFinancialEvidence = () =>
+    !stock || financeMetricHitCount() >= 3 || quality.verifiedSourceCount >= STRONG_SOURCE_POOL_TARGET;
+  const hasRequiredAnnualEvidence = () =>
+    !company.annualReportEvidence || annualMetricHitCount() >= 4 || quality.verifiedSourceCount >= STRONG_SOURCE_POOL_TARGET;
+  const hasEnoughBusinessEvidence = () =>
+    quality.qualityLevel === "formal" &&
+    quality.verifiedSourceCount >= SOURCE_POOL_TARGET &&
+    businessSignalCount() >= 16 &&
+    businessCoverageCount() >= 5 &&
+    hasRequiredFinancialEvidence() &&
+    hasRequiredAnnualEvidence();
+  const needsMoreEvidence = () => {
+    if (hasEnoughBusinessEvidence()) return false;
+    if (quality.qualityLevel === "formal" && quality.verifiedSourceCount >= STRONG_SOURCE_POOL_TARGET) return false;
+    return (
+      quality.verifiedSourceCount < SOURCE_POOL_TARGET ||
+      businessSignalCount() < 20 ||
+      businessCoverageCount() < 6 ||
+      Boolean(stock && financeMetricHitCount() < 3) ||
+      Boolean(company.annualReportEvidence && annualMetricHitCount() < 4)
+    );
+  };
   for (let round = 1; round <= 3 && needsMoreEvidence(); round += 1) {
+    if (completedRescueRounds.has(round)) {
+      await onProgress(78, `补充检索：第 ${round}/3 轮已恢复`, {
+        phaseKey: "read",
+        detail: "已从断点恢复本轮补充检索结果，跳过重复扩容与读取。",
+        sourceCount: quality.verifiedSourceCount,
+        foundCount: quality.verifiedSourceCount
+      });
+      continue;
+    }
     const rescueFound = [];
     const scarceEvidence = quality.verifiedSourceCount < 8;
     const hasFinancialGap = Boolean(stock && financeMetricHitCount() < 3) || Boolean(company.annualReportEvidence && annualMetricHitCount() < 4);
@@ -1788,6 +1830,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
       return results;
     });
     rescueFound.push(...modelRescue.flat());
+    found.push(...rescueFound);
 
     const seen = new Set(sources.map((source) => source.url));
     const businessBackfill = uniqBy(found, (item) => item.url)
@@ -1800,7 +1843,7 @@ export async function collectSources(company, onProgress = async () => {}, optio
         ? RESCUE_READ_LIMIT
         : Math.max(12, Math.min(RESCUE_READ_LIMIT, SOURCE_POOL_TARGET + 8 - quality.verifiedSourceCount));
     const rescueCandidates = uniqBy(rescueFound, (item) => item.url)
-      .filter((item) => !seen.has(item.url))
+      .filter((item) => !seen.has(item.url) && !readUrls.has(item.url))
       .sort((a, b) => priorityScore(b) - priorityScore(a))
       .slice(0, rescueReadTarget);
     let rescueRead = 0;
@@ -1833,7 +1876,8 @@ export async function collectSources(company, onProgress = async () => {}, optio
       }
     });
     quality = evaluateSourceQuality(sources);
-    await checkpointSources(`rescue:${round}:done`, { rescueRound: round });
+    completedRescueRounds.add(round);
+    await checkpointSources(`rescue:${round}:done`, { rescueRound: round, completedRescueRounds: [...completedRescueRounds] });
   }
 
   const finalSources = uniqBy(sources, (source) => source.url);

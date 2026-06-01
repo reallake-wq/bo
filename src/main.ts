@@ -751,7 +751,7 @@ function homeTabHtml() {
             <span>${PRODUCT_NAME_EN}</span>
           </div>
         </div>
-        <h2>会前 10 分钟，拿到一份能指导拜访的商机简报。</h2>
+        <h2>约 30 分钟，拿到一份能指导拜访的商机简报。</h2>
         <p class="hero-sub">先判断值不值得跟，再把客户信息、痛点机会、行动指南、解决方案和现场问题整理成手机可读的作战卡片。</p>
         <div class="ios-home-actions">
           <button id="homeCreateTask" class="primary" type="button">${icon("PlusCircle")}创建任务</button>
@@ -2385,6 +2385,7 @@ function taskCard(job: any) {
       <div class="task-meta">
         <span>${icon("Layers3")}${escapeHtml(job.stage || "等待同步")}</span>
         <span>${icon("Timer")}已运行 ${fmtDuration(job.elapsedMs)}</span>
+        ${running ? `<span>${icon("Timer")}预计剩余 ${escapeHtml(job.estimatedRemainingText || "约 30 分钟内")}</span>` : ""}
         <span>${icon("Link")}来源 ${escapeHtml(job.sourceCount ?? "-")}</span>
       </div>
       <p>${escapeHtml(job.detail || job.error || "任务正在后台处理。")}</p>

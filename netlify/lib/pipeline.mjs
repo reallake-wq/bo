@@ -125,7 +125,8 @@ function qualityWithAnnualEvidence(quality, annualReportEvidence) {
   };
 }
 
-const WORKER_BUDGET_MS = 9 * 60 * 1000;
+const DEFAULT_WORKER_BUDGET_MS = 9 * 60 * 1000;
+const WORKER_BUDGET_MS = Math.max(2 * 60 * 1000, Number(process.env.OAC_WORKER_BUDGET_MS || DEFAULT_WORKER_BUDGET_MS));
 const WORKER_GRACE_MS = 75 * 1000;
 
 function shouldYieldWorker(startedAt) {
@@ -340,10 +341,24 @@ async function updateJobNow(jobId, patch) {
         qualityLevel: patch.qualityLevel
       }
     : null;
+  const currentProgress = Number(current.progress);
+  const incomingProgress = Number(patch.progress);
+  const mergedProgress =
+    !terminalStatus && Number.isFinite(currentProgress) && Number.isFinite(incomingProgress)
+      ? Math.max(currentProgress, incomingProgress)
+      : (patch.progress ?? current.progress ?? 0);
+  const currentSourceCount = Number(current.sourceCount);
+  const incomingSourceCount = Number(patch.sourceCount);
+  const mergedSourceCount =
+    Number.isFinite(currentSourceCount) && Number.isFinite(incomingSourceCount)
+      ? Math.max(currentSourceCount, incomingSourceCount)
+      : (patch.sourceCount ?? current.sourceCount);
 
   const next = decorateJob({
     ...current,
     ...patch,
+    progress: mergedProgress,
+    ...(mergedSourceCount === undefined ? {} : { sourceCount: mergedSourceCount }),
     jobId,
     jobIdentity: current.jobIdentity || identity,
     company: identity.company || current.company || patch.company,

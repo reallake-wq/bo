@@ -266,8 +266,10 @@ function buildSourcePack(sources, max = 36, textLimit = 2600) {
     sourceType: source.sourceType,
     sourceFamily: source.sourceFamily,
     relevanceReason: source.relevanceReason,
+    snippet: clip(source.snippet || "", textLimit),
+    evidenceExcerpt: clip(source.evidenceExcerpt || "", textLimit),
     domain: source.domain,
-    text: clip(source.text, textLimit)
+    text: clip(source.text || source.evidenceExcerpt || source.snippet || "", textLimit)
   }));
 }
 
@@ -316,7 +318,7 @@ function buildBusinessInsightPack(sourcePack = []) {
           sourceId: source.id,
           title: source.title,
           domain: source.domain,
-          excerpt: clip(source.text || source.relevanceReason || source.query || "", 360)
+          excerpt: clip(source.evidenceExcerpt || source.snippet || source.text || source.query || source.relevanceReason || "", 360)
         }))
         .filter((item) => item.title || item.excerpt);
       return rows.length ? { title: bucket.title, sourceFamily: bucket.key, signals: rows } : null;
@@ -372,7 +374,7 @@ function buildThematicBusinessBuckets(sourcePack = []) {
           sourceId: source.id,
           title: source.title,
           domain: source.domain,
-          excerpt: clip(source.text || source.relevanceReason || source.query || "", 360)
+          excerpt: clip(source.evidenceExcerpt || source.snippet || source.text || source.query || source.relevanceReason || "", 360)
         }));
       return signals.length ? { title: theme.title, sourceFamily: "business_theme", signals } : null;
     })
@@ -435,17 +437,33 @@ function financeMetricFromText(text, label, patterns) {
   return null;
 }
 
+function structuredFinanceMetricFromText(text, label, keys = []) {
+  for (const key of keys) {
+    const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = String(text || "").match(new RegExp(`"${escaped}"\\s*:\\s*"?([^",}\\n]+)"?`));
+    const value = match?.[1]?.replace(/[；。\n\r]+$/g, "").trim();
+    if (value && value !== "null" && value !== "undefined") {
+      return {
+        label,
+        value,
+        note: "来自天眼查财务结构化来源，需以客户最终披露口径核对。"
+      };
+    }
+  }
+  return null;
+}
+
 function extractedFinancialMetrics(financeSources) {
-  const text = financeSources.map((source) => source.text || "").join("\n");
+  const text = financeSources.map((source) => [source.evidenceExcerpt, source.snippet, source.text].filter(Boolean).join("\n")).join("\n");
   return [
-    financeMetricFromText(text, "营业收入", [/营业收入[：:]\s*([^；。\n]+)/]),
-    financeMetricFromText(text, "归母净利润", [/归母净利润[：:]\s*([^；。\n]+)/]),
-    financeMetricFromText(text, "扣非净利润", [/扣非净利润[：:]\s*([^；。\n]+)/]),
-    financeMetricFromText(text, "毛利率", [/毛利率[：:]\s*([^；。\n]+)/]),
-    financeMetricFromText(text, "经营现金流", [/经营现金流净额[：:]\s*([^；。\n]+)/, /经营现金流[：:]\s*([^；。\n]+)/]),
-    financeMetricFromText(text, "资产负债率", [/资产负债率[：:]\s*([^；。\n]+)/]),
+    financeMetricFromText(text, "营业收入", [/营业收入[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "营业收入", ["total_revenue", "revenue", "operating_total_revenue_lrr_sq", "totalOperateIncome"]),
+    financeMetricFromText(text, "归母净利润", [/归母净利润[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "归母净利润", ["net_profit_atsopc", "parentNetProfit", "netProfitAtsopc"]),
+    financeMetricFromText(text, "扣非净利润", [/扣非净利润[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "扣非净利润", ["profit_deduct_nrgal_ly_sq", "profit_deduct_nrgal_lrr_sq", "basic_e_ps_net_of_nrgal"]),
+    financeMetricFromText(text, "毛利率", [/毛利率[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "毛利率", ["gross_selling_rate", "grossMargin"]),
+    financeMetricFromText(text, "经营现金流", [/经营现金流净额[：:]\s*([^；。\n]+)/, /经营现金流[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "经营现金流", ["ncf_from_oa", "net_operate_cash_flow", "cash_flow_from_operating", "netCashFlowFromOperating"]),
+    financeMetricFromText(text, "资产负债率", [/资产负债率[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "资产负债率", ["asset_liab_ratio", "assetLiabRatio"]),
     financeMetricFromText(text, "总资产/总负债", [/总资产[：:]\s*([^；。\n]+；总负债[：:]\s*[^；。\n]+)/]),
-    financeMetricFromText(text, "研发投入", [/研发投入[：:]\s*([^；。\n]+)/]),
+    financeMetricFromText(text, "研发投入", [/研发投入[：:]\s*([^；。\n]+)/]) || structuredFinanceMetricFromText(text, "研发投入", ["rad_cost", "research_expense", "rdExpense"]),
     financeMetricFromText(text, "员工数量", [/员工数量[：:]\s*([^；。\n]+)/]),
     financeMetricFromText(text, "前五大客户/客户集中度", [/前五大客户\/客户集中度[：:]\s*([^；。\n]+)/])
   ].filter(Boolean);
@@ -479,7 +497,7 @@ function removeAnnualReportDownloadPrompts(report, company = {}) {
 
 function ensureFinancialMetrics(report, sources, company) {
   const stockCode = company.stockCode || String(company.aiNeeds || "").match(/(?<!\d)(?:60|68|00|30|83|87|43|92)\d{4}(?!\d)/)?.[0] || "";
-  const financeSources = normalizeReportSources(sources, 80).filter((source) => source.topic === TOPIC_NAMES[1] || source.sourceType === "财务硬来源");
+  const financeSources = normalizeReportSources(sources, 80).filter((source) => source.topic === TOPIC_NAMES[1] || source.sourceType === "财务硬来源" || source.sourceFamily === "finance_budget" || /financial|annual|income_statement|balance_sheet|cash_flow|listing|stock/.test(source.structuredTool || ""));
   const sourceNames = financeSources.slice(0, 5).map((source) => source.domain || source.title || source.url).filter(Boolean);
   const existing = arr(report.customerInsights?.metrics);
   const extracted = [...annualReportMetrics(company), ...extractedFinancialMetrics(financeSources)];
@@ -957,6 +975,7 @@ function dedupeSentences(value = "") {
 
 function cleanBusinessText(value = "", max = 260) {
   let text = compactText(value, max);
+  text = text.replace(/[#>*`_]+/g, "").replace(/[▲▼]/g, "");
   for (let i = 0; i < 3; i += 1) {
     text = text.replace(/^\s*(?:风险|主要风险|商机风险)\s*[：:]\s*/i, "").trim();
   }
@@ -1028,6 +1047,7 @@ function cleanBusinessText(value = "", max = 260) {
     .replace(/先拿到预算来源、付款主体和项目推进人/g, "把预算来源、付款主体和项目推进人作为升级投入判断项")
     .replace(/初访应追预算窗口、历史供应商和立项节奏/g, "商务推进应优先查清预算窗口、历史供应商和立项节奏")
     .replace(/初访可围绕([^，。；;]+)验证价值/g, "$1是优先切入话题")
+    .replace(/，?是重方案投入前必须锁定的输入([^。；;]+)/g, "，需先核对$1")
     .replace(/自身AI产品成熟度可能不足，面临/g, "外部AI场景化能力仍有补强空间，形成")
     .replace(/可能面临交付资源紧张、客户问题响应慢的挑战/g, "形成交付资源紧张和客户响应效率压力")
     .replace(/可能对AI、大数据人才有持续需求/g, "AI、大数据人才是持续补强方向")
@@ -1052,6 +1072,9 @@ function cleanBusinessText(value = "", max = 260) {
   if (secondFreshness >= 0) {
     text = `${text.slice(0, secondFreshness).replace(/[。；;，,\s]+$/g, "")}。`;
   }
+  text = text
+    .replace(/([，,、；;：:])([。！？?])/g, "$2")
+    .replace(/[，,、；;：:\s]+$/g, "");
   return dedupeSentences(text);
 }
 
@@ -1093,12 +1116,6 @@ function normalizeVisibleSupportText(value = "", max = 180) {
     .replace(/^确认\s*/g, "")
     .replace(/^核对\s*/g, "")
     .replace(/[。；;，,\s]+$/g, "");
-  if (/近两年|营业收入|净利润|毛利率|现金流|研发投入/.test(text)) {
-    return "经营指标只作为买单能力背景；现场更应确认本次项目预算来源、采购流程和付款主体";
-  }
-  if (/预算来源|审批流程|决策链|付款主体|采购流程/.test(text)) {
-    return "本次项目的预算来源、审批流程、付款主体和决策链分别由谁负责";
-  }
   return text;
 }
 
@@ -2517,7 +2534,8 @@ export function appendPostVisitRound(currentReport = {}, updatedReport = {}, inp
 }
 
 export function normalizeReportShape(report = {}) {
-  const normalized = sanitizeReportDecisionData(sanitizeRequirements(report));
+  const sanitized = sanitizeReportDecisionData(sanitizeRequirements(report));
+  const normalized = ensureFinancialMetrics(sanitized, arr(sanitized.sources), sanitized);
   const annualReportEvidence = normalized.annualReportEvidence
     ? {
         ...normalized.annualReportEvidence,
@@ -4229,7 +4247,7 @@ function buildSalesPyramid(report, round, sources = []) {
     bestMetricText(report, [/净利润|利润|归母|扣非/]),
     bestMetricText(report, [/现金流/]),
     bestMetricText(report, [/研发/])
-  ].filter((item) => Boolean(item) && !/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验/.test(item));
+  ].filter((item) => Boolean(item) && !/不公示|未公示|未披露|未单独披露|选择不公示|未取得|暂无|待核验/.test(item));
   const budgetEvidence = supportBullets([...budgetMetrics, ...arr(budget.evidence), ...arr(budget.deductions)], 4);
   const people = firstDecisionPeopleSummary(sources);
   const decisionEvidence = supportBullets([people ? `可查角色：${people}` : "", ...arr(decision.evidence), ...arr(decision.deductions)], 4);
@@ -4483,7 +4501,7 @@ function decisionItemText(item = {}) {
 }
 
 function isDecisionText(value = "") {
-  return /决策|采购|预算|立项|招标|中标|合同|法定代表人|董事长|总经理|实际控制人|负责人|股东|控股|集团|总部|IT负责人|信息化|数字化负责人/.test(
+  return /决策|采购|预算|立项|招标|中标|合同|法定代表人|董事长|总经理|实际控制人|负责人|股东|控股|集团|总部|上市|港股|证券|股票|交易所|IT负责人|信息化|数字化负责人/.test(
     String(value || "")
   );
 }
@@ -4498,7 +4516,7 @@ function isConcreteDecisionSignal(value = "") {
   ) {
     return false;
   }
-  return /法定代表人|董事长|总经理|实际控制人|执行董事|董事|监事|经理|负责人|股东|控股|母公司|子公司|总部|采购|招标|中标|合同|立项|预算|投资|付款|回款/.test(
+  return /法定代表人|董事长|总经理|实际控制人|执行董事|董事|监事|经理|负责人|股东|控股|母公司|子公司|总部|上市|港股|证券|股票|交易所|采购|招标|中标|合同|立项|预算|投资|付款|回款/.test(
     text
   );
 }
@@ -4652,7 +4670,21 @@ function decisionSurfaceSection(report, round, sources = []) {
     )
     .filter((item) => normalizeSourceIdList(item).length > 0 && isConcreteDecisionSignal(item.text) && meaningful(item.body))
     .slice(0, 4);
-  const actionableSignals = sectionSignals
+  const sourceSignals = sourceSignalRows(
+    sources,
+    /法定代表人|董事长|总经理|实际控制人|主要人员|高管|股东|控股|集团|总部|上市|港股|采购人|招标人|合同主体|付款主体/,
+    4,
+    {
+      sourcePredicate: (source) => /tianyancha|subject_registry|tender_project|finance_budget|risk_legal/.test(`${source.provider || ""} ${source.structuredProvider || ""} ${source.sourceFamily || ""}`),
+      signalPredicate: (text) => isConcreteDecisionSignal(text)
+    }
+  ).map((row) => ({
+    title: "公开组织/采购线索",
+    body: row.text,
+    sourceIds: [row.sourceId],
+    text: row.text
+  }));
+  const actionableSignals = [...sectionSignals, ...sourceSignals]
     .filter((item) => !/资料中出现|资料显示|可读来源|主题覆盖|待确认|不等同于/.test(item.body))
     .slice(0, 3);
   const personBranches = people.map((person) => ({
@@ -5939,9 +5971,13 @@ function argumentTreeSection({ className = "", kicker = "", thesis = "", summary
             ? (/SOW/.test(String(node.label || "")) ? "功能明细" : "明细")
             : /action-argument-section/.test(className)
               ? (/现场问卷/.test(String(node.label || "")) ? "问题分类" : "关注项")
-              : "核心论据";
+              : "";
           const branchTitleHtml = branchTitle && branchTitle !== "明细"
             ? `<div class="argument-evidence-title">${e(branchTitle)}</div>`
+            : "";
+          const hasBranchSources = node.branches.some((branch) => normalizeSourceIdList(branch).length);
+          const nodeSourceRow = !hasBranchSources && normalizeSourceIdList(node).length
+            ? `<div class="argument-source-row"><span>资料来源</span>${evidenceLinks(node, sources)}</div>`
             : "";
           return `<details class="argument-node ${toneClass} ${node.invalid ? "invalid" : ""} ${node.wide ? "wide" : ""}" ${node.open ? "open" : ""}>
           <summary>
@@ -5958,7 +5994,7 @@ function argumentTreeSection({ className = "", kicker = "", thesis = "", summary
                     { keepFallback: false }
                   );
                   const branchInvalid = Boolean(branch.invalid) || /^未查到|.*暂无法判断|.*无法判断|.*未形成有效判断|.*未形成.*结论/.test(`${branch.title || ""}${branch.claim || ""}`);
-                  return `<details class="argument-branch ${e(branch.kind || "")}${branchInvalid ? " invalid" : ""}">
+                  return `<details class="argument-branch ${e(branch.kind || "")}${branchInvalid ? " invalid" : ""}" open>
                     <summary>
                       <span>${e(branch.title)}</span>
                       <b>${e(branch.claim)}</b>
@@ -5977,7 +6013,7 @@ function argumentTreeSection({ className = "", kicker = "", thesis = "", summary
                 }).join("")}
               </div>` : ""}
             ${node.note ? `<p class="argument-note">${e(cleanBusinessText(node.note, 180))}</p>` : ""}
-            ${normalizeSourceIdList(node).length ? `<div class="argument-source-row"><span>资料来源</span>${evidenceLinks(node, sources)}</div>` : ""}
+            ${nodeSourceRow}
           </div>
         </details>`;
         })
@@ -6045,10 +6081,11 @@ function isBuyerProcurementEvidenceText(value = "") {
   const text = cleanBusinessText(value, 260);
   if (!meaningful(text)) return false;
   if (isProcurementDirectoryOnlyText(text)) return false;
-  if (/招投标查询|最新招标|今日招标|公司招投标查询|中标查询|企业黄页|采购网黄页|_招投标_|天眼查 API｜招投标|结构化数据：招投标/.test(text)) return false;
-  if (/招标项目[_｜| -].{0,80}招投标|工程招投标|招投标[-_]/.test(text) && !/采购公告|招标公告|采购意向|预算金额|采购预算|项目编号|中标公告|成交公告|合同公告|中标单位|成交供应商/.test(text)) return false;
+  const hasConcreteDetail = /采购人|招标人|采购单位|业主单位|招标单位|预算金额|采购预算|项目编号|项目名称|采购项目|中标单位|成交供应商|合同金额|项目金额|中标结果|成交结果|中标公告|成交公告|合同公告|万元|亿元|租赁|采购公告|招标公告|申购说明|发行公告|招投标记录：/.test(text);
+  if (/招投标查询|最新招标|今日招标|公司招投标查询|中标查询|企业黄页|采购网黄页|_招投标_|天眼查 API｜招投标|结构化数据：招投标/.test(text) && !hasConcreteDetail) return false;
+  if (/招标项目[_｜| -].{0,80}招投标|工程招投标|招投标[-_]/.test(text) && !hasConcreteDetail) return false;
   if (/为.{0,20}建设|承建|实施|交付|客户案例|典型示范案例|项目获奖|获评|近期中标|中标金额|项目获取能力|服务商|解决方案提供商/.test(text) && !/采购人|招标人|采购单位|业主单位|采购公告|招标公告|采购意向|预算金额/.test(text)) return false;
-  return /采购人|招标人|采购单位|业主单位|招标单位|采购公告|招标公告|竞争性谈判|询价公告|采购意向|招标计划|预算金额|采购预算|采购项目|项目编号|中标公告|成交公告|合同公告|政府采购|投标邀请|招标文件|发布采购|甲方/.test(text);
+  return hasConcreteDetail || /采购人|招标人|采购单位|业主单位|招标单位|采购公告|招标公告|竞争性谈判|询价公告|采购意向|招标计划|预算金额|采购预算|采购项目|项目编号|中标公告|成交公告|合同公告|政府采购|投标邀请|招标文件|发布采购|甲方/.test(text);
 }
 
 function isSupplierDeliveryEvidenceText(value = "") {
@@ -6071,7 +6108,7 @@ function isCustomerSupplierCompetitorEvidenceText(value = "") {
   if (!meaningful(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   if (/蒙牛|客户案例|为.{0,20}建设|承建|实施|交付|项目获奖|典型示范案例|解决方案提供商|服务商/.test(text) && !/采购人|招标人|采购单位|业主单位|采购公告|中标单位|成交供应商|供应商记录|历史供应商|采购平台|系统供应商|实施商|集成商/.test(text)) return false;
-  return /中标单位|成交供应商|供应商记录|历史供应商|采购平台|系统供应商|既有供应商|合作供应商|合作伙伴|实施商|集成商|竞品|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康/.test(text);
+  return /中标单位|成交供应商|供应商记录|历史供应商|供应商[：:\/]|客户[：:\/]|采购占比|采购金额|销售占比|销售金额|报告期|采购平台|系统供应商|既有供应商|合作供应商|合作伙伴|实施商|集成商|竞品|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康/.test(text);
 }
 
 function isSameProjectEvidenceText(value = "") {
@@ -6134,7 +6171,7 @@ function isPurchaseBudgetEvidenceText(value = "") {
   const text = cleanBusinessText(value, 260);
   if (!meaningful(text)) return false;
   if (isProcurementDirectoryOnlyText(text)) return false;
-  if (/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验|缺少可用|缺少|未查到|无法|未形成|不能证明|未明确|未确认|未证实|尚未|未发现|不构成|仅作为|仅用于|只作为|可能|推测/.test(text)) return false;
+  if (/不公示|未公示|未披露|未单独披露|选择不公示|未取得|暂无|待核验|缺少可用|缺少|未查到|无法|未形成|不能证明|未明确|未确认|未证实|尚未|未发现|不构成|仅作为|仅用于|只作为|可能|推测/.test(text)) return false;
   if (/公开资料存在|当前主要是间接|预算判断按|间接经营实力线索|资料中出现|资料显示/.test(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   return isConcreteBudgetEvidence(text) || isScaleEvidenceText(text) || isBuyerProcurementEvidenceText(text);
@@ -6166,6 +6203,36 @@ function sourceSignalRows(sources = [], pattern, max = 5, options = {}) {
     .filter((row) => {
       const key = row.text.replace(/\s+/g, "");
       if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, max);
+}
+
+function structuredProcurementEvidenceRows(sources = [], max = 5) {
+  const acceptedTools = new Set(["get_bidding_info", "search_bids", "get_suppliers_and_customers"]);
+  const rows = arr(sources)
+    .map((source, index) => {
+      const tool = String(source.structuredTool || "");
+      const sourceText = sourceSearchText(source);
+      const body = sourceDecisionSignalText(source);
+      const structuredProcurement =
+        source.isStructuredEvidence &&
+        (acceptedTools.has(tool) || /天眼查 API｜(?:招投标|招投标搜索|供应商\/客户)/.test(source.title || ""));
+      const concreteProcurement =
+        /招投标记录|采购人|招标人|采购单位|中标结果|成交结果|采购金额|采购占比|供应商[：:]|search_bids|get_bidding_info|get_suppliers_and_customers/i.test(sourceText);
+      if (!structuredProcurement || !concreteProcurement || !meaningful(body)) return null;
+      return {
+        text: compactText(body, 240),
+        sourceId: sourceId(source, index)
+      };
+    })
+    .filter(Boolean);
+  const seen = new Set();
+  return rows
+    .filter((row) => {
+      const key = normalizeForCompare(row.text);
+      if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
     })
@@ -6677,11 +6744,24 @@ function visitValidationSection(report, round, sources = []) {
   const notes = arr(round.internalNotes).filter(isActionableInternalNote);
   const budget = dimensionByKey(report, "budgetAbility");
   const decision = dimensionByKey(report, "decisionRiskControl");
-  const procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 5, {
+  let procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 5, {
     sourcePredicate: (_source, text) => isBuyerProcurementEvidenceText(text),
     signalPredicate: isBuyerProcurementEvidenceText,
-    itemPredicate: (_section, _item, candidate) => isBuyerProcurementEvidenceText(candidate)
+    itemPredicate: (_section, _item, candidate) =>
+      isBuyerProcurementEvidenceText(candidate) &&
+      /招投标|供应商|采购人|招标人|采购单位|采购公告|招标公告|采购金额|采购占比|成交供应商|中标单位/.test(candidate) &&
+      !/营收|净利润|现金流|预算来源|审批流程|付款主体|决策链/.test(candidate)
   });
+  const procurementSourceRows = sourceSignalRows(sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购|供应商/i, 8, {
+    sourcePredicate: (source, text) => /tender_project/.test(source.sourceFamily || "") && isBuyerProcurementEvidenceText(text),
+    signalPredicate: isBuyerProcurementEvidenceText
+  });
+  if (procurementSourceRows.length) {
+    procurementSignal = {
+      evidence: procurementSourceRows.map((row) => row.text).slice(0, 6),
+      sourceIds: procurementSourceRows.map((row) => row.sourceId).filter((value) => Number.isFinite(Number(value))).slice(0, 6)
+    };
+  }
   const procurementDirectorySignal = combinedSignal(round, sources, /招投标|招标项目|采购平台|供应商门户|供应商平台|工程招投标/i, 5, {
     sourcePredicate: (_source, text) => isProcurementDirectoryOnlyText(text),
     signalPredicate: isProcurementDirectoryOnlyText,
@@ -6906,6 +6986,26 @@ function moneyValueInYi(value = "") {
   if (/万元/.test(text)) return num / 10000;
   if (/元/.test(text)) return num / 100000000;
   return null;
+}
+
+function maxMoneyInYiByPattern(evidence = [], pattern = /.*/) {
+  const values = arr(evidence)
+    .filter((text) => pattern.test(String(text || "")))
+    .map((text) => moneyValueInYi(text))
+    .filter((value) => Number.isFinite(value));
+  return values.length ? Math.max(...values) : null;
+}
+
+function financialCapacityLabel(evidence = []) {
+  const revenue = maxMoneyInYiByPattern(evidence, /营收|营业收入|收入|销售额/);
+  const profit = maxMoneyInYiByPattern(evidence, /归母净利润|净利润|利润/);
+  const cash = maxMoneyInYiByPattern(evidence, /现金流/);
+  const strong = (revenue ?? 0) >= 50 || (profit ?? 0) >= 5 || (cash ?? 0) >= 5;
+  const medium = (revenue ?? 0) >= 5 || (profit ?? 0) > 0 || (cash ?? 0) > 0;
+  if (strong) return "采购承载能力较强";
+  if (medium) return "采购承载能力中等以上";
+  if ((revenue ?? 0) > 0) return "采购承载能力有基础但不宜按强预算判断";
+  return "采购承载能力只能作谨慎初判";
 }
 
 function financialKpiRowsForProfile(report = {}, round = {}) {
@@ -7445,13 +7545,85 @@ function firstUsefulInfoLine(round = {}, sectionPattern = /.*/, itemPattern = /.
   return cleanBusinessText(item.body || item.insight || item.summary || arr(item.facts)[0] || item.title || item.label || "", 180);
 }
 
+function firstMatchingInfoLine(round = {}, sectionPattern = /.*/, itemPattern = /.*/, max = 190) {
+  for (const section of arr(round.customerInfo).filter((item) => sectionPattern.test(`${item.key || ""} ${item.title || ""}`))) {
+    for (const entry of arr(section.items)) {
+      const candidates = uniqueTexts([
+        ...arr(entry.facts),
+        entry.body,
+        entry.summary,
+        entry.insight
+      ], 10);
+      const match = candidates
+        .map((item) => cleanBusinessText(item, max))
+        .find((item) => meaningful(item) && itemPattern.test(item));
+      if (match) return match;
+    }
+  }
+  return "";
+}
+
+function firstProfileSourceLine(sources = [], pattern = /.*/, max = 190) {
+  const preferred = arr(sources)
+    .filter((source) => !/finance_budget|risk_legal/.test(source.sourceFamily || ""))
+    .sort((a, b) => {
+      const score = (source) =>
+        (/official_product|customer_case|subject_registry/.test(source.sourceFamily || "") ? 2 : 0) +
+        (/官网|年报|可持续发展|公司资料|工商登记/.test(`${source.title || ""}${source.usedFor || ""}`) ? 1 : 0);
+      return score(b) - score(a);
+    });
+  for (const source of preferred) {
+    const candidates = uniqueTexts([
+      source.evidenceExcerpt,
+      source.snippet,
+      source.text
+    ], 8);
+    for (const raw of candidates) {
+      const text = cleanBusinessText(raw, 520);
+      const sentence = text
+        .split(/[。；;\n]/)
+        .map((item) => cleanBusinessText(item.replace(/[#>*`_]+/g, "").replace(/[▲▼]/g, ""), max).replace(/^[.。·\s]+/g, "").replace(/\.\s+/g, "，"))
+        .find((item) => pattern.test(item) && meaningful(item) && !isGenericSourceBody(item));
+      if (sentence) return sentence;
+    }
+  }
+  return "";
+}
+
+function compactProfileRows(rows = []) {
+  const seen = new Set();
+  return rows
+    .filter((row) => row && meaningful(row.body))
+    .filter((row) => {
+      const key = normalizeForCompare(row.body);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 4);
+}
+
 function basicCustomerProfileIntro(round = {}, sources = []) {
   const subject = firstUsefulInfoLine(round, /local|主体|股权|区域|工商|组织/, /注册|主体|股权|法定代表人|注册地址|高新区|集团|子公司|对外投资|控股/);
-  const product = firstUsefulInfoLine(round, /business|业务|产品|客户|market|案例/, /产品|平台|客户|案例|业务|Holli|MES|APS|ERP|WMS|LIMS|工业互联网|智能制造/);
-  const rows = [
-    subject ? { title: "公司简介", body: subject } : null,
-    product ? { title: "产品与客户", body: product } : null
-  ].filter(Boolean);
+  const businessScope =
+    firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /主营|经营范围|生产|经销|提供|专注于|业务|乳制品|制造|服务/) ||
+    firstProfileSourceLine(sources, /主营|经营范围|生产|经销|提供|专注于|业务|乳制品|制造|服务/);
+  const product =
+    firstProfileSourceLine(sources, /产品矩阵|产品|品类|品牌|液态奶|冰淇淋|奶粉|奶酪|平台|系统|工业互联网|智能制造/) ||
+    firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /产品|品类|品牌|平台|系统|液态奶|冰淇淋|奶粉|奶酪|Holli|MES|APS|ERP|WMS|LIMS|工业互联网|智能制造/);
+  const customer =
+    firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /客户|消费者|服务对象|客户名单|服务于|面向|全球消费者/) ||
+    firstProfileSourceLine(sources, /客户|消费者|服务对象|服务于|面向|全球消费者|中国和全球消费者/);
+  const productLine =
+    product && normalizeForCompare(product) === normalizeForCompare(businessScope)
+      ? cleanBusinessText(product.replace(/^主营业务为生产及经销/, "核心产品包括").replace(/^主营业务为/, "核心产品/服务包括"), 190)
+      : product;
+  const rows = compactProfileRows([
+    subject ? { title: "主体/区域", body: subject } : null,
+    businessScope ? { title: "经营范围", body: businessScope } : null,
+    productLine ? { title: "核心产品", body: productLine } : null,
+    customer ? { title: "主要客户/服务对象", body: customer } : null
+  ]);
   if (!rows.length) return "";
   return `<section class="customer-brief-strip">
     ${rows.map((row) => `<article><span>${e(row.title)}</span><b>${e(row.body)}</b></article>`).join("")}
@@ -7552,16 +7724,22 @@ function customerProfilePerspective(report, round, sources = []) {
       evidence: evidenceTexts(triggerRows, 6),
       sourceIds: evidenceSourceIds(triggerRows),
       branches: triggerRows.length
-        ? []
+        ? [{
+          title: "发展阶段依据",
+          claim: `当前发展阶段判断来自${evidenceCategorySummary(triggerRows)}。`,
+          evidence: evidenceTexts(triggerRows, 6),
+          sourceIds: evidenceSourceIds(triggerRows),
+          forceDisplay: true
+        }]
         : [{
           title: "可用线索",
           claim: "公开材料未出现近期融资、扩产、新设基地、政策项目入选或重大合作变化。",
           evidence: [],
           invalid: true,
           forceDisplay: true
-        }],
+      }],
       forceDisplay: true,
-      useExplicitBranchesOnly: !triggerRows.length,
+      useExplicitBranchesOnly: true,
       invalid: !triggerRows.length,
       tone: triggerRows.length ? (/扩张|转型/.test(stage) ? "strong" : /承压/.test(stage) ? "risk" : "") : "watch"
     },
@@ -7638,6 +7816,7 @@ function customerProfilePerspective(report, round, sources = []) {
     }
   ].filter((node) => node.forceDisplay || arr(node.evidence).length || normalizeSourceIdList(node).length);
   return `<div class="report-view-panel view-profile">
+    ${basicCustomerProfileIntro(round, sources)}
     ${argumentTreeSection({
       className: "profile-argument-section",
       kicker: "企业画像",
@@ -7678,11 +7857,18 @@ function salesPerspective(report, round, sources = []) {
     isActionTriggerSignal
   );
   const entryWindowSignal = filterSignal(triggerSignal, isEntryWindowEvidenceText);
-  const procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 5, {
+  let procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 5, {
     sourcePredicate: (_source, text) => isBuyerProcurementEvidenceText(text),
     signalPredicate: isBuyerProcurementEvidenceText,
     itemPredicate: (_section, _item, candidate) => isBuyerProcurementEvidenceText(candidate)
   });
+  const structuredProcurementRows = structuredProcurementEvidenceRows(sources, 5);
+  if (structuredProcurementRows.length) {
+    procurementSignal = {
+      evidence: structuredProcurementRows.map((row) => row.text),
+      sourceIds: Array.from(new Set(structuredProcurementRows.map((row) => row.sourceId))).slice(0, 6)
+    };
+  }
   const procurementDirectorySignal = combinedSignal(round, sources, /招投标|招标项目|采购平台|供应商门户|供应商平台|工程招投标/i, 5, {
     sourcePredicate: (_source, text) => isProcurementDirectoryOnlyText(text),
     signalPredicate: isProcurementDirectoryOnlyText,
@@ -7722,7 +7908,7 @@ function salesPerspective(report, round, sources = []) {
     riskEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text })),
     budgetEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text }))
   );
-  const positiveBudgetEvidence = budgetEvidence.filter((text) => !/缺少|未查到|无法|未形成|不能证明|不公示|未披露|暂无|待核验/.test(text));
+  const positiveBudgetEvidence = budgetEvidence.filter((text) => !/缺少|未查到|无法|未形成|不能证明|不公示|未披露|未单独披露|暂无|待核验/.test(text));
   const hardProcurementBudgetEvidence = positiveBudgetEvidence.filter((text) => /采购人|招标人|采购单位|采购公告|招标公告|采购意向|预算金额|采购预算|项目金额|合同金额|政府采购|招标计划/.test(text));
   const financialBudgetEvidence = positiveBudgetEvidence.filter((text) => /营收|营业收入|净利润|利润|现金流|毛利|研发投入/.test(text));
   const directPurchaseEvidence = uniqueTexts([...hardProcurementBudgetEvidence, ...financialBudgetEvidence], 6);
@@ -7741,25 +7927,36 @@ function salesPerspective(report, round, sources = []) {
   const boundaryBranch = (claim) => ({ ...forcedBranch("当前边界", claim, []), invalid: true });
   const procurementDetailClaim = (evidence = []) => {
     const text = arr(evidence).join(" ");
-    const parts = [];
-    parts.push(/采购人|招标人|采购单位|业主单位|甲方/.test(text) ? "有采购主体" : "采购主体未明");
-    parts.push(/项目编号|采购项目|招标项目|项目名称|采购公告|招标公告/.test(text) ? "有项目线索" : "项目名称未明");
-    parts.push(/预算金额|采购预算|项目金额|合同金额|万元|亿元/.test(text) ? "有金额线索" : "金额未明");
-    parts.push(/中标单位|成交供应商|供应商记录|历史供应商/.test(text) ? "有供应商线索" : "成交方未明");
-    return `已查到客户作为甲方的采购线索：${parts.join("、")}。`;
+    const count = text.match(/招投标记录[：:](?:该查询实体共有)?\s*(\d+)\s*条/)?.[1] || "";
+    const supplier = text.match(/供应商[：:]\s*([^，；;。]+)/)?.[1] || "";
+    const samples = uniqueTexts(
+      text
+        .split(/[；;。]/)
+        .map((item) => cleanBusinessText(item, 110).replace(/[，,、;；：:\s]+$/g, ""))
+        .filter((item) => /采购人|招标人|采购单位|招标公告|中标结果|成交结果|供应商|采购金额|项目|租赁|申购说明/.test(item)),
+      3
+    );
+    const summary = [
+      count ? `招投标记录约 ${count} 条` : "",
+      supplier ? `供应商记录包含${supplier}` : "",
+      samples.length ? `样本包括${samples.join("、")}` : ""
+    ].filter(Boolean).join("；");
+    return summary
+      ? `已查到客户作为甲方或采购相关主体的公开线索：${summary}。`.replace(/，。/g, "。")
+      : "已查到公开采购或供应商线索，可用于定性判断其会留下公告、成交或供应商记录。";
   };
   const purchaseLevel = directPurchaseEvidence.length
     ? hardProcurementBudgetEvidence.length
-      ? `采购能力可以继续验证，依据是${evidenceDecisionSummary(hardProcurementBudgetEvidence, "可用采购/预算线索")}。`
-      : `采购能力只能按推测信息判断，依据是${evidenceDecisionSummary(financialBudgetEvidence, "经营金额线索")}；经营金额不能证明项目级预算或采购意愿。`
+      ? `采购承载能力较强，并且已查到客户作为甲方的采购或预算线索；依据是${evidenceDecisionSummary(hardProcurementBudgetEvidence, "可用采购/预算线索")}。`
+      : `${financialCapacityLabel(financialBudgetEvidence)}；依据是${evidenceDecisionSummary(financialBudgetEvidence, "经营金额线索")}。这些数据回答“有没有钱/承载力”，不等同于本项目已经有预算。`
     : positiveBudgetEvidence.length
-    ? `只查到${evidenceCategorySummary(positiveBudgetEvidence, "基础体量线索")}，不能直接证明项目级预算。`
+    ? `采购承载能力可作中等以上判断；依据是${evidenceCategorySummary(positiveBudgetEvidence, "基础体量线索")}。`
     : "未查到营收、现金流、预算或历史采购线索，采购能力未形成有效判断。";
   const purchaseAbilityClaim =
     purchaseLevel;
   const purchaseHabitClaim =
     arr(procurementSignal.evidence).length
-      ? `客户有作为甲方发起采购的公开记录，采购习惯可继续跟进。`
+      ? `客户存在公开招投标或项目制采购记录，采购习惯可作定性判断：会通过公告、招标/成交结果或供应商记录留下痕迹，但当前样本仍需区分融资公告、办公采购和业务系统采购。`
       : arr(procurementDirectorySignal.evidence).length
         ? "只查到招投标/供应商门户目录入口，尚未查到具体采购项目、预算金额或成交供应商明细。"
     : "未查到客户作为甲方的公开采购记录，采购习惯未形成有效判断。";
@@ -7816,11 +8013,11 @@ function salesPerspective(report, round, sources = []) {
       evidence: positiveBudgetEvidence,
       branches: [
         hardProcurementBudgetEvidence.length
-          ? forcedBranch("可用证据", "已查到预算金额、采购公告或客户作为甲方的采购记录。", hardProcurementBudgetEvidence)
+          ? forcedBranch("采购/预算依据", "有客户作为甲方的采购公告、招标公告、项目金额、预算金额或供应商记录，可直接支撑采购能力判断。", hardProcurementBudgetEvidence)
           : financialBudgetEvidence.length
-            ? forcedBranch("推测信息", "只查到经营金额线索；可辅助判断预算承载，但不能证明本项目预算或采购意愿。", financialBudgetEvidence)
+            ? forcedBranch("财务能力依据", "营收、利润、现金流或资产规模可直接支撑采购承载能力判断；项目级预算另看采购入口和预算归属。", financialBudgetEvidence)
           : capitalOnlyEvidence.length
-            ? forcedBranch("推测信息", "仅查到基础体量或资本信息；尚未查到项目级预算或甲方采购记录。", capitalOnlyEvidence)
+            ? forcedBranch("体量依据", "基础体量或资本信息只能支撑承载能力初判，尚不能证明项目级预算。", capitalOnlyEvidence)
             : boundaryBranch("未查到营收、融资、预算、项目金额或历史采购记录。")
       ],
       sourceIds: arr(budgetSignal.sourceIds),
@@ -7835,7 +8032,7 @@ function salesPerspective(report, round, sources = []) {
       claim: purchaseHabitClaim,
       evidence: purchaseHabitEvidence,
       branches: arr(procurementSignal.evidence).length
-        ? [forcedBranch("甲方采购记录", procurementDetailClaim(arr(procurementSignal.evidence)), arr(procurementSignal.evidence), arr(procurementSignal.sourceIds))]
+        ? [forcedBranch("采购记录依据", procurementDetailClaim(arr(procurementSignal.evidence)), arr(procurementSignal.evidence), arr(procurementSignal.sourceIds))]
         : arr(procurementDirectorySignal.evidence).length
           ? [forcedBranch("目录线索", "只查到招投标或供应商门户入口；当前证据没有给出具体采购内容、预算金额或成交供应商，不能当作采购习惯强证据。", arr(procurementDirectorySignal.evidence), arr(procurementDirectorySignal.sourceIds))]
         : [boundaryBranch("未查到客户作为甲方的采购公告、采购平台记录或供应商记录。")],

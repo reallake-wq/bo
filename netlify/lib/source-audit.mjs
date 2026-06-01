@@ -141,9 +141,9 @@ export function sourceFamilyOf(source = {}, urlValue = "", sourceTypeValue = "")
   const registryDomain = /qcc\.com|aiqicha|tianyancha|qixin|qichamao|shuidi|gsxt/.test(sourceDomain(url));
   const tool = String(source.structuredTool || "").toLowerCase();
   if (source.provider === "tianyancha-api" || source.structuredProvider === "tianyancha") {
-    if (/financial|annual/.test(tool)) return "finance_budget";
+    if (/financial|annual|income_statement|balance_sheet|cash_flow|listing|stock/.test(tool)) return "finance_budget";
     if (/risk|dishonest|debtor|restriction/.test(tool)) return "risk_legal";
-    if (/bidding|license|qualification/.test(tool)) return "tender_project";
+    if (/bidding|bid|supplier|customer|license|qualification/.test(tool)) return "tender_project";
     if (/patent|copyright/.test(tool)) return "patent_ip";
     if (/recruitment/.test(tool)) return "hiring_org";
     return "subject_registry";
@@ -356,9 +356,9 @@ function auditOneSource(source = {}, context = {}) {
     next.confidence = "高";
     next.isCompanySpecific = true;
     next.relevanceScore = Math.max(Number(next.relevanceScore || 0), 80);
-    if (/financial|annual/.test(source.structuredTool || "")) next.sourceType = "财务硬来源";
+    if (/financial|annual|income_statement|balance_sheet|cash_flow|listing|stock/.test(source.structuredTool || "")) next.sourceType = "财务硬来源";
     else if (/risk|dishonest|debtor|restriction/.test(source.structuredTool || "")) next.sourceType = "风险合规来源";
-    else if (/bidding|license|qualification|patent|copyright|recruitment/.test(source.structuredTool || "")) next.sourceType = "企业公开来源";
+    else if (/bidding|bid|supplier|customer|license|qualification|patent|copyright|recruitment/.test(source.structuredTool || "")) next.sourceType = "企业公开来源";
     else if (!next.sourceType || next.sourceType === "线索来源") next.sourceType = "主体核对来源";
     next.sourceFamily = sourceFamilyOf({ ...next, sourceFamily: "" }, url, next.sourceType);
     next.relevanceReason = source.relevanceReason || "天眼查 MCP 结构化数据直接命中目标企业";

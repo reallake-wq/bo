@@ -54,6 +54,8 @@ export function normalizeReportSources(sources = [], max = 32) {
         query: source.query || "",
         topic: source.topic || "",
         sourceType: source.sourceType || "",
+        snippet: source.snippet || "",
+        evidenceExcerpt: source.evidenceExcerpt || "",
         provider: source.provider || "",
         structuredProvider: source.structuredProvider || "",
         structuredTool: source.structuredTool || "",

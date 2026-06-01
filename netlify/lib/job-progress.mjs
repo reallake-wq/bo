@@ -16,14 +16,16 @@ const PHASE_BY_KEY = new Map(JOB_PHASES.map((phase) => [phase.key, phase]));
 const PHASE_ESTIMATE_MS = {
   resolve: 20 * 1000,
   cache: 15 * 1000,
-  plan: 2 * 60 * 1000,
-  finance: 2 * 60 * 1000,
-  search: 5 * 60 * 1000,
-  read: 4 * 60 * 1000,
-  quality: 25 * 1000,
-  analysis: 5 * 60 * 1000,
-  report: 30 * 1000
+  plan: 3 * 60 * 1000,
+  finance: 4 * 60 * 1000,
+  search: 8 * 60 * 1000,
+  read: 8 * 60 * 1000,
+  quality: 90 * 1000,
+  analysis: 6 * 60 * 1000,
+  report: 45 * 1000
 };
+
+const DEFAULT_JOB_ESTIMATE_MS = 30 * 60 * 1000;
 
 export class JobCancelledError extends Error {
   constructor(message = "任务已停止") {
@@ -64,9 +66,9 @@ export function durationText(ms) {
 function estimateRemaining(job, elapsedMs) {
   const progress = Math.max(1, Math.min(99, Number(job.progress || 0)));
   if (!["queued", "running", "needs_resume"].includes(job.status)) return 0;
-  const defaultTotal = 15 * 60 * 1000;
+  const defaultTotal = DEFAULT_JOB_ESTIMATE_MS;
   const byProgress = progress >= 8 && elapsedMs >= 8000 ? (elapsedMs / progress) * 100 : defaultTotal;
-  const totalEstimate = Math.max(defaultTotal * 0.55, Math.min(defaultTotal * 1.8, byProgress));
+  const totalEstimate = Math.max(defaultTotal * 0.65, Math.min(defaultTotal * 1.8, byProgress));
   return Math.max(0, Math.round(totalEstimate - elapsedMs));
 }
 

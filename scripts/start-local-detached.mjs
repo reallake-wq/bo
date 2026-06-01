@@ -90,6 +90,7 @@ async function main() {
       `Set-Location -LiteralPath ${psQuote(root)}`,
       `$env:PORT = ${psQuote(selected)}`,
       `$env:OAC_DIST_DIR = ${psQuote(staticRoot)}`,
+      `if (-not $env:OAC_WORKER_BUDGET_MS) { $env:OAC_WORKER_BUDGET_MS = '1500000' }`,
       `& ${psQuote(process.execPath)} ${psQuote(serverFile)}`
     ].join("; ");
     const launcherCommand = [
