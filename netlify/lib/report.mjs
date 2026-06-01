@@ -984,17 +984,17 @@ function cleanBusinessText(value = "", max = 260) {
     .replace(/([^。；;]{2,80})需确认/g, "$1决定是否升级重方案投入")
     .replace(/([^。；;]{2,80})需明确/g, "$1是重方案投入前必须锁定的输入")
     .replace(/([^。；;]{2,80})需了解/g, "$1是重方案投入前必须掌握的信息")
-    .replace(/先确认/g, "先锁定")
+    .replace(/先确认/g, "先核对")
     .replace(/需先评估/g, "应先评估")
     .replace(/需先明确/g, "应先明确")
     .replace(/需先锁定/g, "应先锁定")
     .replace(/需提供/g, "客户侧应提供")
     .replace(/需要提供/g, "客户侧应提供")
     .replace(/客户需要提供/g, "客户侧应提供")
-    .replace(/确认样例/g, "锁定样例")
-    .replace(/确认客户/g, "锁定客户")
-    .replace(/确认现有/g, "锁定现有")
-    .replace(/确认本地/g, "锁定本地")
+    .replace(/确认样例/g, "核对样例")
+    .replace(/确认客户/g, "核对客户")
+    .replace(/确认现有/g, "核对现有")
+    .replace(/确认本地/g, "核对本地")
     .replace(/成立条件确认后/g, "关键输入锁定后")
     .replace(/关键成立条件/g, "关键商务输入")
     .replace(/仍?是重方案投入前的商务闸门/g, "决定是否升级重方案投入")
@@ -1018,7 +1018,7 @@ function cleanBusinessText(value = "", max = 260) {
     .replace(/买单能力按项目和经营线索做轻量推进，初访必须锁定预算来源、采购流程和付款主体[。；;]?/g, "客户存在项目化采购和经营实力信号，适合先用小闭环验证价值；预算来源、采购流程和付款主体决定投入级别。")
     .replace(/买单能力先按项目采购线索轻量推进，第一轮重点验证预算来源、采购流程和付款主体[。；;]?/g, "客户存在项目化采购信号，首轮应围绕预算来源、采购流程和付款主体判断是否升级投入。")
     .replace(/买单能力按轻量推进处理，先验证预算来源、采购流程和付款主体，再决定是否投入重方案[。；;]?/g, "买单能力按小闭环验证处理；预算来源、采购流程和付款主体决定是否投入重方案。")
-    .replace(/先拿具体场景、样例数据和下一步动作，再升级方案投入[。；;]?/g, "只有拿到具体场景、样例数据和下一步责任人，才值得升级方案投入。")
+    .replace(/先拿具体场景、样例数据和下一步动作，再升级方案投入[。；;]?/g, "只有拿到具体场景、样例数据和可衡量指标，才值得升级方案投入。")
     .replace(/先拿到预算来源、付款主体和项目推进人/g, "把预算来源、付款主体和项目推进人作为升级投入判断项")
     .replace(/初访应追预算窗口、历史供应商和立项节奏/g, "商务推进应优先查清预算窗口、历史供应商和立项节奏")
     .replace(/初访可围绕([^，。；;]+)验证价值/g, "$1是优先切入话题")
@@ -1106,7 +1106,7 @@ function actionableDependencyText(value = "", max = 180) {
      .replace(/[，,]\s*需(?:要)?(?:先)?明确/g, "，明确")
      .replace(/[，,]\s*需(?:要)?(?:先)?(?:现场)?(?:确认|核对|厘清)/g, "，确认");
   if (!raw || !substantiveText(raw, 8) || isNonDecisionClaim(raw)) return "";
-  return cleanBusinessText(`推进前要锁定${raw}。`, max);
+  return cleanBusinessText(raw, max);
 }
 
 function customerQuestionText(value = "", max = 180) {
@@ -1138,6 +1138,14 @@ function customerQuestionText(value = "", max = 180) {
   return /[？?]$/.test(text) ? text : `${text}？`;
 }
 
+function isDependencyInstructionText(value = "") {
+  const text = cleanBusinessText(value, 220);
+  if (!meaningful(text)) return false;
+  const startsLikeInstruction = /^(?:推进前|需(?:要)?|客户侧应提供|客户需要提供|提供|明确|确认|锁定|先)/.test(text);
+  const hasRiskEffect = /未|不清|缺少|不足|导致|影响|风险|争议|返工|不能|冲突|扩散|验收/.test(text);
+  return startsLikeInstruction && !hasRiskEffect;
+}
+
 function actionableRiskText(value = "", max = 180) {
   const raw = cleanBusinessText(value, max)
     .replace(/^主要风险[：:]\s*/g, "")
@@ -1145,10 +1153,11 @@ function actionableRiskText(value = "", max = 180) {
     .replace(/[。；;，,\s]+$/g, "");
   if (!raw || !substantiveText(raw, 8)) return "";
   if (isBackendRiskTemplateText(raw)) return "";
+  if (isDependencyInstructionText(raw)) return "";
   if (/接口|数据|权限|样例|责任人|验收|上线范围|现场|视频|设备|系统|网络|安全|集成|需求扩散|返工/.test(raw)) {
     return cleanBusinessText(raw
       .replace(/现有系统接口、数据权限和样例质量未确认时，交付周期和效果不能锁定/g, "接口、数据权限和样例质量是交付成败关键，缺少任一项都会引发返工、范围扩张和验收争议")
-      .replace(/客户侧责任人、验收指标和上线范围不清，会导致需求扩散和反复返工/g, "客户侧责任人、验收指标和上线范围不清，会直接导致需求扩散和反复返工")
+      .replace(/客户侧责任人、验收指标和上线范围不清，会导致需求扩散和反复返工/g, "验收指标、上线范围和变更口径不清，会直接导致需求扩散和反复返工")
       .replace(/需要额外确认/g, "必须提前锁定"), max);
   }
   return isNonDecisionClaim(raw) ? "" : cleanBusinessText(raw, max);
@@ -1391,9 +1400,9 @@ function cleanDeliveryData(delivery = {}) {
     : [];
   const fallbackDependencies = shouldCompleteDelivery
     ? [
-        "客户侧确认业务负责人、IT接口人、数据责任人和验收负责人。",
-        "提供脱敏业务文档、系统样例、接口说明或离线数据样例。",
-        "确认既有系统的只读/写入边界、账号权限和审计要求。"
+        "现有系统清单、接口/API文档、读写权限、鉴权方式和日志审计要求。",
+        "脱敏业务文档、系统样例、接口说明或离线数据样例。",
+        "既有系统的只读/写入边界、账号权限和审计要求。"
       ]
     : [];
   const fallbackDeliveryRisks = shouldCompleteDelivery
@@ -4615,15 +4624,15 @@ function buildDeliveryAssessment(report, round) {
       })
     : defaultDeliverySowOutline().map((item) => `${item.title}：${arr(item.items).join("、")}`);
   const fallbackDependencies = [
-    "客户侧确认业务负责人、IT接口人、数据责任人和验收负责人。",
-    "提供脱敏业务文档、系统样例、接口说明或离线数据样例。",
-    "确认 HolliCube、MES、ERP、WMS、LIMS 等既有系统的只读/写入边界和权限审计要求。",
-    "明确知识库、智能体、运维闭环或投标助手的首轮成功指标。"
+    "现有系统清单、接口/API文档、读写权限、鉴权方式和日志审计要求。",
+    "脱敏业务文档、数据样例、字段字典、更新频率和质量规则。",
+    "部署方式、网络/服务器资源、安全权限、SSO/账号体系和审计留痕要求。",
+    "验收数据集、指标口径、边界样例和变更处理机制。"
   ];
   const fallbackRisks = [
     "系统接口、权限和脱敏样例未锁定时，只能做轻量验证，不能承诺正式对接效果。",
     "客户已有 HolliCube、和言智能问答等能力，方案定位若变成平台替代会引发技术路线冲突。",
-    "多系统数据口径和现场责任岗位不清，会影响数据问答、运维闭环和验收口径。"
+    "多系统数据口径、接口边界和验收指标不清，会影响数据问答、运维闭环和验收口径。"
   ];
   return {
     architectureSketch: architecture,
@@ -4633,7 +4642,7 @@ function buildDeliveryAssessment(report, round) {
       ? arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses)
       : [
           "先用一个最小业务闭环验证价值，再决定是否进入系统集成和正式项目范围。",
-          "把数据样例、接口权限、现场条件和客户责任人列成客户侧准备清单，清单外内容不进入本轮交付范围。",
+          "把数据样例、接口权限、部署条件和验收口径列成客户侧准备清单，清单外内容不进入本轮交付范围。",
           "把验收口径提前写清，包括准确率、效率提升、告警命中、报表质量或人工节省口径。"
         ],
     sowOutline: (sowTexts.length ? sowTexts : fallbackSow).slice(0, 8)
@@ -4643,8 +4652,9 @@ function buildDeliveryAssessment(report, round) {
 function isSpecificDeliveryDependency(value = "") {
   const text = cleanBusinessText(value, 220);
   if (!meaningful(text)) return false;
+  if (/负责人|责任人|接口人|联系人|参会|沟通|会后|下一步|预算|采购流程|拍板|决策链|合同|付款/.test(text)) return false;
   if (/锁定客户真实业务样例|锁定验收指标|锁定业务、IT\/数据|系统边界和责任人清单|数据安全要求/.test(text)) return false;
-  return /提供|上传|开放|接入|确认|指定|授权|样例|接口|账号|权限|摄像头|视频|工位|产线|系统|ERP|MES|APS|WMS|LIMS|数据|文档|模板|责任人|负责人|验收|部署|网络|服务器|安全|脱敏|字段|口径/.test(text);
+  return /提供|上传|开放|接入|授权|样例|接口|账号|权限|摄像头|视频|工位|产线|系统|ERP|MES|APS|WMS|LIMS|数据|文档|模板|验收|部署|网络|服务器|安全|脱敏|字段|口径|鉴权|审计/.test(text);
 }
 
 function deliveryRiskCategory(text = "") {
@@ -4674,13 +4684,13 @@ function customerPrepForDeliveryRisk(risk = "", dependency = "") {
   const explicit = cleanBusinessText(dependency, 160);
   if (isSpecificDeliveryDependency(explicit)) return explicit;
   const category = deliveryRiskCategory(risk);
-  if (category === "系统集成风险") return "提供现有系统清单、接口文档、测试账号和权限负责人。";
+  if (category === "系统集成风险") return "提供现有系统清单、接口文档、测试账号、鉴权方式和权限审计要求。";
   if (category === "数据风险") return "提供可脱敏样例、字段说明、模板文档和业务口径。";
-  if (category === "现场与部署风险") return "提供现场点位、网络/服务器条件、设备型号和现场联系人。";
+  if (category === "现场与部署风险") return "提供现场点位、网络/服务器条件、设备型号和部署约束。";
   if (category === "算法与模型风险") return "提供样本集、标注口径、边界样例和人工复核规则。";
   if (category === "验收口径风险") return "提供试点范围、验收指标、边界样例和变更审批规则。";
   if (category === "安全合规风险") return "提供安全规范、部署要求、账号权限和审计留痕要求。";
-  return "提供对应样例、系统边界和客户侧责任人。";
+  return "提供对应样例、系统边界和验收口径。";
 }
 
 function deliveryRiskMatrixRows(delivery = {}) {
@@ -5491,6 +5501,7 @@ function isSameProjectEvidenceText(value = "") {
 function isBudgetWindowEvidenceText(value = "") {
   const text = cleanBusinessText(value, 280);
   if (!meaningful(text)) return false;
+  if (/未明确|未确认|未证实|尚未|暂无|未查到|未发现|不能证明|不构成|仅作为|仅用于|只作为|可能|推测/.test(text)) return false;
   if (/招聘|岗位|职位|客户案例|为.{0,20}建设|承建|实施|交付|项目获奖|典型示范案例|解决方案提供商|服务商/.test(text) && !isBuyerProcurementEvidenceText(text)) return false;
   if (isBuyerProcurementEvidenceText(text)) return true;
   if (/上市募资|募投|年度规划|政府补贴|补助|专项资金|采购意向|预算金额|采购预算|项目金额|合同金额/.test(text)) return true;
@@ -5537,7 +5548,7 @@ function isMaturityEvidenceText(value = "") {
 function isPurchaseBudgetEvidenceText(value = "") {
   const text = cleanBusinessText(value, 260);
   if (!meaningful(text)) return false;
-  if (/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验|缺少可用|缺少|未查到|无法|未形成|不能证明/.test(text)) return false;
+  if (/不公示|未公示|未披露|选择不公示|未取得|暂无|待核验|缺少可用|缺少|未查到|无法|未形成|不能证明|未明确|未确认|未证实|尚未|未发现|不构成|仅作为|仅用于|只作为|可能|推测/.test(text)) return false;
   if (/公开资料存在|当前主要是间接|预算判断按|间接经营实力线索|资料中出现|资料显示/.test(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   return isConcreteBudgetEvidence(text) || isScaleEvidenceText(text) || isBuyerProcurementEvidenceText(text);
@@ -5661,6 +5672,7 @@ function isActionTriggerSignal(value = "") {
 function isEntryWindowEvidenceText(value = "") {
   const text = cleanBusinessText(value, 280);
   if (!meaningful(text)) return false;
+  if (/未明确|未确认|未证实|尚未|暂无|未查到|未发现|不能证明|不构成|仅作为|仅用于|只作为|可作为|最佳切入点|可跟进|可能|推测/.test(text)) return false;
   if (/招聘|岗位|人才/.test(text) && !isStrategicHiringEvidenceText(text)) return false;
   if (isProductCatalogTitleOnly(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
@@ -5670,9 +5682,9 @@ function isEntryWindowEvidenceText(value = "") {
   if (staticHonor && !concreteAction) return false;
   if (/采购意向|招标计划|预算金额|采购预算|采购公告|招标公告|项目编号|合同公告|政府采购/.test(text)) return true;
   if (/新设|新建|扩张|扩产|投产|产能|新基地|技改|改造/.test(text) && /投资|预算|金额|招标|采购|立项|建设|产能|募投|专项资金|补助/.test(text)) return true;
-  if (/融资|上市|IPO|募投|并购/.test(text) && /资金|项目|建设|扩产|研发|数字化|智能制造|改造|投资|金额/.test(text)) return true;
+  if (/(?:完成|获得|启动|拟|计划|募集|募资|战略|股权|上市|IPO|募投|并购).{0,12}(?:融资|资金|投资)|(?:融资|资金|投资).{0,12}(?:完成|获得|启动|拟|计划|募集|募资|战略|股权|上市|IPO|募投|并购)/.test(text)) return true;
   if (/组织调整|高管变更/.test(text) && /数字化|信息化|智能制造|采购|供应链|生产|质量|研发|IT|技术|数据/.test(text)) return true;
-  if (/政策|监管|国产化|安全|合规|政府补助|补贴|专项资金|重点研发/.test(text) && /项目|资金|补助|补贴|专项|申报|采购|招标|改造|建设|立项|预算|金额/.test(text)) return true;
+  if (/政府补助|补贴|专项资金|重点研发/.test(text) && /项目|资金|补助|补贴|专项|申报|采购|招标|改造|建设|立项|预算|金额/.test(text)) return true;
   return isStrategicHiringEvidenceText(text);
 }
 
@@ -6250,16 +6262,18 @@ function industryPositionEvidenceText(value = "") {
 }
 
 function entryWindowClaimFromEvidence(values = []) {
-  const evidence = arr(values).filter(meaningful);
+  const evidence = arr(values)
+    .filter(meaningful)
+    .filter((item) => isEntryWindowEvidenceText(item));
   if (!evidence.length) return "未查到明确进入窗口。";
   const text = evidence.join(" ");
   const types = [];
   if (/采购意向|采购预算|预算金额|采购公告|招标公告|政府采购|招标计划/.test(text)) types.push("采购/预算动作");
   if (/项目金额|合同金额|立项|技改|改造/.test(text)) types.push("项目/改造动作");
   if (/新建|扩产|投产|新基地|产能/.test(text)) types.push("扩产/建设动作");
-  if (/融资|上市|IPO|募投|并购/.test(text)) types.push("融资/募投动作");
+  if (/(?:完成|获得|启动|拟|计划|募集|募资|战略|股权|上市|IPO|募投|并购).{0,12}(?:融资|资金|投资)|(?:融资|资金|投资).{0,12}(?:完成|获得|启动|拟|计划|募集|募资|战略|股权|上市|IPO|募投|并购)/.test(text)) types.push("融资/募投动作");
   if (/组织调整|高管变更/.test(text)) types.push("组织变化");
-  if (/专项资金|政府补助|补贴|重点研发|政策/.test(text)) types.push("政策资金项目");
+  if (/专项资金|政府补助|补贴|重点研发/.test(text)) types.push("政策资金项目");
   const summary = signalTextSummary(evidence, 1, 100);
   return summary
     ? `存在可跟进窗口：近期出现${uniqueTexts(types, 3).join("、") || "具体触发事件"}，依据是${summary}。`
@@ -6330,14 +6344,16 @@ function signalTextSummary(values = [], max = 2, limit = 92) {
 }
 
 function budgetWindowClaimFromEvidence(values = []) {
-  const text = arr(values).join(" ");
+  const evidence = arr(values).filter(isBudgetWindowEvidenceText);
+  if (!evidence.length) return "未查到明确预算窗口，近期预算未形成有效判断。";
+  const text = evidence.join(" ");
   const types = [];
   if (/采购意向|采购预算|预算金额|采购公告|政府采购/.test(text)) types.push("采购/预算公告");
   if (/项目金额|合同金额|中标金额|投资额/.test(text)) types.push("项目金额");
   if (/补助|补贴|专项资金|政府项目|重点研发|科创/.test(text)) types.push("政府补贴/政策项目");
-  if (/融资|上市|募投|并购/.test(text)) types.push("融资/募资");
+  if (/(?:完成|获得|启动|拟|计划|募集|募资|战略|股权|上市|IPO|募投|并购).{0,12}(?:融资|资金|投资)|(?:融资|资金|投资).{0,12}(?:完成|获得|启动|拟|计划|募集|募资|战略|股权|上市|IPO|募投|并购)/.test(text)) types.push("融资/募资");
   if (/新建|新设|扩产|投产|新基地|重大合作|签约/.test(text)) types.push("新项目/扩张动作");
-  const summary = signalTextSummary(values, 1, 95);
+  const summary = signalTextSummary(evidence, 1, 95);
   return summary
     ? `客户近期预算窗口来自${uniqueTexts(types, 3).join("、") || "公开项目动作"}：${summary}。`
     : "未查到明确预算窗口，近期预算未形成有效判断。";
@@ -7301,7 +7317,7 @@ function deliveryWorkPackageSection(round, report = {}) {
 }
 
 function deliveryBranches(items = [], titlePrefix = "要点") {
-  const defaults = ["先锁定客户侧输入、输出和验收口径。", "未确认的接口、数据和权限不进入本轮承诺范围。"];
+  const defaults = ["客户侧输入、输出和验收口径是交付范围边界。", "未确认的接口、数据和权限不进入本轮承诺范围。"];
   return uniqueTexts([...arr(items), ...defaults], 4).slice(0, 4).map((item, index) => ({
     title: `${titlePrefix}${index + 1}`,
     claim: cleanBusinessText(item, 180),
@@ -7334,6 +7350,7 @@ function deliveryRiskResponseBranches(report = {}, round = {}, delivery = {}) {
   const solutionRisks = arr(round.solutionCards)
     .flatMap((item) => [item.prerequisite, item.risk, item.deliveryRisk, item.boundary])
     .filter(meaningful)
+    .filter((item) => !isDependencyInstructionText(item))
     .filter((item) => /数据|接口|系统|权限|安全|部署|验收|模型|算法|现场|设备/.test(item));
   const mergedRisks = uniqueTexts([...risks, ...solutionRisks], 5);
   const sourceItems = mergedRisks.length
@@ -7366,8 +7383,13 @@ function isTechnicalDependencyText(value = "") {
 
 function normalizeTechnicalDependency(value = "") {
   const text = cleanBusinessText(value, 220)
-    .replace(/^(?:需(?:要)?|先|现场|推进前|客户侧)?(?:确认|核对|厘清|明确)\s*/g, "")
-    .replace(/负责人|责任人|参会角色|预算窗口|采购流程|拍板路径/g, "")
+    .replace(/客户侧确认业务负责人、?IT接口人、?数据责任人和验收负责人。?/g, "")
+    .replace(/^推进前(?:要|需|必须)?锁定\s*/g, "")
+    .replace(/^(?:需(?:要)?|先|现场|推进前|客户侧)?(?:确认|核对|厘清|明确|锁定)\s*/g, "")
+    .replace(/业务负责人|IT接口人|数据责任人|验收负责人|客户责任人|客户侧责任人|现场联系人|负责人|责任人|接口人|联系人|参会角色|预算窗口|采购流程|拍板路径/g, "")
+    .replace(/需?IT部门配合/g, "")
+    .replace(/需?[^，。；;]{0,8}部门配合/g, "")
+    .replace(/客户侧确认业务、?IT、?数据和验收/g, "")
     .replace(/[，,；;\s]+$/g, "");
   if (!isTechnicalDependencyText(text)) return "";
   return text;
