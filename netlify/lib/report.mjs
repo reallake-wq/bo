@@ -7268,10 +7268,22 @@ function customerProfilePerspective(report, round, sources = []) {
     },
     {
       label: "企业发展阶段",
-      claim: triggerRows.length ? `企业发展阶段呈${stage}信号，主要依据是${evidenceCategorySummary(triggerRows)}。` : "",
+      claim: triggerRows.length ? `企业发展阶段呈${stage}信号，主要依据是${evidenceCategorySummary(triggerRows)}。` : "企业发展阶段暂不作为本轮推进判断依据。",
       evidence: evidenceTexts(triggerRows, 6),
       sourceIds: evidenceSourceIds(triggerRows),
-      tone: /扩张|转型/.test(stage) ? "strong" : /承压/.test(stage) ? "risk" : ""
+      branches: triggerRows.length
+        ? []
+        : [{
+          title: "可用线索",
+          claim: "公开材料未出现近期融资、扩产、新设基地、政策项目入选或重大合作变化。",
+          evidence: [],
+          invalid: true,
+          forceDisplay: true
+        }],
+      forceDisplay: true,
+      useExplicitBranchesOnly: !triggerRows.length,
+      invalid: !triggerRows.length,
+      tone: triggerRows.length ? (/扩张|转型/.test(stage) ? "strong" : /承压/.test(stage) ? "risk" : "") : "watch"
     },
     {
       label: "经营状态",
