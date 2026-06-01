@@ -59,7 +59,7 @@ function route(namespace, key = "") {
 
 async function blobStore(namespace) {
   const explicitSiteId = envValue("OAC_BLOBS_SITE_ID") || envValue("NETLIFY_SITE_ID") || envValue("SITE_ID");
-  const explicitToken = envValue("OAC_BLOBS_TOKEN") || envValue("NETLIFY_BLOBS_TOKEN");
+  const explicitToken = envValue("OAC_BLOBS_TOKEN") || envValue("OAC_BLOBS_PAT") || envValue("NETLIFY_BLOBS_TOKEN");
   const isNetlifyRuntime =
     process.env.NETLIFY === "true" ||
     process.env.NETLIFY_DEV === "true" ||
