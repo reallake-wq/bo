@@ -372,6 +372,7 @@ async function updateJobNow(jobId, patch) {
     region: identity.region,
     industry: identity.industry,
     ...terminalPatch,
+    ...(patch.status === "done" ? { error: "", errorAt: "" } : {}),
     createdAt,
     phaseKey: patch.phaseKey || phase.key,
     phaseLabel: patch.phaseLabel || phase.label,
