@@ -1441,7 +1441,7 @@ function isUnsupportedSellerCapabilitySolution(item = {}, context = {}) {
 }
 
 function usefulScenarioSignalForSeller(signal = {}, report = {}) {
-  if (!usefulScenarioSignal(signal)) return false;
+  if (!usefulScenarioSignal(signal, report)) return false;
   if (sellerAllowsDigitalSolution(report)) return true;
   const text = [signal.title, signal.basis, signal.aiEntry, signal.topic].join(" ");
   if (digitalSolutionAssumptionText(text)) return false;
@@ -1467,12 +1467,86 @@ function isUnsupportedSchedulingQuestion(value = "", context = {}) {
   return /第三方智能排产|智能排产解决方案|排产方案|排产系统|排产采购|排产需求|APS.{0,20}(开放|替换|采购|需求|改造|补充)|排产.{0,20}(开放|替换|采购|需求|改造|补充)/.test(text);
 }
 
+function isPresalesEfficiencyTemplateItemText(value = "") {
+  return /投标售前与交付材料复用压力|售前投标与交付知识库助手|投标与项目制带来的售前成本高|标书\/方案素材库|投标材料库|资质材料库|方案素材库/.test(String(value || ""));
+}
+
+function presalesEfficiencyEvidenceCandidates(report = {}) {
+  const activeRound = arr(report.rounds)[Math.max(0, Number(report.activeRoundNo || 1) - 1)] || {};
+  const sourceTexts = arr(report.sources).flatMap((source) => [
+    sourceDecisionSignalText(source),
+    source.title,
+    source.snippet,
+    source.evidenceExcerpt,
+    source.usedFor
+  ]);
+  const briefTexts = [
+    ...arr(report.sourceBriefs),
+    ...arr(report.topicBriefs),
+    ...arr(activeRound.sourceBriefs)
+  ].flatMap((brief) => [
+    ...arr(brief.facts).flatMap((item) => [item.claim, item.body, item.summary]),
+    ...arr(brief.implications).flatMap((item) => [item.title, item.body, item.summary]),
+    ...arr(brief.painSignals).flatMap((item) => [item.title, item.basis, item.aiEntry, item.reasoning])
+  ]);
+  const insightTexts = [
+    ...arr(report.businessInsights),
+    ...arr(activeRound.businessInsights),
+    ...arr(report.customerInsights?.digitalCards),
+    ...arr(activeRound.customerInfo).flatMap((section) => arr(section.items))
+  ].flatMap((item) => [item.title, item.body, item.summary, item.claim, item.insight, item.customerSignal, item.sourceBasis, item.reasoning]);
+  return uniqueTexts([...sourceTexts, ...briefTexts, ...insightTexts].map((item) => cleanBusinessText(item, 360)).filter(meaningful), 80);
+}
+
+function reportHasPresalesEfficiencyEvidence(report = {}) {
+  return presalesEfficiencyEvidenceCandidates(report).some((item) => isPresalesEfficiencyEvidenceText(item, report));
+}
+
+function itemHasPresalesEfficiencyEvidence(item = {}, context = {}) {
+  const report = contextReport(context);
+  const candidates = uniqueTexts([
+    item.customerSignal,
+    item.sourceBasis,
+    item.reasoning,
+    item.basis,
+    item.pain,
+    item.customerPain,
+    item.why,
+    item.body,
+    item.summary,
+    ...arr(item.evidence),
+    ...arr(item.facts)
+  ].map((value) => cleanBusinessText(value, 360)).filter(meaningful), 20);
+  return candidates.some((candidate) => isPresalesEfficiencyEvidenceText(candidate, report)) || reportHasPresalesEfficiencyEvidence(report);
+}
+
+function isUnsupportedPresalesEfficiencyTemplateItem(item = {}, context = {}) {
+  const text = [
+    item.title,
+    item.customerSignal,
+    item.sourceBasis,
+    item.reasoning,
+    item.pain,
+    item.customerPain,
+    item.aiEntry,
+    item.opportunity,
+    item.introduction,
+    item.value,
+    item.expectedImpact,
+    item.why,
+    item.how
+  ].join(" ");
+  if (!isPresalesEfficiencyTemplateItemText(text)) return false;
+  return !itemHasPresalesEfficiencyEvidence(item, context);
+}
+
 function cleanDecisionSolutions(items = [], context = {}) {
   const cleaned = arr(items)
     .map(cleanRoundTextItem)
     .filter((item) => meaningful(item.title))
     .filter((item) => [item.customerPain, item.introduction, item.value, item.expectedImpact, item.how, item.why].some(meaningful))
     .filter((item) => !isNonDecisionClaim([item.customerPain, item.introduction, item.value, item.expectedImpact, item.how, item.why].join("；")))
+    .filter((item) => !isUnsupportedPresalesEfficiencyTemplateItem(item, context))
     .filter((item) => !isUnsupportedSellerCapabilitySolution(item, context))
     .filter((item) => !isForcedSellerProductSolution(item, context));
   return normalizePrioritizedSolutions(cleaned, 8);
@@ -1633,6 +1707,7 @@ function cleanDecisionPains(items = [], context = {}) {
     .map((item) => sanitizeSellerPain(item, context))
     .filter((item) => meaningful(item.title) || meaningful(item.reasoning) || meaningful(item.aiEntry) || meaningful(item.pain) || meaningful(item.opportunity))
     .filter((item) => !isNonDecisionClaim([item.sourceBasis, item.customerSignal, item.reasoning, item.pain, item.aiEntry, item.opportunity].join("；")))
+    .filter((item) => !isUnsupportedPresalesEfficiencyTemplateItem(item, context))
     .filter((item) => !isUnsupportedSellerCapabilityPain(item, context))
     .filter((item) => !isForcedSellerProductPain(item, context))
     .slice(0, 8);
@@ -1894,19 +1969,20 @@ function scenarioSignalScore(signal = {}) {
   return score;
 }
 
-function usefulScenarioSignal(signal = {}) {
+function usefulScenarioSignal(signal = {}, report = {}) {
   const text = [signal.title, signal.basis, signal.aiEntry].join(" ");
   if (!arr(signal.sourceIds).length) return false;
   if (!/知识库|问答|智能体|Agent|生态|伙伴|应用|集成|互联|数据|治理|流程|交付|售前|投标|运维|维护|HolliCube|MES|ERP|WMS|LIMS/.test(text)) return false;
+  if (/售前|投标|招投标|标书|项目文档|方案模板|验收材料|项目交付/.test(text) && !isPresalesEfficiencyEvidenceText(text, report)) return false;
   if (/排产|APS/.test(text) && !/集成|MES|ERP|WMS|LIMS|HolliCube|蒙牛|计划调整/.test(text)) return false;
   return true;
 }
 
-function painFromSignal(signal = {}) {
+function painFromSignal(signal = {}, report = {}) {
   const text = [signal.title, signal.basis, signal.aiEntry].join(" ");
   const sourceBasis = safeScenarioText(signal.basis || signal.sourceBasis || "", 240);
   const sourceIds = arr(signal.sourceIds).slice(0, 6);
-  if (/售前|投标|招投标|标书|项目交付|验收材料/.test(text)) {
+  if (/售前|投标|招投标|标书|项目交付|验收材料/.test(text) && isPresalesEfficiencyEvidenceText(text, report)) {
     return {
       title: "投标售前与交付材料复用压力",
       sourceBasis,
@@ -1975,7 +2051,7 @@ function painFromSignal(signal = {}) {
   };
 }
 
-function solutionFromPainSignal(signal = {}, index = 0) {
+function solutionFromPainSignal(signal = {}, index = 0, report = {}) {
   const text = [signal.title, signal.basis, signal.aiEntry].join(" ");
   const basePain = safeScenarioText(signal.basis || signal.title || "", 220);
   const sourceIds = arr(signal.sourceIds).slice(0, 6);
@@ -2021,7 +2097,7 @@ function solutionFromPainSignal(signal = {}, index = 0) {
       sourceIds
     };
   }
-  if (/售前|投标|交付|项目文档|方案/.test(text)) {
+  if (/售前|投标|交付|项目文档|方案/.test(text) && isPresalesEfficiencyEvidenceText(text, report)) {
     return {
       priority: index === 0 ? "P0" : "P1",
       title: "售前投标与交付知识库助手",
@@ -2069,11 +2145,11 @@ function augmentScenarioPainsAndSolutions(report = {}) {
   const signals = allTopicPainSignals(report)
     .filter((signal) => usefulScenarioSignalForSeller(signal, report))
     .sort((a, b) => scenarioSignalScore(b) - scenarioSignalScore(a));
-  const signalPains = signals.map(painFromSignal);
+  const signalPains = signals.map((signal) => painFromSignal(signal, report));
   const mergedPains = mergeScenarioItemsByTheme(existingPains, signalPains, 6);
   const existingSolutionTitles = new Set(existingSolutions.map((item) => normalizeForCompare(item.title)));
   const signalSolutions = signals
-    .map((signal, index) => solutionFromPainSignal(signal, index))
+    .map((signal, index) => solutionFromPainSignal(signal, index, report))
     .filter((item) => meaningful(item.title) && !existingSolutionTitles.has(normalizeForCompare(item.title)));
   const mergedSolutions = mergeByTitle(existingSolutions, signalSolutions, 8);
   return {
@@ -6406,11 +6482,68 @@ function filterSignal(signal = {}, predicate = () => true) {
   };
 }
 
-function isPresalesEfficiencyEvidenceText(value = "") {
-  const text = cleanBusinessText(value, 320);
-  if (!meaningful(text)) return false;
-  if (/招投标|投标|中标|标书|资质材料|采购公告|招标公告|投标邀请/.test(text)) return true;
-  return /项目制|项目交付|定制项目/.test(text) && /售前|标书|资质|版本|方案材料|重复/.test(text);
+function reportTargetAliases(report = {}) {
+  const company = report.company || {};
+  return uniqueTexts([
+    report.targetCompanyName,
+    report.standardName,
+    report.companyName,
+    report.name,
+    company.standardName,
+    company.name,
+    company.companyName,
+    company.query,
+    ...arr(report.aliases)
+  ], 12)
+    .map((item) => cleanBusinessText(item, 40))
+    .filter((item) => item.length >= 2);
+}
+
+function textMentionsTargetNear(text = "", report = {}, rolePattern = /./) {
+  const value = cleanBusinessText(text, 520);
+  return reportTargetAliases(report).some((alias) => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:${rolePattern.source})[：:，,\\s]{0,16}${escaped}|${escaped}.{0,24}(?:${rolePattern.source})`).test(value);
+  });
+}
+
+function procurementEvidenceProfile(value = "", report = {}) {
+  const text = cleanBusinessText(value, 520);
+  if (!meaningful(text)) return { text, score: 0, buyerScore: 0, supplierScore: 0, materialScore: 0, projectScore: 0 };
+  if (isProcurementDirectoryOnlyText(text)) return { text, score: 0, buyerScore: 0, supplierScore: 0, materialScore: 0, projectScore: 0 };
+  const targetAsBuyer = textMentionsTargetNear(text, report, /采购人|招标人|采购单位|业主单位|招标单位|甲方|发布采购|招标/);
+  const targetAsSupplier = textMentionsTargetNear(text, report, /中标单位|中标方|成交供应商|成交单位|成交方|供应商|乙方|服务商|承建|承接|实施|交付|入围/);
+  let buyerScore = 0;
+  let supplierScore = 0;
+  let materialScore = 0;
+  let projectScore = 0;
+  if (/采购人|招标人|采购单位|业主单位|招标单位|预算金额|采购预算|采购公告|招标公告|采购意向|合同公告|政府采购/.test(text)) buyerScore += 2;
+  if (/中标单位|中标方|成交供应商|成交单位|成交方|中标\/成交方|供应商[：:]|乙方|服务商|入围供应商/.test(text)) supplierScore += 2;
+  if (/参与招投标|参与投标|投标次数|中标记录|中标项目|中标候选人|近期中标|中标金额|投标邀请/.test(text)) supplierScore += 2;
+  if (/标书|资质材料|售前成本|版本一致|重复生产|方案素材|方案模板|项目文档|验收材料|投标材料|材料复用|方案复用|资质包/.test(text)) materialScore += 4;
+  if (/项目制交付|项目交付|定制项目|实施项目|系统开发|平台建设|信息化|数字化|工业互联网|软件|集成|MES|ERP|HolliCube|解决方案|工程专业承包|承建|承接|实施方|典型示范案例|项目获奖/.test(text)) projectScore += 2;
+  if (/(?:参与|投标|中标).{0,20}(?:\d+\s*(?:次|条)|约\s*\d+)|(?:\d+\s*(?:次|条)|约\s*\d+).{0,20}(?:参与|投标|中标)/.test(text)) supplierScore += 1;
+  if (/招投标记录[：:](?:该查询实体共有)?\s*\d+\s*条/.test(text) && !targetAsBuyer) supplierScore += 1;
+  if (targetAsBuyer) buyerScore += 3;
+  if (targetAsSupplier) supplierScore += 4;
+  const buyerOnlyPenalty = buyerScore >= 3 && supplierScore === 0 && materialScore === 0 && projectScore === 0 ? 3 : 0;
+  return {
+    text,
+    score: supplierScore + materialScore + projectScore - buyerOnlyPenalty,
+    buyerScore,
+    supplierScore,
+    materialScore,
+    projectScore,
+    targetAsBuyer,
+    targetAsSupplier
+  };
+}
+
+function isPresalesEfficiencyEvidenceText(value = "", report = {}) {
+  const profile = procurementEvidenceProfile(value, report);
+  if (!meaningful(profile.text)) return false;
+  if (!/招投标|投标|中标|标书|资质|售前|项目制|项目交付|采购公告|招标公告|定制项目|方案素材|方案模板|验收材料|系统开发|平台建设/.test(profile.text)) return false;
+  return profile.score >= 3;
 }
 
 function isEcosystemIntegrationEvidenceText(value = "") {
@@ -6500,7 +6633,7 @@ function operationalInsightItems(report = {}, round = {}, sources = []) {
       title: "投标与项目制带来的售前成本高",
       pattern: /招投标|投标|中标|标书|资质|售前|项目制|项目交付|采购公告|招标公告|定制项目/i,
       directPattern: /标书|资质材料|售前成本|版本一致|重复生产|项目制交付|投标成本|方案复用/i,
-      evidencePredicate: isPresalesEfficiencyEvidenceText,
+      evidencePredicate: (text) => isPresalesEfficiencyEvidenceText(text, report),
       pain:
         "公开资料显示客户存在招投标、中标或项目交付线索，标书、方案、资质材料和版本一致性可能形成重复售前成本。",
       opportunity:
