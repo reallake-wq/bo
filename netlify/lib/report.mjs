@@ -182,8 +182,9 @@ function evidenceLinks(item, sources = []) {
           const url = cleanUrl(source.url);
           const meta = [source.sourceType, source.domain, source.confidence].filter(Boolean).join("｜");
           const support = source.relevanceReason || source.usedFor || source.query || "";
-          const excerpt = source.evidenceExcerpt || source.text || source.snippet || "";
-          return `<a href="${e(url)}" target="_blank" rel="noreferrer"><b>${e(id)}.</b> ${e(source.title || source.domain || "资料来源")}${meta ? `<small>${e(meta)}</small>` : ""}${support ? `<small>支撑：${e(support)}</small>` : ""}${excerpt ? `<em>${e(clip(excerpt, 180))}</em>` : ""}</a>`;
+          const title = cleanSourceTitleLabel(source);
+          const excerpt = cleanSourceEvidenceShell(source.evidenceExcerpt || source.text || source.snippet || "", 180);
+          return `<a href="${e(url)}" target="_blank" rel="noreferrer"><b>${e(id)}.</b> ${e(title)}${meta ? `<small>${e(meta)}</small>` : ""}${support ? `<small>支撑：${e(support)}</small>` : ""}${excerpt ? `<em>${e(excerpt)}</em>` : ""}</a>`;
         })
         .join("")}
     </div>
@@ -249,7 +250,7 @@ function sourceRows(items) {
     .map((item, index) => {
       const url = cleanUrl(item.url);
       const meta = [sourceFamilyLabel(item.sourceFamily), item.sourceType, item.domain, item.relevanceReason].filter(Boolean).join("｜");
-      return `<tr><td><b>${e(sourceId(item, index))}.</b> ${e(item.title)}${meta ? `<br><small>${e(meta)}</small>` : ""}</td><td>${e(item.usedFor || item.query || item.topic || "")}</td><td>${e(item.confidence || "")}</td><td><a href="${e(url)}" target="_blank" rel="noreferrer">${e(item.domain || "来源链接")}</a></td></tr>`;
+      return `<tr><td><b>${e(sourceId(item, index))}.</b> ${e(cleanSourceTitleLabel(item))}${meta ? `<br><small>${e(meta)}</small>` : ""}</td><td>${e(cleanSourceEvidenceShell(item.usedFor || item.query || item.topic || "", 120))}</td><td>${e(item.confidence || "")}</td><td><a href="${e(url)}" target="_blank" rel="noreferrer">${e(item.domain || "来源链接")}</a></td></tr>`;
     })
     .join("");
   return rows || `<tr><td colspan="4">本次未读取到可校验的公开来源，建议补充关键词后重新生成。</td></tr>`;
@@ -4951,7 +4952,21 @@ function solutionWorkItems(solution = {}, report = {}) {
 function solutionWorkPackages(solution = {}, report = {}) {
   const text = `${solution.title || ""} ${solution.introduction || ""} ${solution.value || ""} ${solution.expectedImpact || ""} ${solution.prerequisite || ""}`;
   if (sellerCapabilityMode(report) !== "digital") {
-    if (/海外|本地化|全球/.test(text)) {
+    if (/国六|国七|排放|EGR|涡轮|增压|VTG|SCR|NOx|PM|柴油|天然气/.test(text)) {
+      return [
+        { title: "排放系统匹配", items: ["国七/国六法规目标和技术路线确认", "EGR率、冷却效率和增压效率参数对齐", "发动机平台和应用工况梳理"] },
+        { title: "样机与台架验证", items: ["EGR阀/冷却器/涡轮样机方案", "台架测试工况和性能数据", "耐久、排放和热效率验证闭环"] },
+        { title: "定点与量产资料", items: ["技术方案包和标定边界", "质量体系与认证资料", "报价、产能和交付计划"] }
+      ];
+    }
+    if (/新能源|电驱|电机|逆变器|电驱动|热管理|电池热管理|乘员舱热管理|混动|纯电|氢内燃机/.test(text)) {
+      return [
+        { title: "动力平台匹配", items: ["混动/纯电/氢内燃机技术路线确认", "功率等级、热负荷和布置空间对齐", "现有供应商和定点阶段识别"] },
+        { title: "电驱/热管理样件验证", items: ["电机/逆变器/热管理模块规格包", "样件测试计划和台架数据", "热管理边界工况和失效模式复核"] },
+        { title: "量产导入准备", items: ["国产化产能与供应周期确认", "质量体系和PPAP资料准备", "小批试供与量产爬坡计划"] }
+      ];
+    }
+    if (/海外工厂|海外新工厂|泰国|越南|东南亚|跨境|本地化配套|本地化供货|海外供货|当地法规/.test(text)) {
       return [
         { title: "海外准入与认证", items: ["目标工厂采购政策确认", "当地法规/认证要求梳理", "客户海外车型技术规格对齐"] },
         { title: "本地化供货方案", items: ["仓储/伙伴/组装模式评估", "交付周期和安全库存设计", "跨境物流与售后响应边界"] },
@@ -6037,8 +6052,8 @@ function isGenericSourceBody(text = "") {
 
 function sourceDecisionSignalText(source = {}) {
   const title = compactText(source.title || source.domain || source.sourceType || "外部线索", 80);
-  const body = compactText(source.evidenceExcerpt || source.snippet || source.text || "", 170);
-  if (meaningful(body) && !isGenericSourceBody(body) && !isLowValueEvidenceText(body)) return [title, body].filter(Boolean).join("：");
+  const body = cleanSourceEvidenceShell(source.evidenceExcerpt || source.snippet || source.text || "", 220);
+  if (meaningful(body) && !isGenericSourceBody(body) && !isLowValueEvidenceText(body)) return body;
   const titleText = `${source.title || ""} ${source.sourceType || ""} ${source.sourceFamily || ""} ${source.topic || ""}`;
   if (isLowValueEvidenceText(titleText)) return "";
   if (/天眼查 API|主体核验来源|命中企业名称|命中别名|命中集团\/品牌/i.test(titleText)) return "";
@@ -6049,6 +6064,33 @@ function sourceDecisionSignalText(source = {}) {
   if (/APS|高级计划|排产|计划排程|生产计划|MES|制造执行|生产执行|HolliCube|工业互联网|工业数据|数据中台|主数据|数据治理|软件著作权|专利|知识产权|patent|ip|招聘|岗位|hiring/i.test(titleText)) return title;
   if (/工商|主体|股权|受益|人员|高管|registry/i.test(titleText)) return "";
   return "";
+}
+
+function cleanSourceEvidenceShell(value = "", max = 220) {
+  let text = compactText(value, Math.max(max * 2, 360));
+  text = text
+    .replace(/请输入问题（例如：[^。；;]*）\s*/g, "")
+    .replace(/支持\d+多种语言问答。?\s*/g, "")
+    .replace(/隐私承诺：[^。；;]*。?\s*/g, "")
+    .replace(/企业会员享有免费提问。?\s*/g, "")
+    .replace(/产品\)\.\s*企业管理AI\)[^。；;]{0,360}(?:中国管理模式|关于金蝶|成为合作伙伴)\)\.?/g, "")
+    .replace(/企业管理AI\)[^。；;]{0,320}(?:中国管理模式|关于金蝶|成为合作伙伴)\)\.?/g, "")
+    .replace(/#{1,6}\s*(?:CONTENTS|SERVICE|关于MarkLines全球汽车信息平台|公司概要|业务内容|资本构成|主要产品)\.?\s*/gi, "")
+    .replace(/\|\s*\d{4}年\d{1,2}月\s*\|/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  text = text.replace(/^(?:[.。]\s*)+/, "").replace(/[：:｜|\-_\s]+$/g, "");
+  return cleanBusinessText(text, max);
+}
+
+function cleanSourceTitleLabel(source = {}) {
+  const raw = source.title || source.domain || source.sourceType || "资料来源";
+  const cleaned = cleanSourceEvidenceShell(raw, 96)
+    .replace(/^[-_｜|：:\s]+|[-_｜|：:\s]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (meaningful(cleaned) && !/^(请输入问题|支持\d+多种语言|CONTENTS|SERVICE)$/i.test(cleaned)) return cleaned;
+  return source.domain || source.sourceType || "资料来源";
 }
 
 function sourceSearchText(source = {}) {
@@ -6118,6 +6160,28 @@ function isSameProjectEvidenceText(value = "") {
   if (isProductCatalogTitleOnly(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   return isBuyerProcurementEvidenceText(text);
+}
+
+function isSellerAdjacentProcurementEvidenceText(value = "", report = {}) {
+  const text = cleanBusinessText(value, 320);
+  if (!isSameProjectEvidenceText(text)) return false;
+  if (!/采购人|招标人|采购单位|业主单位|招标单位|采购公告|招标公告|采购意向|采购项目|项目编号|中标单位|成交供应商|中标公告|成交公告|合同公告|合同金额|项目金额|预算金额|采购预算|政府采购|投标邀请|招标文件|发布采购|甲方/.test(text)) return false;
+  if (/财务决算|财务审计|审计|会计师|税务鉴证|法律服务|律师|物业|保洁|安保|办公用品|印刷|食堂|餐饮|体检|保险|车辆租赁|公务用车|装修|会议服务|广告宣传|培训服务/.test(text)) return false;
+  const profileText = sellerProfileText(report);
+  const mode = sellerCapabilityMode(report);
+  if (mode === "digital") {
+    return /软件|系统|平台|数据|算法|AI|智能体|知识库|MES|APS|ERP|WMS|LIMS|SCADA|工业互联网|数字化|信息化|自动化|流程|问答|运维|AIOps/.test(text);
+  }
+  if (/汽车|零部件|动力系统|热管理|电驱|涡轮|EGR|正时|点火|发动机|主机厂|整车/i.test(profileText)) {
+    return /汽车|零部件|动力系统|发动机|内燃机|排放|国六|国七|EGR|涡轮|增压器|冷却器|热管理|电驱|电机|逆变器|正时|凸轮|点火线圈|传感器|执行器|配套|样件|台架|PPAP|质量认证/.test(text);
+  }
+  if (/供应链|物流|外贸|贸易|仓储|报关|海外仓/i.test(profileText)) {
+    return /物流|仓储|报关|货代|运输|供应链|外贸|进出口|海外仓|配送|通关|港口/.test(text);
+  }
+  if (/设备|硬件|产线|制造|机械/i.test(profileText)) {
+    return /设备|硬件|产线|生产线|机械|工装|夹具|模具|维保|备件|安装|调试/.test(text);
+  }
+  return /产品|设备|服务|项目|采购|招标|合同/.test(text);
 }
 
 function isBudgetWindowEvidenceText(value = "") {
@@ -6228,6 +6292,43 @@ function structuredProcurementEvidenceRows(sources = [], max = 5) {
       };
     })
     .filter(Boolean);
+  const seen = new Set();
+  return rows
+    .filter((row) => {
+      const key = normalizeForCompare(row.text);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, max);
+}
+
+function sellerAdjacentProcurementRows(sources = [], report = {}, max = 6) {
+  const rows = arr(sources).flatMap((source, index) => {
+    const raw = [
+      source.title,
+      source.evidenceExcerpt,
+      source.snippet,
+      source.text,
+      source.usedFor,
+      source.query
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const clauses = uniqueTexts(
+      cleanSourceEvidenceShell(raw, 1200)
+        .split(/[。；;\n\r]+/)
+        .map((item) => cleanBusinessText(item, 240))
+        .filter(meaningful),
+      30
+    );
+    return clauses
+      .filter((clause) => isSellerAdjacentProcurementEvidenceText(clause, report))
+      .map((clause) => ({
+        text: clause,
+        sourceId: sourceId(source, index)
+      }));
+  });
   const seen = new Set();
   return rows
     .filter((row) => {
@@ -7296,6 +7397,52 @@ function solutionRiskClaimFromEvidence(values = []) {
   return `主要方案风险集中在${uniqueTexts(risks, 3).join("、") || "落地条件"}${summary ? `，依据是：${summary}` : ""}。`;
 }
 
+function isIndustrialRequirementEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 320);
+  if (!meaningful(text)) return false;
+  if (/请输入问题|支持\d+多种语言|隐私承诺|企业会员|CONTENTS|SERVICE|公司概要/.test(text)) return false;
+  if (/企业管理AI|企业AI操作系统|资源中心|博客文章|干货下载|客户成功|成为合作伙伴|关于金蝶|中国管理模式/.test(text)) return false;
+  if (/案例\d+|装载机智能工厂|柳工/.test(text) && !/国六|国七|EGR|涡轮|热管理|电驱|新能源动力|发动机|海外工厂|泰国|越南|质量|认证|测试|规格|排放/.test(text)) return false;
+  if (/总部设在|始建于|旗下拥有|多元化发展|公司概要|资本构成|三大产业板块|物流及供应链服务/.test(text) && !/海外工厂|海外新工厂|泰国|越南|投产|产能|认证|质量|测试|规格|排放|国六|国七|EGR|涡轮|热管理|电驱|新能源动力|定点/.test(text)) return false;
+  return /国六|国七|排放|EGR|涡轮|增压|热管理|电驱|新能源|混动|纯电|氢内燃机|发动机|工厂|投产|产能|供应链|合作伙伴|本地化|海外|认证|质量|测试|样品|技术规格|技术路线|量产|定点|成本|年降|准入|功率|效率/.test(text);
+}
+
+function industrialRequirementEvidenceClauses(values = [], max = 6) {
+  return uniqueTexts(
+    arr(values)
+      .flatMap((value) =>
+        cleanSourceEvidenceShell(value, 1000)
+          .split(/[。；;\n\r]+/)
+          .map(focusIndustrialRequirementClause)
+      )
+      .filter((item) => !(/总部设在|始建于|下辖|生产基地布局|年销售收入|生产能力|内燃机生产基地/.test(item) && !/海外工厂|海外新工厂|泰国|越南|投产|国六|国七|EGR|涡轮|热管理|电驱|质量|认证|测试|规格/.test(item)))
+      .filter((item) => isIndustrialRequirementEvidenceText(item)),
+    max
+  );
+}
+
+function focusIndustrialRequirementClause(value = "") {
+  const text = cleanBusinessText(value, 260);
+  if (!meaningful(text)) return "";
+  if (/泰国|越南|海外工厂|海外新工厂|投产/.test(text)) {
+    const event = text.match(/(?:20\d{2}年[^。；;]{0,180}(?:泰国|越南|海外工厂|海外新工厂|投产)[^。；;]{0,180})/);
+    if (event?.[0]) return cleanBusinessText(event[0], 220);
+  }
+  if (/国六|国七|EGR|涡轮|热管理|电驱|新能源动力|质量|认证|测试|规格|定点/.test(text)) {
+    const event = text.match(/(?:[^。；;]{0,80}(?:国六|国七|EGR|涡轮|热管理|电驱|新能源动力|质量|认证|测试|规格|定点)[^。；;]{0,160})/);
+    if (event?.[0]) return cleanBusinessText(event[0], 220);
+  }
+  return text;
+}
+
+function isSupplierAlternativeEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 320);
+  if (!meaningful(text)) return false;
+  if (/请输入问题|支持\d+多种语言|隐私承诺|企业会员|CONTENTS|SERVICE|公司概要/.test(text)) return false;
+  if (/旗下拥有|始建于|业务内容|主要产品|物流及供应链服务/.test(text) && !/供应商(?:体系|准入|定点|名录|大会|评价|开发|管理)|(?:现有|既有|外部|国际|核心|战略).{0,12}供应商|供应链合作伙伴|合作伙伴大会|博世|自研|替代|准入|定点/.test(text)) return false;
+  return /供应商(?:体系|准入|定点|名录|大会|评价|开发|管理)|(?:现有|既有|外部|国际|核心|战略).{0,12}供应商|供应链合作伙伴|合作伙伴大会|技术伙伴|博世|自研|替代|竞品|准入|定点|目标价|外部技术伙伴/.test(text);
+}
+
 function workGroupComplexity(group = {}, solution = {}) {
   const text = `${group.title || ""} ${arr(group.items).join(" ")} ${solution.title || ""} ${solution.prerequisite || ""}`;
   if (/接口|连接器|集成|权限|审计|模型|识别|优化引擎|算法|HolliCube|MES|APS|ERP|WMS|LIMS|SCADA|PLC|摄像头|视频/.test(text)) {
@@ -7356,8 +7503,22 @@ function relativeTaskComplexityMap(groups = [], solution = {}) {
 }
 
 function sowTaskDescription(task = "", group = {}, solution = {}) {
-  const text = `${task || ""} ${group.title || ""} ${solution.title || ""} ${solution.introduction || ""}`;
+  const text = `${task || ""} ${group.title || ""}`;
   const patterns = [
+    [/国七|国六|法规目标|排放.*技术路线/, "确认目标法规、排放路线和预研节奏，判断 EGR、SCR、涡轮等方案边界。"],
+    [/EGR率|冷却效率|增压效率/, "把 EGR、冷却和增压指标转成参数表，用于判断样机规格和标定范围。"],
+    [/发动机平台|应用工况/, "明确发动机平台、燃料类型、负载工况和整车应用，避免样件验证偏离真实场景。"],
+    [/EGR阀|冷却器|涡轮样机/, "形成可送测样机清单，明确每个样件的接口、规格和供样批次。"],
+    [/台架测试|性能数据/, "把测试工况、数据口径和合格标准前置，作为技术进入下一阶段的依据。"],
+    [/耐久|热效率|排放.*闭环/, "用耐久、排放和热效率数据闭环验证，降低后续定点和量产风险。"],
+    [/技术方案包|标定边界/, "整理方案参数、标定边界和适配说明，支撑研发评审和客户内部立项。"],
+    [/功率等级|热负荷|布置空间/, "确认动力平台约束，判断电驱、热管理部件是否需要结构或规格调整。"],
+    [/电机|逆变器|热管理模块|规格包/, "明确部件规格、接口和性能边界，形成可比选的样件配置。"],
+    [/热管理边界|失效模式/, "梳理高温、低温、长坡、重载等边界工况，并提前识别失效模式。"],
+    [/技术路线确认|混动|纯电|氢内燃机/, "确认客户动力路线和量产节奏，决定先投哪类样件和技术资源。"],
+    [/现有供应商|定点阶段/, "识别当前供应商格局和定点进度，判断进入窗口和差异化竞争点。"],
+    [/PPAP|质量体系|认证资料/, "准备质量体系、PPAP和认证材料，支撑客户供应商准入和量产审核。"],
+    [/小批试供|量产爬坡/, "用小批试供验证交付、质量和节拍，为后续量产爬坡留出问题闭环周期。"],
     [/车型平台|生命周期/, "确认目标车型、量产节奏和生命周期，判断是否值得投入样品和定点资源。"],
     [/执行器|电机|PCBA|技术参数|技术规格/, "把客户技术要求拆成可验证参数，明确我方产品是否满足或需要定制。"],
     [/竞品|自研|替代/, "识别客户现有供应商或自研替代风险，确定差异化竞争点。"],
@@ -7463,7 +7624,7 @@ function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
     group.sourceIds = uniqueTexts([...group.sourceIds, ...arr(row.sourceIds)], 8);
   });
   return [...groups.values()]
-    .sort((a, b) => (a.moduleIndex || 0) - (b.moduleIndex || 0) || priorityRank(a.priority) - priorityRank(b.priority) || (a.solutionIndex || 0) - (b.solutionIndex || 0))
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || (a.solutionIndex || 0) - (b.solutionIndex || 0) || (a.moduleIndex || 0) - (b.moduleIndex || 0))
     .slice(0, 8)
     .map((group) => ({
     title: `${group.priority}｜${group.solutionTitle}`,
@@ -7875,9 +8036,9 @@ function salesPerspective(report, round, sources = []) {
     itemPredicate: (_section, _item, candidate) => isProcurementDirectoryOnlyText(candidate)
   });
   const competitorSignal = combinedSignal(round, sources, /竞品|供应商|合作伙伴|服务商|实施商|集成商|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康|中标单位|成交供应商/i, 5, {
-    sourcePredicate: (_source, text) => isCustomerSupplierCompetitorEvidenceText(text),
-    signalPredicate: isCustomerSupplierCompetitorEvidenceText,
-    itemPredicate: (_section, _item, candidate) => isCustomerSupplierCompetitorEvidenceText(candidate)
+    sourcePredicate: (_source, text) => sellerCapabilityMode(report) === "digital" ? isCustomerSupplierCompetitorEvidenceText(text) : isSupplierAlternativeEvidenceText(text),
+    signalPredicate: (text) => sellerCapabilityMode(report) === "digital" ? isCustomerSupplierCompetitorEvidenceText(text) : isSupplierAlternativeEvidenceText(text),
+    itemPredicate: (_section, _item, candidate) => sellerCapabilityMode(report) === "digital" ? isCustomerSupplierCompetitorEvidenceText(candidate) : isSupplierAlternativeEvidenceText(candidate)
   });
   const supplierProjectSignal = combinedSignal(round, sources, /中标|客户案例|为.{0,20}建设|承建|实施|交付|典型示范案例|项目获奖|项目中集成|解决方案提供商|服务商/i, 6, {
     sourcePredicate: (_source, text) => isSupplierDeliveryEvidenceText(text),
@@ -7897,13 +8058,21 @@ function salesPerspective(report, round, sources = []) {
   ], 6);
   const riskSummary = businessRiskSummary(report, rating, brief);
   const concreteRiskEvidence = riskEvidence.filter(isConcreteLowValueEvidenceText);
-  const sameProjectSignal = combinedSignal(round, sources, /软件|系统|咨询|设备|服务|产品|零部件|汽车电子|车灯|执行器|调光|电机|PCBA|智能体|AI|知识库|数据|MES|APS|ERP|WMS|LIMS|排产|质量|追溯|工业互联网|数字化|自动化/i, 6, {
+  const sameProjectInfoSignal = combinedSignal(round, [], /软件|系统|咨询|设备|服务|产品|零部件|汽车电子|车灯|执行器|调光|电机|PCBA|智能体|AI|知识库|数据|MES|APS|ERP|WMS|LIMS|排产|质量|追溯|工业互联网|数字化|自动化/i, 6, {
     excludeFamilies: ["subject_registry", "finance_budget", "risk_legal"],
-    sourcePredicate: (_source, text) => isSameProjectEvidenceText(text),
-    signalPredicate: isSameProjectEvidenceText,
-    itemPredicate: (_section, _item, candidate) => isSameProjectEvidenceText(candidate)
+    sourcePredicate: (_source, text) => isSellerAdjacentProcurementEvidenceText(text, report),
+    signalPredicate: (text) => isSellerAdjacentProcurementEvidenceText(text, report),
+    itemPredicate: (_section, _item, candidate) => isSellerAdjacentProcurementEvidenceText(candidate, report)
   });
-  const sameProjectEvidence = uniqueTexts(arr(sameProjectSignal.evidence).filter(isBuyerProcurementEvidenceText), 6);
+  const sameProjectRows = sellerAdjacentProcurementRows(sources, report, 6);
+  const sameProjectEvidence = uniqueTexts([
+    ...sameProjectRows.map((row) => row.text),
+    ...arr(sameProjectInfoSignal.evidence).filter((text) => isSellerAdjacentProcurementEvidenceText(text, report))
+  ], 6);
+  const sameProjectSourceIds = Array.from(new Set([
+    ...sameProjectRows.map((row) => row.sourceId),
+    ...arr(sameProjectInfoSignal.sourceIds)
+  ])).slice(0, 6);
   const lowValueRows = mergeEvidenceRows(
     riskEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text })),
     budgetEvidence.filter(isConcreteLowValueEvidenceText).map((text) => ({ text }))
@@ -7972,7 +8141,7 @@ function salesPerspective(report, round, sources = []) {
     : "未查到明确预算窗口，近期预算未形成有效判断。";
   const sameProjectClaim =
     sameProjectEvidence.length
-      ? `客户作为甲方出现同类采购线索，可用于判断替换、扩份额或新增品类机会。`
+      ? `客户已有同类采购迹象，不是纯陌生品类机会；依据是${evidenceDecisionSummary(sameProjectEvidence, "客户作为甲方的同类采购线索")}。`
       : `未查到客户作为甲方采购与${sellerCoreOffer(report)}相关产品/服务的记录。`;
   const sameProjectSupport = sameProjectEvidence.length
     ? sameProjectEvidence
@@ -8062,9 +8231,9 @@ function salesPerspective(report, round, sources = []) {
       claim: sameProjectClaim,
       evidence: sameProjectSupport,
       branches: sameProjectEvidence.length
-        ? [forcedBranch("甲方同类采购", "已查到客户作为甲方采购软件、咨询、系统、设备或服务的记录。", sameProjectEvidence, arr(sameProjectSignal.sourceIds))]
+        ? [forcedBranch("甲方同类采购", `已查到客户作为甲方采购与${sellerCoreOffer(report)}相邻的产品、服务或项目记录；这支撑“同类项目不是空白”，但具体替换、扩份额或新增品类仍要看当前供应商和技术规格。`, sameProjectEvidence, sameProjectSourceIds)]
         : [boundaryBranch("客户对外给别人交付的案例不能证明客户自己采购过同类项目。")],
-      sourceIds: sameProjectEvidence.length ? arr(sameProjectSignal.sourceIds) : [],
+      sourceIds: sameProjectEvidence.length ? sameProjectSourceIds : [],
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
       forceDisplay: true,
@@ -8229,9 +8398,19 @@ function presalesPerspective(report, round, sources = []) {
     6,
     businessSignalOptions
   );
-  const alternativeEvidence = uniqueTexts(arr(existingAlternativeSignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)), 6);
-  const opportunityEvidence = uniqueTexts(arr(industrialOpportunitySignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)), 6);
-  const industrialRiskEvidence = uniqueTexts(arr(industrialRiskSignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)), 6);
+  const industrialRequirementEvidence = industrialRequirementEvidenceClauses(
+    [...arr(topicSignal.evidence), ...arr(industryPressure.evidence)].filter((item) => !isProcurementDirectoryOnlyText(item)),
+    6
+  );
+  const alternativeEvidence = uniqueTexts(
+    arr(existingAlternativeSignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)).filter(isSupplierAlternativeEvidenceText),
+    6
+  );
+  const opportunityEvidence = industrialRequirementEvidenceClauses(arr(industrialOpportunitySignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)), 6);
+  const industrialRiskEvidence = uniqueTexts([
+    ...industrialRequirementEvidenceClauses(arr(industrialRiskSignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)), 6),
+    ...arr(industrialRiskSignal.evidence).filter((item) => !isProcurementDirectoryOnlyText(item)).filter(isSupplierAlternativeEvidenceText)
+  ], 6);
   const solutionSummary = topSolution.title
     ? `${topSolution.priority || "P0"} 方案应先围绕“${cleanBusinessText(topSolution.title, 60)}”展开，再按价值和可落地性扩展。`
     : "配套解决方案应先围绕最强痛点做一个可验证闭环，不宜一次铺开所有能力。";
@@ -8374,23 +8553,23 @@ function presalesPerspective(report, round, sources = []) {
       label: sellerMode === "digital" ? "数字化成熟度" : "技术/供应链成熟度",
       claim: sellerMode === "digital"
         ? digitalMaturityClaimFromEvidence(digitalRows)
-        : arr(topicSignal.evidence).length || arr(industryPressure.evidence).length
-          ? `客户技术/供应链要求来自${evidenceDecisionSummary(uniqueTexts([...arr(topicSignal.evidence), ...arr(industryPressure.evidence)], 4), "公开业务线索")}，方案需要围绕产品匹配、质量认证和交付能力验证。`
+        : industrialRequirementEvidence.length
+          ? `客户存在明确技术或供应链约束，方案必须先锁定产品匹配、质量认证和交付能力；依据是${evidenceDecisionSummary(industrialRequirementEvidence, "技术/供应链线索")}。`
           : "未查到足够具体的技术、质量、认证或供应链要求。",
-      evidence: sellerMode === "digital" ? evidenceTexts(digitalRows, 6) : uniqueTexts([...arr(topicSignal.evidence), ...arr(industryPressure.evidence)], 6),
+      evidence: sellerMode === "digital" ? evidenceTexts(digitalRows, 6) : industrialRequirementEvidence,
       branches: sellerMode === "digital"
         ? (digitalRows.length
         ? [forcedBranch("数字化线索", "已查到以下系统、IT岗位、数据岗位、系统采购、软著、专利或官网技术描述。", evidenceTexts(digitalRows, 6), arr(digitalMaturitySignal.sourceIds))]
         : [boundaryBranch("未查到IT岗位、数据岗位、系统采购、软著、专利或官网技术描述。")])
-        : (arr(topicSignal.evidence).length || arr(industryPressure.evidence).length
-          ? [forcedBranch("技术/供应链线索", "以下线索用于判断客户对产品、质量、交付、成本或供应链协同的要求。", uniqueTexts([...arr(topicSignal.evidence), ...arr(industryPressure.evidence)], 6), Array.from(new Set([...arr(topicSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
+        : (industrialRequirementEvidence.length
+          ? [forcedBranch("技术/供应链线索", "以下线索直接指向客户的产品、质量、交付、成本或供应链协同要求。", industrialRequirementEvidence, Array.from(new Set([...arr(topicSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
           : [boundaryBranch("未查到技术规格、认证、质量、交付、成本或供应链协同等具体要求。")]),
       sourceIds: sellerMode === "digital" ? arr(digitalMaturitySignal.sourceIds) : Array.from(new Set([...arr(topicSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      tone: (sellerMode === "digital" ? digitalRows.length : arr(topicSignal.evidence).length || arr(industryPressure.evidence).length) ? "strong" : "watch"
+      tone: (sellerMode === "digital" ? digitalRows.length : industrialRequirementEvidence.length) ? "strong" : "watch"
     },
     {
       label: sellerMode === "digital" ? "可能已有系统" : "既有供应商/自研替代",
