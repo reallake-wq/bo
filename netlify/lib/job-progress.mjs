@@ -133,6 +133,7 @@ export function decorateJob(job = {}) {
         : `约${durationText(estimatedRemainingMs)}`;
   return {
     ...job,
+    ...(job.status === "done" ? { error: "", errorAt: "" } : {}),
     elapsedMs,
     elapsedText: durationText(elapsedMs),
     updatedAgoMs: Number.isFinite(updated) ? Math.max(0, Date.now() - updated) : 0,
