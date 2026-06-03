@@ -6512,7 +6512,7 @@ function procurementEvidenceProfile(value = "", report = {}) {
   if (!meaningful(text)) return { text, score: 0, buyerScore: 0, supplierScore: 0, materialScore: 0, projectScore: 0 };
   if (isProcurementDirectoryOnlyText(text)) return { text, score: 0, buyerScore: 0, supplierScore: 0, materialScore: 0, projectScore: 0 };
   const targetAsBuyer = textMentionsTargetNear(text, report, /采购人|招标人|采购单位|业主单位|招标单位|甲方|发布采购|招标/);
-  const targetAsSupplier = textMentionsTargetNear(text, report, /中标单位|中标方|成交供应商|成交单位|成交方|供应商|乙方|服务商|承建|承接|实施|交付|入围/);
+  const targetAsSupplier = textMentionsTargetNear(text, report, /中标单位|中标方|成交供应商|成交单位|成交方|乙方|承建|承接|实施|交付|入围/);
   let buyerScore = 0;
   let supplierScore = 0;
   let materialScore = 0;
@@ -6543,7 +6543,13 @@ function isPresalesEfficiencyEvidenceText(value = "", report = {}) {
   const profile = procurementEvidenceProfile(value, report);
   if (!meaningful(profile.text)) return false;
   if (!/招投标|投标|中标|标书|资质|售前|项目制|项目交付|采购公告|招标公告|定制项目|方案素材|方案模板|验收材料|系统开发|平台建设/.test(profile.text)) return false;
-  return profile.score >= 3;
+  const hasTenderOrBid = /招投标|投标|中标|采购公告|招标公告|投标邀请/.test(profile.text);
+  const hasMaterialReuse = /标书|资质材料|售前成本|版本一致|重复生产|方案素材|方案模板|项目文档|验收材料|投标材料|材料复用|方案复用|资质包/.test(profile.text);
+  const hasDeliveryProject = /项目制交付|项目交付|定制项目|实施项目|系统开发|平台建设|信息化|数字化|工业互联网|软件|集成|MES|ERP|HolliCube|解决方案|工程专业承包|承建|承接|实施方|典型示范案例|项目获奖/.test(profile.text);
+  const quantifiedBid = /(?:参与|投标|中标).{0,20}(?:\d+\s*(?:次|条)|约\s*\d+)|(?:\d+\s*(?:次|条)|约\s*\d+).{0,20}(?:参与|投标|中标)/.test(profile.text);
+  if (hasMaterialReuse) return profile.score >= 3;
+  if (quantifiedBid && profile.supplierScore >= 1) return true;
+  return hasTenderOrBid && hasDeliveryProject && profile.supplierScore >= 2;
 }
 
 function isEcosystemIntegrationEvidenceText(value = "") {
@@ -6620,6 +6626,21 @@ function operationalEvidenceRank(key = "", text = "") {
   return 3;
 }
 
+function operationalInsightTitle(definition = {}, evidence = []) {
+  const text = arr(evidence).join(" ");
+  if (definition.key !== "presalesEfficiency") return definition.title;
+  if (/标书|资质材料|投标材料|方案素材|方案模板|版本一致|重复生产|材料复用|方案复用|资质包/.test(text)) {
+    return "标书/资质/方案材料复用压力";
+  }
+  if (/系统集成|运维服务|系统维护|平台建设|系统开发|信息化|数字化|工程专业承包/.test(text)) {
+    return "中标型系统集成项目的售前与交付复用压力";
+  }
+  if (/(?:参与|投标|中标).{0,20}(?:\d+\s*(?:次|条)|约\s*\d+)|(?:\d+\s*(?:次|条)|约\s*\d+).{0,20}(?:参与|投标|中标)/.test(text)) {
+    return "多次招投标参与带来的方案材料复用压力";
+  }
+  return "项目型交付材料复用压力";
+}
+
 function operationalInsightItems(report = {}, round = {}, sources = []) {
   if (sellerCapabilityMode(report) !== "digital") return [];
   const signalOptions = {
@@ -6689,11 +6710,12 @@ function operationalInsightItems(report = {}, round = {}, sources = []) {
       const evidenceText = evidence.join(" ");
       const isDirect = definition.directPattern.test(evidenceText);
       const evidenceLevel = isDirect ? "公开证据" : "推测信息";
-      const sourceBasis = evidenceDecisionSummary(evidence, definition.title);
+      const title = operationalInsightTitle(definition, evidence);
+      const sourceBasis = evidenceDecisionSummary(evidence, title);
       const reasoningPrefix = evidenceLevel === "推测信息" ? "推测信息：公开资料可支撑方向，但需用客户原话或流程样例复核。" : "公开证据：来源已直接出现相关场景或压力线索。";
       return {
         key: definition.key,
-        title: definition.title,
+        title,
         customerSignal: evidence[0],
         pain: definition.pain,
         opportunity: definition.opportunity,
