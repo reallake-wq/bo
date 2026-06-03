@@ -64,6 +64,15 @@ const PAGE_SIZE = 12;
 const PRODUCT_NAME_CN = "商机参谋团";
 const PRODUCT_NAME_EN = "Opportunity Advisory Crew";
 const PRODUCT_ACRONYM = "OAC";
+const APP_VERSION = "2.4.0";
+const APP_UPDATED_AT = "2026-06-04";
+const APP_RELEASE_TITLE = "动态证据评分与报告稳定性修复";
+const APP_RELEASE_NOTES = [
+  "招投标/中标线索改为证据评分，区分甲方采购记录和客户自身售前交付压力。",
+  "修复旧模板自我引用问题，避免存量报告把上一版结论当成新证据继续展示。",
+  "方案分析和行动指南只在证据能支撑时展示投标、标书、资质材料等相关判断。",
+  "同步验证最近报告、报告结构、移动端阅读和生产构建。"
+];
 const WORKERS: Record<string, any> = {
   resolve: { name: "澄镜", role: "客户核对参谋", verb: "正在核对企业主体" },
   cache: { name: "归档", role: "报告管理参谋", verb: "正在检查历史报告" },
@@ -2605,6 +2614,7 @@ function renderProfiles() {
             ${licenseUsageCompactHtml()}
             <button id="logoutButton" class="logout-inline" type="button">${icon("LogOut")}退出登录</button>
           </section>
+          ${aboutOacHtml()}
           <div class="add-profile">
             <input id="newProfileName" placeholder="输入我方企业名，例如：智用开物" />
             <button id="createProfileButton" class="primary" type="button">${icon("SearchCheck")}核对企业</button>
@@ -2676,6 +2686,26 @@ function licenseUsageCompactHtml() {
       <span><small>到期</small><b>${escapeHtml(detail.expiresText)}</b></span>
     </div>
     <p>生成首轮报告或新增一轮拜访分析成功后扣 1 次；查看历史报告不扣次数。</p>`;
+}
+
+function aboutOacHtml() {
+  return `
+    <section class="profile-version-card" aria-label="关于 OAC">
+      <div class="profile-version-head">
+        <span>${icon("Sparkles")}</span>
+        <div>
+          <b>关于 ${PRODUCT_ACRONYM}</b>
+          <small>版本 ${escapeHtml(APP_VERSION)}｜更新 ${escapeHtml(APP_UPDATED_AT)}</small>
+        </div>
+      </div>
+      <p>${escapeHtml(APP_RELEASE_TITLE)}</p>
+      <details open>
+        <summary>${icon("ListChecks")}本版修复</summary>
+        <ul>
+          ${APP_RELEASE_NOTES.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </details>
+    </section>`;
 }
 
 function profileEditor(profile: any) {

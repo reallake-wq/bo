@@ -5865,3 +5865,75 @@ label span {
   min-height: 36px;
   margin-top: 10px;
 }
+
+.profile-version-card {
+  margin-bottom: 12px;
+  padding: 13px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.profile-version-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.profile-version-head > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.profile-version-head b,
+.profile-version-head small {
+  display: block;
+}
+
+.profile-version-head b {
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.profile-version-head small,
+.profile-version-card p,
+.profile-version-card li {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.58;
+}
+
+.profile-version-card p {
+  margin: 9px 0 8px;
+}
+
+.profile-version-card details {
+  padding-top: 8px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.profile-version-card summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.profile-version-card ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.profile-version-card li + li {
+  margin-top: 5px;
+}
