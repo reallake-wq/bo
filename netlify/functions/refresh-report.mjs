@@ -1,4 +1,4 @@
-import { createJob } from "../lib/pipeline.mjs?v=oac-insight-20260531a";
+import { createJob } from "../lib/pipeline.mjs?v=oac-insight-20260604a";
 import { fail, json, readBody } from "../lib/http.mjs";
 import { createJobRoute, withOacRequestContext } from "../lib/auth.mjs";
 

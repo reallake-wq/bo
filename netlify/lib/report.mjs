@@ -2,7 +2,7 @@
 import { ChevronDown, CircleAlert, Trophy } from "lucide";
 import { clip } from "./util.mjs";
 import { OPPORTUNITY_RATING_VERSION, buildOpportunityRating } from "./opportunity-rating.mjs";
-import { TOPIC_NAMES, buildEvidencePool, cleanUrl, formatQualityWarnings, isHttpUrl, normalizeReportSources } from "./report-quality.mjs?v=oac-insight-20260531a";
+import { TOPIC_NAMES, buildEvidencePool, cleanUrl, formatQualityWarnings, isHttpUrl, normalizeReportSources } from "./report-quality.mjs?v=oac-insight-20260604a";
 import { applyFreshnessGuardrails } from "./evidence-freshness.mjs";
 
 function e(value) {
@@ -1540,11 +1540,13 @@ function nonDigitalSellerGenericFit(text = "") {
 }
 
 function fixedIndustryTemplateText(value = "") {
-  return /新车型|车型定点|车型平台|整车厂|主机厂|PPAP|IATF|EGR|国六|国七|涡轮|热管理|电驱|执行器|车灯|PCBA|BOM|量产|小批|供货份额|扩大供货|年降谈判|技术规格对标|车型认证|车型.*验证|定点前进入研发验证|样品测试|小批\/量产|规格、认证、样品|商务准入/.test(String(value || ""));
+  const text = String(value || "");
+  return /围绕我方产品\/服务提前准备样品、测试数据和技术规格对标|定点前进入研发验证|客户需求规格\s*(?:→|->|>)\s*样品测试\s*(?:→|->|>)\s*商务准入|小批\/量产交付|车型\/品类的小样品|把规格、认证、样品\/资料、报价、账期和准入资料列成客户侧准备清单|规格、认证、样品\/资料/.test(text);
 }
 
 function physicalSupplyTemplateText(value = "") {
-  return /样品、测试数据和技术规格|样品\/图纸\/BOM|车型\/品类|供应商准入|产能\/物料|小批试用|量产放量|供货车型|竞品份额|质量交付表现|报价空间|规格.*认证.*样品|客户需求规格.*样品/.test(String(value || ""));
+  const text = String(value || "");
+  return /样品、测试数据和技术规格|车型\/品类|客户需求规格.*样品测试|先用一个车型\/品类的小样品|小批试用和量产放量|预测需求量、交付节奏和质量责任边界不清，会影响小批试用和量产放量/.test(text);
 }
 
 function fixedBackendTemplateText(value = "") {
@@ -2065,15 +2067,6 @@ function cleanStrategyData(strategy = {}, context = {}) {
     ),
     implementationPath
   };
-}
-
-function defaultDeliverySowOutline() {
-  return [
-    { title: "业务应用前台", items: ["用户入口", "业务操作台", "结果展示与反馈"] },
-    { title: "数据/知识底座", items: ["数据对象", "业务规则", "知识文档"] },
-    { title: "系统连接器", items: ["接口适配", "权限审计", "日志追踪"] },
-    { title: "运营管理后台", items: ["配置管理", "效果统计", "版本迭代"] }
-  ];
 }
 
 function cleanDeliveryData(delivery = {}, context = {}) {
@@ -5314,249 +5307,10 @@ function solutionStrategySection(report, round) {
 
 function solutionWorkItems(solution = {}, report = {}) {
   return [];
-  const text = `${solution.title || ""} ${solution.introduction || ""} ${solution.value || ""} ${solution.prerequisite || ""}`;
-  const items = [];
-  if (sellerCapabilityMode(report) !== "digital") {
-    items.push("需求与规格确认：确认采购品类、使用场景、关键指标、认证要求和验收口径。");
-    items.push("小范围验证：准备样品、试用服务、测试数据、质量记录或效果证明。");
-    items.push("商务与准入确认：完成报价、供应商准入、账期、交付计划和合同边界。");
-    items.push("规模化合作准备：安排产能、人员、物料、服务响应、质量控制和交付节奏。");
-    return items;
-  }
-  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report }, text);
-  if (!hasDigitalTargetEvidence) {
-    items.push("业务场景核验：确认客户真实问题、影响指标、使用岗位和优先级。");
-    items.push("资料样例确认：确认客户可提供的脱敏资料、流程样例、业务规则或历史案例。");
-    items.push("方案边界确认：判断本轮只做材料/流程/知识验证，还是需要后续系统或数据接入。");
-    items.push("验证指标确认：定义效率、质量、成本、合规或客户满意度等可衡量指标。");
-    return items;
-  }
-  if (/排产|APS|计划|调度/.test(text)) {
-    items.push("排产规则库：维护设备、人员、物料、交期和优先级约束。");
-    items.push("优化引擎：输出可解释排程、瓶颈提示和多方案对比。");
-    items.push("异常重排模块：处理插单、缺料、设备异常和交期变化。");
-    items.push("排产看板：展示产能负荷、计划达成率和异常原因。");
-  } else if (/预测性维护|运维|AIOps|故障|维修|备件|处置复盘/.test(text)) {
-    items.push("告警知识库：沉淀告警规则、故障原因、处置建议和引用来源。");
-    items.push("故障诊断助手：结合设备状态、历史案例和知识库输出排查路径。");
-    items.push("工单处置闭环：串联建议、派单、处理记录、备件申请和结果确认。");
-    items.push("运维复盘看板：统计告警命中、处理时长、复发问题和知识更新。");
-  } else if (/视频|摄像头|视觉|图像|画面|错装|违规动作|行为识别/.test(text)) {
-    items.push("视频接入模块：接入摄像头画面、区域配置和工位映射。");
-    items.push("行为识别模块：识别违规动作、错装错放和异常停留。");
-    items.push("告警联动模块：推送现场告警、留存截图和处置记录。");
-    items.push("复核标注台：人工复核误报漏报并沉淀样本。");
-  } else if (/知识库|文档|问答|RAG|材料|公文|报告/.test(text)) {
-    items.push("知识资产库：沉淀制度、模板、术语、项目文档和案例经验。");
-    items.push("检索问答模块：支持多轮问答、出处追溯和权限过滤。");
-    items.push("内容生成模块：按模板生成材料、报告、纪要或方案初稿。");
-    items.push("知识运营模块：支持更新、审核、版本和反馈闭环。");
-  } else if (/智能体|AI|agent|HolliCube|工业AI|平台/.test(text)) {
-    items.push("场景智能体中心：管理不同业务场景的智能体、工具和提示词。");
-    items.push("工业知识库层：沉淀行业 know-how、工艺规则、产品文档和项目经验。");
-    const platform = customerPlatformLabel({ report }, text);
-    items.push(platform === "HolliCube"
-      ? "数据与系统连接器：对接 HolliCube、业务系统和接口数据。"
-      : "数据与系统连接器：对接已核验业务数据、系统接口和工具调用入口。");
-    items.push("流程编排与工具调用：支持查询、分析、生成、告警和任务流转。");
-    items.push("权限审计与运营台：管理角色权限、调用日志、效果反馈和版本迭代。");
-  } else {
-    items.push("业务应用前台：承载客户侧高频使用入口和关键操作。");
-    items.push("数据/知识底座：管理结构化数据、文档知识和业务规则。");
-    items.push("系统连接器：对接现有业务系统、权限和日志。");
-    items.push("管理后台：配置角色、流程、模板、指标和运营反馈。");
-  }
-  return Array.from(new Set(items)).slice(0, 5);
 }
 
 function solutionWorkPackages(solution = {}, report = {}) {
   return [];
-  const text = `${solution.title || ""} ${solution.introduction || ""} ${solution.value || ""} ${solution.expectedImpact || ""} ${solution.prerequisite || ""}`;
-  if (sellerCapabilityMode(report) !== "digital") {
-    if (/国六|国七|排放|EGR|涡轮|增压|VTG|SCR|NOx|PM|柴油|天然气/.test(text)) {
-      return [
-        { title: "排放系统匹配", items: ["国七/国六法规目标和技术路线确认", "EGR率、冷却效率和增压效率参数对齐", "发动机平台和应用工况梳理"] },
-        { title: "样机与台架验证", items: ["EGR阀/冷却器/涡轮样机方案", "台架测试工况和性能数据", "耐久、排放和热效率验证闭环"] },
-        { title: "定点与量产资料", items: ["技术方案包和标定边界", "质量体系与认证资料", "报价、产能和交付计划"] }
-      ];
-    }
-    if (/新能源|电驱|电机|逆变器|电驱动|热管理|电池热管理|乘员舱热管理|混动|纯电|氢内燃机/.test(text)) {
-      return [
-        { title: "动力平台匹配", items: ["混动/纯电/氢内燃机技术路线确认", "功率等级、热负荷和布置空间对齐", "现有供应商和定点阶段识别"] },
-        { title: "电驱/热管理样件验证", items: ["电机/逆变器/热管理模块规格包", "样件测试计划和台架数据", "热管理边界工况和失效模式复核"] },
-        { title: "量产导入准备", items: ["国产化产能与供应周期确认", "质量体系和PPAP资料准备", "小批试供与量产爬坡计划"] }
-      ];
-    }
-    if (/海外工厂|海外新工厂|泰国|越南|东南亚|跨境|本地化配套|本地化供货|海外供货|当地法规/.test(text)) {
-      return [
-        { title: "海外准入与认证", items: ["目标工厂采购政策确认", "当地法规/认证要求梳理", "客户海外车型技术规格对齐"] },
-        { title: "本地化供货方案", items: ["仓储/伙伴/组装模式评估", "交付周期和安全库存设计", "跨境物流与售后响应边界"] },
-        { title: "小批验证与放量", items: ["样品和测试计划", "小批订单交付", "质量问题闭环和量产节奏确认"] }
-      ];
-    }
-    if (/成本|年降|毛利|利润|降本/.test(text)) {
-      return [
-        { title: "成本结构拆解", items: ["材料/工艺/良率成本拆分", "竞品价格与客户目标价对齐", "可让利和不可让利边界确认"] },
-        { title: "工艺与质量优化", items: ["良率提升措施", "替代材料或结构优化验证", "质量数据和失效模式复盘"] },
-        { title: "商务谈判支撑", items: ["降本测算表", "报价版本管理", "年降交换条件和交付承诺边界"] }
-      ];
-    }
-    if (/车型|定点|研发|技术|专利|执行器|样品|测试/.test(text)) {
-      return [
-        { title: "车型需求确认", items: ["车型平台和生命周期确认", "执行器/电机/PCBA技术参数对齐", "竞品或自研替代风险识别"] },
-        { title: "样品开发验证", items: ["样品方案设计", "测试数据与认证资料准备", "问题清单和改版闭环"] },
-        { title: "定点推进材料", items: ["技术方案包", "质量体系与产能证明", "报价和交付计划"] }
-      ];
-    }
-    return [
-      { title: "方案匹配确认", items: ["目标品类/服务和应用场景确认", "关键指标、认证或验收口径对齐", "现有供应商与替代边界梳理"] },
-      { title: "小范围验证", items: ["样品、试用服务或样例方案准备", "测试数据、质量记录或效果证明", "问题闭环与版本确认"] },
-      { title: "商务与交付准备", items: ["报价与账期确认", "供应商准入资料", "人员/产能/物料/服务响应和交付计划"] }
-    ];
-  }
-  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report }, text);
-  if (!hasDigitalTargetEvidence) {
-    return [
-      {
-        title: "业务场景核验",
-        items: ["业务问题和影响指标确认", "使用岗位和流程边界确认", "客户优先级和预算归属确认"]
-      },
-      {
-        title: "资料样例核验",
-        items: ["脱敏资料或流程样例", "业务规则和历史案例", "可量化验收指标"]
-      },
-      {
-        title: "方案边界判断",
-        items: ["仅做会前/现场轻量验证", "是否需要系统或数据接入", "是否进入正式方案和报价"]
-      }
-    ];
-  }
-  if (/排产|APS|计划|调度/.test(text)) {
-    return [
-      {
-        title: "排产规则库",
-        items: ["订单优先级与交期规则", "设备/人员/工装/物料约束", "换线、批量、产能和班次规则"]
-      },
-      {
-        title: "排程优化引擎",
-        items: ["自动生成排产方案", "多方案仿真比较", "瓶颈设备和延期风险提示"]
-      },
-      {
-        title: "异常重排模块",
-        items: ["插单/缺料/设备故障重排", "交期变化影响分析", "重排前后差异说明"]
-      },
-      {
-        title: "排产协同看板",
-        items: ["计划达成率看板", "异常原因追踪", "生产/计划/仓储协同提醒"]
-      }
-    ];
-  }
-  if (/预测性维护|运维|AIOps|故障|维修|备件|处置复盘/.test(text)) {
-    return [
-      {
-        title: "告警知识库",
-        items: ["告警规则入库", "故障原因和处置建议沉淀", "引用出处追溯"]
-      },
-      {
-        title: "故障诊断助手",
-        items: ["设备状态摘要", "历史案例匹配", "排查路径生成"]
-      },
-      {
-        title: "工单处置闭环",
-        items: ["处置建议推送", "工单和备件申请联动", "处理结果确认"]
-      },
-      {
-        title: "运维复盘看板",
-        items: ["告警命中统计", "处理时长分析", "复发问题和知识更新"]
-      }
-    ];
-  }
-  if (/视频|摄像头|视觉|图像|画面|错装|违规动作|行为识别/.test(text)) {
-    return [
-      {
-        title: "视频接入与区域配置",
-        items: ["摄像头接入", "工位/区域/产线映射", "识别范围和屏蔽区域配置"]
-      },
-      {
-        title: "行为识别能力",
-        items: ["违规动作识别", "错装错放识别", "异常停留或越界识别"]
-      },
-      {
-        title: "告警与处置闭环",
-        items: ["实时告警推送", "截图/视频片段留存", "处置记录和复盘统计"]
-      },
-      {
-        title: "样本与模型运营",
-        items: ["误报漏报复核", "样本标注沉淀", "规则/模型版本管理"]
-      }
-    ];
-  }
-  if (/知识库|文档|问答|RAG|材料|公文|报告/.test(text)) {
-    return [
-      {
-        title: "知识资产库",
-        items: ["政策/制度/模板入库", "术语和口径管理", "项目案例和经验沉淀"]
-      },
-      {
-        title: "检索问答能力",
-        items: ["多源检索", "答案出处追溯", "权限过滤和引用审计"]
-      },
-      {
-        title: "内容生成能力",
-        items: ["材料初稿生成", "格式模板套用", "多文风和多场景输出"]
-      },
-      {
-        title: "知识运营后台",
-        items: ["知识更新审核", "版本管理", "反馈纠错和持续优化"]
-      }
-    ];
-  }
-  if (/智能体|AI|agent|HolliCube|工业AI|平台/.test(text)) {
-    const platform = customerPlatformLabel({ report }, text);
-    const connectorItems = platform === "HolliCube"
-      ? [
-          "HolliCube 数据接口",
-          "MES/APS/ERP/WMS/LIMS 适配",
-          "权限、日志和审计接口"
-        ]
-      : [
-          "已核验系统/API数据接口",
-          "业务数据、文档和工具调用入口",
-          "权限、日志和审计接口"
-        ];
-    return [
-      {
-        title: "场景智能体中心",
-        items: ["智能体模板库", "工具调用配置", "多场景任务编排"]
-      },
-      {
-        title: "工业知识库层",
-        items: [
-          "行业 know-how 库",
-          "产品文档/项目经验库",
-          "规则、术语和标准口径库"
-        ]
-      },
-      {
-        title: "系统连接器",
-        items: connectorItems
-      },
-      {
-        title: "业务工作台",
-        items: [
-          "问答/分析/生成入口",
-          "告警与任务流转",
-          "效果反馈和运营看板"
-        ]
-      }
-    ];
-  }
-  return [
-    { title: "业务应用前台", items: ["用户入口", "业务操作台", "结果展示与反馈"] },
-    { title: "数据/知识底座", items: ["数据对象", "业务规则", "知识文档"] },
-    { title: "系统连接器", items: ["接口适配", "权限审计", "日志追踪"] },
-    { title: "运营管理后台", items: ["配置管理", "效果统计", "版本迭代"] }
-  ];
 }
 
 function buildDeliveryAssessment(report, round) {
@@ -5568,119 +5322,6 @@ function buildDeliveryAssessment(report, round) {
     responsePlan: arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses),
     sowOutline: arr(explicit.sowOutline)
   }, { report, round });
-  const solutions = arr(round.solutionCards);
-  const sellerMode = sellerCapabilityMode(report);
-  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report, round });
-  const prerequisites = Array.from(
-    new Set(
-      solutions
-        .map((item) => item.prerequisite)
-        .filter(meaningful)
-        .slice(0, 5)
-    )
-  );
-  const questionDeps = arr(round.questionnaire)
-    .filter((group) => /IT|数据|风险|边界|预算|决策/.test(group.title || ""))
-    .flatMap((group) => arr(group.questions))
-    .filter(meaningful)
-    .slice(0, 4);
-  const firstSolution = solutions[0] || {};
-  const architecture =
-    explicit.architectureSketch ||
-    (firstSolution.title
-      ? sellerMode === "digital" && hasDigitalTargetEvidence
-        ? `围绕“${firstSolution.title}”构建：客户业务数据/文档/系统样例 → 知识库或场景智能体 → 业务工作台/告警/报告输出。`
-        : sellerMode === "digital"
-          ? `围绕“${firstSolution.title}”构建：客户业务问题 → 脱敏资料/流程样例 → 轻量验证 → 是否进入系统或数据接入判断。`
-        : `围绕“${firstSolution.title}”构建：客户品类/服务需求 → 小范围验证 → 商务准入与交付计划 → 规模化合作。`
-      : sellerMode === "digital" && hasDigitalTargetEvidence
-        ? "客户业务数据/文档/系统样例 → 知识库或场景智能体 → 工作台/告警/报告输出。"
-        : sellerMode === "digital"
-          ? "客户业务问题 → 脱敏资料/流程样例 → 轻量验证 → 是否进入系统或数据接入判断。"
-        : "客户需求规格 → 小范围验证 → 商务准入 → 规模化合作。");
-  const riskTexts = arr(explicit.deliveryRisks)
-    .map((item) => actionableRiskText(item, 190))
-    .filter(meaningful);
-  const dependencyTexts = (arr(explicit.dependencies).length ? arr(explicit.dependencies) : [...prerequisites, ...questionDeps].slice(0, 6))
-    .map((item) => actionableDependencyText(item, 190))
-    .filter(meaningful);
-  const sowTexts = arr(explicit.sowOutline)
-    .map(cleanListItem)
-    .filter(meaningful)
-    .filter((item) => !isDeliveryEstimateText(item))
-    .filter((item) => substantiveText(item, 8) && !isNonDecisionClaim(item));
-  const fallbackSow = solutions.length
-    ? solutions.slice(0, 6).map((item) => {
-        const groups = solutionWorkPackages(item, report).map((group) => group.title).filter(meaningful).slice(0, 3);
-        return `${cleanBusinessText(item.title || "功能项", 48)}：${groups.length ? groups.join("、") : "输入、处理、输出与管理能力"}`;
-      })
-    : defaultDeliverySowOutline().map((item) => `${item.title}：${arr(item.items).join("、")}`);
-  const fallbackDependencies = [
-    ...(sellerMode === "digital"
-      ? hasDigitalTargetEvidence
-        ? [
-          "现有系统清单、接口/API文档、读写权限、鉴权方式和日志审计要求。",
-          "脱敏业务文档、数据样例、字段字典、更新频率和质量规则。",
-          "部署方式、网络/服务器资源、安全权限、SSO/账号体系和审计留痕要求。",
-          "验收数据集、指标口径、边界样例和变更处理机制。"
-        ]
-        : [
-          "客户真实业务问题、影响岗位、当前处理方式和优先级。",
-          "可脱敏资料、流程样例、历史案例、业务规则或线下表单。",
-          "本轮验证目标、验收指标、不可触碰的数据/合规边界和后续决策口径。",
-          "是否需要系统或数据接入；未确认前不把接口/API作为交付前提。"
-        ]
-      : [
-          "目标品类/服务、关键规格、认证要求和验收标准。",
-          "样品、资料、测试条件、质量问题记录或竞品供应信息。",
-          "供应商准入要求、报价口径、账期、合同主体和付款主体。",
-          "预测需求量、交付节奏、人员/产能/物料/服务响应要求。"
-        ])
-  ];
-  const fallbackRisks = [
-    ...(sellerMode === "digital"
-      ? hasDigitalTargetEvidence
-        ? [
-          "系统接口、权限和脱敏样例未锁定时，只能做轻量验证，不能承诺正式对接效果。",
-          "客户已有平台、智能问答或自研能力时，方案定位若变成替代既有能力会引发技术路线冲突。",
-          "多系统数据口径、接口边界和验收指标不清，会影响数据问答、运维闭环和验收口径。"
-        ]
-        : [
-          "客户业务场景、资料样例和成功指标未确认时，只能做会前假设或现场轻量验证。",
-          "未确认客户是否具备IT系统、数据接口或内部技术能力前，不能承诺系统对接、自动化闭环或正式上线效果。",
-          "如果客户只希望采购外部供应商服务，方案应按资料、流程和人工协同边界设计，不能默认客户自建平台。"
-        ]
-      : [
-          "技术规格、认证要求和测试工况未锁定时，样品验证可能反复返工。",
-          "既有供应商、客户自研替代或目标价压力未摸清时，报价和份额判断容易失真。",
-          "预测需求量、交付节奏和质量责任边界不清，会影响小批试用和量产放量。"
-        ])
-  ];
-  return {
-    architectureSketch: architecture,
-    dependencies: (dependencyTexts.filter(isSpecificDeliveryDependency).length ? dependencyTexts.filter(isSpecificDeliveryDependency) : fallbackDependencies).slice(0, 6),
-    deliveryRisks: (riskTexts.length ? riskTexts : fallbackRisks).slice(0, 5),
-    responsePlan: arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses).length
-      ? arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses)
-      : (sellerMode === "digital"
-        ? hasDigitalTargetEvidence
-          ? [
-          "先用一个最小业务闭环验证价值，再决定是否进入系统集成和正式项目范围。",
-          "把数据样例、接口权限、部署条件和验收口径列成客户侧准备清单，清单外内容不进入本轮交付范围。",
-          "把验收口径提前写清，包括准确率、效率提升、告警命中、报表质量或人工节省口径。"
-        ]
-          : [
-          "先用一个最小业务场景验证价值，再决定是否需要系统、数据或接口接入。",
-          "把脱敏资料、流程样例、业务规则和验收口径列成客户侧准备清单，清单外内容不进入本轮交付范围。",
-          "把验收口径提前写清，包括效率、质量、成本、合规或人工节省口径。"
-        ]
-        : [
-          "先用一个最小品类/服务范围验证技术、质量、成本或交付价值。",
-          "把规格、认证、样品/资料、报价、账期和准入资料列成客户侧准备清单。",
-          "把验收口径提前写清，包括测试指标、质量责任、交付节奏和规模化合作条件。"
-        ]),
-    sowOutline: (sowTexts.length ? sowTexts : fallbackSow).slice(0, 8)
-  };
 }
 
 function isSpecificDeliveryDependency(value = "") {

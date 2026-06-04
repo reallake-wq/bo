@@ -1,4 +1,4 @@
-import { createJob, findLatestReport } from "../lib/pipeline.mjs?v=oac-insight-20260531a";
+import { createJob, findLatestReport } from "../lib/pipeline.mjs?v=oac-insight-20260604a";
 import { fail, json, readBody } from "../lib/http.mjs";
 import { runtimeModeFromRequest } from "../lib/runtime-mode.mjs";
 import { getProfile, profileSnapshot } from "../lib/profiles.mjs";

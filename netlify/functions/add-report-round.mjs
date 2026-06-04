@@ -1,5 +1,5 @@
 import { fail, json, readBody } from "../lib/http.mjs";
-import { improveReport } from "../lib/pipeline.mjs?v=oac-insight-20260531a";
+import { improveReport } from "../lib/pipeline.mjs?v=oac-insight-20260604a";
 import { recordSuccessfulUsage, withOacRequestContext } from "../lib/auth.mjs";
 
 export default async function handler(request) {

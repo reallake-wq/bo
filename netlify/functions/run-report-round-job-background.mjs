@@ -1,6 +1,6 @@
 import { readBody } from "../lib/http.mjs";
 import { decorateJob } from "../lib/job-progress.mjs";
-import { improveReport, updateJob } from "../lib/pipeline.mjs?v=oac-insight-20260531a";
+import { improveReport, updateJob } from "../lib/pipeline.mjs?v=oac-insight-20260604a";
 import { readJson } from "../lib/store.mjs";
 import { contextFromJob, getJobRoute, recordSuccessfulUsage, withJobTenantContext } from "../lib/auth.mjs";
 

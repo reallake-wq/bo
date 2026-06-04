@@ -1,9 +1,9 @@
 import { callModel, extractJson } from "./ai.mjs";
 import { clip, env, uniqBy } from "./util.mjs";
-import { evaluateSourceQuality, TOPIC_NAMES } from "./report-quality.mjs?v=oac-insight-20260531a";
+import { evaluateSourceQuality, TOPIC_NAMES } from "./report-quality.mjs?v=oac-insight-20260604a";
 import { DEEPSEEK_FLASH_MODEL, DEEPSEEK_PRO_MODEL } from "./ai.mjs";
 import { collectTianyanchaEvidence, hasTianyanchaKey, resolveTianyanchaCandidateDetailed } from "./tianyancha.mjs";
-import { sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260531a";
+import { sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260604a";
 
 const SEARCH_RESULT_LIMIT = 10;
 const TOPIC_READ_LIMIT = 36;

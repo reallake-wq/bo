@@ -1,12 +1,12 @@
-import { collectSources } from "./research.mjs?v=oac-insight-20260531a";
-import { appendPostVisitRound, generateStructuredReport, improveStructuredReport, normalizeReportShape, renderReportHtml } from "./report.mjs?v=oac-insight-20260531a";
+import { collectSources } from "./research.mjs?v=oac-insight-20260604a";
+import { appendPostVisitRound, generateStructuredReport, improveStructuredReport, normalizeReportShape, renderReportHtml } from "./report.mjs?v=oac-insight-20260604a";
 import { getIndex, getTenantContext, readJson, saveIndex, writeJson, writeText } from "./store.mjs";
 import { clip, id, normalizeText, nowIso, slugify, scoreMatch } from "./util.mjs";
 import { ratingIndex } from "./opportunity-rating.mjs";
 import { resolveOpportunityRating } from "./rating-resolver.mjs";
 import { JobCancelledError, decorateJob, normalizePhase } from "./job-progress.mjs";
 import { enrichJobErrorPatch } from "./job-errors.mjs";
-import { auditReport, auditSources } from "./source-audit.mjs?v=oac-insight-20260531a";
+import { auditReport, auditSources } from "./source-audit.mjs?v=oac-insight-20260604a";
 import { readAnnualReportEvidence } from "./annual-report.mjs";
 import { getProfile, profileSnapshot } from "./profiles.mjs";
 import {
@@ -25,7 +25,7 @@ import {
   formatQualityWarnings,
   primaryCompanyName,
   withinDays
-} from "./report-quality.mjs?v=oac-insight-20260531a";
+} from "./report-quality.mjs?v=oac-insight-20260604a";
 
 function sameSellerProfile(report, company = {}) {
   const profileId = company.sellerProfileId || company.profileId || "";

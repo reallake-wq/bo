@@ -2,8 +2,8 @@ import { fail, json } from "../lib/http.mjs";
 import { getIndex, readJson, readText, saveIndex, writeJson, writeText } from "../lib/store.mjs";
 import { ratingIndex } from "../lib/opportunity-rating.mjs";
 import { ratingChanged, resolveOpportunityRating } from "../lib/rating-resolver.mjs";
-import { normalizeReportShape, renderReportHtml } from "../lib/report.mjs?v=oac-insight-20260531a";
-import { auditReport } from "../lib/source-audit.mjs?v=oac-insight-20260531a";
+import { normalizeReportShape, renderReportHtml } from "../lib/report.mjs?v=oac-insight-20260604a";
+import { auditReport } from "../lib/source-audit.mjs?v=oac-insight-20260604a";
 import { applySensitiveVerification } from "../lib/sensitive-verification.mjs";
 import { applyFreshnessGuardrails } from "../lib/evidence-freshness.mjs";
 import { withOacRequestContext } from "../lib/auth.mjs";
@@ -68,6 +68,7 @@ export default async function handler(request) {
   const html = renderReportHtml(report) || (await readText("reports", `${reportId}.html`, ""));
   const ratingWasChanged = ratingChanged(savedReport?.opportunityRating, report.opportunityRating);
   const shapeWasChanged =
+    JSON.stringify(savedReport || {}) !== JSON.stringify(report || {}) ||
     Number(savedReport?.activeRoundNo || 0) !== Number(report.activeRoundNo || 0) ||
     Number((savedReport?.rounds || []).length || 0) !== Number((report.rounds || []).length || 0) ||
     JSON.stringify(savedReport?.rounds || []) !== JSON.stringify(report.rounds || []) ||

@@ -1,5 +1,5 @@
 import { readBody } from "../lib/http.mjs";
-import { runReportJob, updateJob } from "../lib/pipeline.mjs?v=oac-insight-20260531a";
+import { runReportJob, updateJob } from "../lib/pipeline.mjs?v=oac-insight-20260604a";
 import { JobCancelledError } from "../lib/job-progress.mjs";
 import { getJobRoute, withJobTenantContext } from "../lib/auth.mjs";
 import { readJson } from "../lib/store.mjs";

@@ -1,5 +1,5 @@
 import { normalizeText, clip, uniqBy } from "./util.mjs";
-import { canonicalSourceUrl, sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260531a";
+import { canonicalSourceUrl, sourceFamilyOf } from "./source-audit.mjs?v=oac-insight-20260604a";
 
 export const RECENT_REPORT_DAYS = 7;
 export const FORMAL_SOURCE_MIN = 15;
