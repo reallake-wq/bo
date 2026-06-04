@@ -181,7 +181,7 @@ function evidenceLinks(item, sources = []) {
         .map(({ id, source }) => {
           const url = cleanUrl(source.url);
           const meta = [source.sourceType, source.domain, source.confidence].filter(Boolean).join("｜");
-          const support = source.relevanceReason || source.usedFor || source.query || "";
+          const support = cleanSourceEvidenceShell(source.relevanceReason || source.usedFor || source.query || "", 120);
           const title = cleanSourceTitleLabel(source);
           const excerpt = cleanSourceEvidenceShell(source.evidenceExcerpt || source.text || source.snippet || "", 180);
           return `<a href="${e(url)}" target="_blank" rel="noreferrer"><b>${e(id)}.</b> ${e(title)}${meta ? `<small>${e(meta)}</small>` : ""}${support ? `<small>支撑：${e(support)}</small>` : ""}${excerpt ? `<em>${e(excerpt)}</em>` : ""}</a>`;
@@ -1085,7 +1085,7 @@ function isIncompleteFieldText(value = "") {
   if (/\.{2,}|…/.test(text)) return true;
   if (/^[能可]$|^(?:能|可|可以|能够|需|需要|通过|用于|以|对|将|在|与|及|和|或|为|把|让)\s*[。；;，,：:]?$/.test(text)) return true;
   if (/[，,、：:；;]$/.test(text)) return true;
-  if (/(?:能|可|可以|能够|需要|通过|用于|围绕|基于|面向|对接|支撑|形成|提供|解决|实现|提升)\s*$/.test(text)) return true;
+  if (/(?:能|可|可以|能够|需要|通过|用于|围绕|基于|面向|对接|支撑|形成|提供|解决|实现|提升|同时|此外|并且|以及|但|而且|然后)\s*$/.test(text)) return true;
   if (/^(?:我方机会|客户痛点|解决方案|方案价值|适用前提)\s*(?:能|可|可以|能够)?\s*$/.test(text)) return true;
   const compact = text.replace(/[。；;，,、：:\s'"“”‘’()（）【】\[\]\-—_·|/\\.!！？?]/g, "");
   return compact.length < 4;
@@ -1095,6 +1095,11 @@ function safeFieldText(value = "", fallback = "", max = 260) {
   const text = cleanBusinessText(value, max);
   if (meaningful(text) && !isIncompleteFieldText(text)) return text;
   return cleanBusinessText(fallback, max);
+}
+
+function usefulFieldText(value = "", max = 260) {
+  const text = cleanBusinessText(value, max);
+  return meaningful(text) && !isIncompleteFieldText(text) ? text : "";
 }
 
 function substantiveText(value = "", minChars = 6) {
@@ -1422,7 +1427,7 @@ function cleanRoundTextItem(item = {}) {
   for (const key of textKeys) {
     if (typeof next[key] === "string") {
       const cleaned = cleanBusinessText(next[key], 520);
-      next[key] = decisionNarrativeKeys.has(key) && isNonDecisionClaim(cleaned) ? "" : cleaned;
+      next[key] = (decisionNarrativeKeys.has(key) && isNonDecisionClaim(cleaned)) || isIncompleteFieldText(cleaned) ? "" : cleaned;
     }
   }
   for (const key of listKeys) {
@@ -1671,6 +1676,25 @@ function sellerCapabilityTextHasTerm(text = "", report = {}) {
   const source = String(text || "");
   if (!meaningful(source)) return false;
   return sellerCapabilityTerms(report).some((term) => term.length >= 2 && source.includes(term));
+}
+
+function solutionMatchesSellerCapability(item = {}, report = {}) {
+  const text = [
+    item.title,
+    item.customerPain,
+    item.introduction,
+    item.value,
+    item.expectedImpact,
+    item.why,
+    item.how,
+    item.body,
+    item.prerequisite
+  ].filter(Boolean).join(" ");
+  if (!meaningful(text)) return false;
+  if (sellerCapabilityTextHasTerm(text, report)) return true;
+  if (sellerCapabilityMode(report) === "digital" && /智能体|Agent|知识库|知识图谱|数据问答|智能问答|问答|RAG|流程|工作流|数据接入|数据治理|API|接口|应用定制|系统集成|平台/.test(text)) return true;
+  if (sellerCapabilityMode(report) === "digital") return false;
+  return sellerAlignedText(text, { report });
 }
 
 function nonDigitalSellerGenericFit(text = "") {
@@ -2145,6 +2169,34 @@ function painItemsForVisibleSolutions(pains = [], solutions = [], limit = 5) {
 
 function visibleSolutionCards(items = [], limit = 5) {
   return normalizePrioritizedSolutions(items, limit);
+}
+
+function strategySolutionCards(strategy = {}) {
+  return normalizePrioritizedSolutions(
+    arr(strategy.rankedSolutions)
+      .map((item, index) => cleanRoundTextItem({
+        priority: item.priority || `P${Math.min(index, 2)}`,
+        title: item.title || item.name || "",
+        customerPain: item.customerPain || item.why || "",
+        introduction: item.introduction || item.how || "",
+        value: item.value || item.expectedImpact || item.why || "",
+        expectedImpact: item.expectedImpact || "",
+        prerequisite: item.prerequisite || item.condition || "",
+        why: item.why || "",
+        sourceIds: normalizeSourceIdList(item)
+      })),
+    5
+  );
+}
+
+function visibleSolutionsForRound(report = {}, round = {}, strategy = null, limit = 5) {
+  const rawRoundSolutions = arr(round.solutionCards).filter((item) => meaningful(item.title || item.name));
+  const fallback = rawRoundSolutions.length ? [] : strategySolutionCards(strategy || buildSolutionStrategy(report, round));
+  return visibleSolutionCards(
+    cleanDecisionSolutions([...rawRoundSolutions, ...fallback], { report, round })
+      .filter((item) => solutionMatchesSellerCapability(item, report)),
+    limit
+  );
 }
 
 function cleanDecisionPains(items = [], context = {}) {
@@ -4719,6 +4771,9 @@ function bestMetricText(report, patterns = []) {
   const label = found.label || found.title || "经营指标";
   const value = displayMetricValue(found);
   if (!meaningful(value)) return "";
+  if (/^0(?:\.0+)?(?:元|万元|亿元|%)?$/.test(String(value).replace(/\s+/g, ""))) return "";
+  const moneyYi = moneyValueInYi(value);
+  if (/营收|营业收入|净销售|收入|利润|现金流/.test(label) && Number.isFinite(moneyYi) && Math.abs(moneyYi) < 0.01) return "";
   return `${label}：${value}`;
 }
 
@@ -6283,8 +6338,118 @@ function isCorruptExtractedText(value = "") {
   return oddChars.length > cjkChars.length * 0.25 && oddChars.length > asciiWords.join("").length * 0.15;
 }
 
+function parseStructuredJsonText(value = "") {
+  const text = String(value || "").trim();
+  if (!/^[\[{]/.test(text)) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function hasStructuredMeaningfulScalar(value) {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.some((item) => hasStructuredMeaningfulScalar(item));
+  if (typeof value === "object") {
+    if (value.empty === true || value._empty === true || value.status === "empty") {
+      return Object.entries(value).some(([key, child]) => !/^_?empty$|^status$|^name$|^total$|^items$|^list$|^result$|^pageBean$/i.test(key) && hasStructuredMeaningfulScalar(child));
+    }
+    return Object.values(value).some(hasStructuredMeaningfulScalar);
+  }
+  const text = String(value || "").trim();
+  return Boolean(text) && text !== "-" && !/^0$/.test(text);
+}
+
+function structuredJsonIsEmpty(data) {
+  if (!data || typeof data !== "object") return false;
+  if (data._empty === true || data.empty === true) {
+    return !hasStructuredMeaningfulScalar({ ...data, _empty: undefined, empty: undefined });
+  }
+  const sources = data.sources && typeof data.sources === "object" ? Object.values(data.sources) : [];
+  if (sources.length && sources.every((item) => item?.empty === true || item?.status === "empty" || Number(item?.total || 0) === 0)) {
+    return !sources.some((item) => hasStructuredMeaningfulScalar({ ...item, empty: undefined, status: undefined, total: undefined }));
+  }
+  return false;
+}
+
+function structuredResultArray(value) {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value.items)) return value.items;
+  if (Array.isArray(value.list)) return value.list;
+  if (Array.isArray(value.result)) return value.result;
+  if (Array.isArray(value.pageBean?.result)) return value.pageBean.result;
+  return [];
+}
+
+function structuredSupplierSummary(data = {}, max = 220) {
+  const sources = data.sources || data;
+  const rows = [
+    ...structuredResultArray(sources.supply),
+    ...structuredResultArray(sources.supplier),
+    ...structuredResultArray(sources.customer)
+  ];
+  const texts = rows
+    .map((item) => {
+      const name = item.supplier_name || item.customer_name || item.name || item.alias || "";
+      if (!name) return "";
+      const amount = item.amt || item.amount || item.purchaseAmount || item.salesAmount || "";
+      const ratio = item.ratio || item.purchaseRatio || item.salesRatio || "";
+      const date = item.announcement_date || item.reportDate || item.report_period || item.year || "";
+      const parts = [
+        `供应商/客户：${name}`,
+        amount ? `金额${amount}` : "",
+        ratio ? `占比${ratio}` : "",
+        date ? `报告期${date}` : ""
+      ].filter(Boolean);
+      return parts.join("，");
+    })
+    .filter(meaningful);
+  return cleanBusinessText(uniqueTexts(texts, 4).join("；"), max);
+}
+
+function structuredBaseSummary(data = {}, max = 220) {
+  const base = data.sources?.base || data.base || {};
+  if (!base || typeof base !== "object") return "";
+  const parts = [
+    base.businessScope ? `经营范围：${base.businessScope}` : "",
+    base.regCapital || base.regCapitalAmount ? `注册资本：${base.regCapital || base.regCapitalAmount}` : "",
+    base.actualCapital ? `实缴资本：${base.actualCapital}${base.actualCapitalCurrency || ""}` : "",
+    base.aboveScale ? `规模口径：${base.aboveScale}` : "",
+    base.regStatus ? `登记状态：${base.regStatus}` : ""
+  ].filter(meaningful);
+  return cleanBusinessText(parts.join("；"), max);
+}
+
+function structuredJsonSummary(value = "", max = 220) {
+  const data = parseStructuredJsonText(value);
+  if (!data) return { handled: false, text: "" };
+  if (structuredJsonIsEmpty(data)) return { handled: true, text: "" };
+  const summaries = [
+    structuredSupplierSummary(data, max),
+    structuredBaseSummary(data, max)
+  ].filter(meaningful);
+  if (summaries.length) return { handled: true, text: cleanBusinessText(summaries.join("；"), max) };
+  return { handled: true, text: "" };
+}
+
 function cleanSourceEvidenceShell(value = "", max = 220) {
   if (isCorruptExtractedText(value)) return "";
+  const structured = structuredJsonSummary(value, max);
+  if (structured.handled) return structured.text;
+  const rawValue = String(value || "");
+  if (/^\s*[\[{]/.test(rawValue) && /"sources"|"_empty"|"empty"|"items"|"pageBean"/.test(rawValue.slice(0, 180))) return "";
+  const embeddedJsonStart = rawValue.indexOf("{");
+  if (embeddedJsonStart > 0 && /"sources"|"_empty"|"empty"|"items"|"pageBean"/.test(rawValue.slice(embeddedJsonStart, embeddedJsonStart + 120))) {
+    const embedded = structuredJsonSummary(rawValue.slice(embeddedJsonStart), max);
+    if (embedded.handled) {
+      if (embedded.text) return embedded.text;
+      return cleanBusinessText(rawValue.slice(0, embeddedJsonStart).replace(/[：:\s]*$/g, ""), max);
+    }
+    return cleanBusinessText(rawValue.slice(0, embeddedJsonStart).replace(/[：:\s]*$/g, ""), max);
+  }
+  if (emptyExternalRecordText(value)) return "";
   let text = compactText(value, Math.max(max * 2, 360));
   text = text
     .replace(/请输入问题（例如：[^。；;]*）\s*/g, "")
@@ -6298,6 +6463,7 @@ function cleanSourceEvidenceShell(value = "", max = 220) {
     .replace(/\s{2,}/g, " ")
     .trim();
   if (isCorruptExtractedText(text)) return "";
+  if (/走进[^。；;]{0,80}生产车间|生产周期为18\.7天|现在只需15\.7天/.test(text)) return "";
   text = text.replace(/^(?:[.。]\s*)+/, "").replace(/[：:｜|\-_\s]+$/g, "");
   return cleanBusinessText(text, max);
 }
@@ -6369,7 +6535,8 @@ function isCustomerSupplierCompetitorEvidenceText(value = "") {
   if (!meaningful(text)) return false;
   if (isSupplierDeliveryEvidenceText(text) && !isBuyerProcurementEvidenceText(text)) return false;
   if (/蒙牛|客户案例|为.{0,20}建设|承建|实施|交付|项目获奖|典型示范案例|解决方案提供商|服务商/.test(text) && !/采购人|招标人|采购单位|业主单位|采购公告|中标单位|成交供应商|供应商记录|历史供应商|采购平台|系统供应商|实施商|集成商/.test(text)) return false;
-  return /中标单位|成交供应商|供应商记录|历史供应商|供应商[：:\/]|客户[：:\/]|采购占比|采购金额|销售占比|销售金额|报告期|采购平台|系统供应商|既有供应商|合作供应商|合作伙伴|实施商|集成商|竞品|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康/.test(text);
+  if (/客户代表|合作伙伴|齐聚|见证|庆典|生态伙伴/.test(text) && !/供应商[：:\/]|供应商记录|采购金额|采购占比|报告期|中标单位|成交供应商|系统供应商|实施商|集成商|竞品|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康/.test(text)) return false;
+  return /中标单位|成交供应商|供应商记录|历史供应商|供应商[：:\/]|客户[：:\/]|采购占比|采购金额|销售占比|销售金额|报告期|采购平台|系统供应商|既有供应商|合作供应商|实施商|集成商|竞品|SAP|Oracle|Microsoft|微软|阿里|腾讯|华为|用友|金蝶|达索|西门子|大华|海康/.test(text);
 }
 
 function isSameProjectEvidenceText(value = "") {
@@ -6384,6 +6551,7 @@ function isSameProjectEvidenceText(value = "") {
 function isSellerAdjacentProcurementEvidenceText(value = "", report = {}) {
   const text = cleanBusinessText(value, 320);
   if (!isSameProjectEvidenceText(text)) return false;
+  if (!isTargetBuyerProcurementEvidenceText(text, report)) return false;
   if (!/采购人|招标人|采购单位|业主单位|招标单位|采购公告|招标公告|采购意向|采购项目|项目编号|中标单位|成交供应商|中标公告|成交公告|合同公告|合同金额|项目金额|预算金额|采购预算|政府采购|投标邀请|招标文件|发布采购|甲方/.test(text)) return false;
   if (/财务决算|财务审计|审计|会计师|税务鉴证|法律服务|律师|物业|保洁|安保|办公用品|印刷|食堂|餐饮|体检|保险|车辆租赁|公务用车|装修|会议服务|广告宣传|培训服务/.test(text)) return false;
   const profileText = sellerProfileText(report);
@@ -6492,8 +6660,8 @@ function sourceSignalRows(sources = [], pattern, max = 5, options = {}) {
     .slice(0, max);
 }
 
-function structuredProcurementEvidenceRows(sources = [], max = 5) {
-  const acceptedTools = new Set(["get_bidding_info", "search_bids", "get_suppliers_and_customers"]);
+function structuredProcurementEvidenceRows(sources = [], report = {}, max = 5) {
+  const acceptedTools = new Set(["get_bidding_info", "search_bids"]);
   const rows = arr(sources)
     .map((source, index) => {
       const tool = String(source.structuredTool || "");
@@ -6505,6 +6673,7 @@ function structuredProcurementEvidenceRows(sources = [], max = 5) {
       const concreteProcurement =
         /招投标记录|采购人|招标人|采购单位|中标结果|成交结果|采购金额|采购占比|供应商[：:]|search_bids|get_bidding_info|get_suppliers_and_customers/i.test(sourceText);
       if (!structuredProcurement || !concreteProcurement || !meaningful(body)) return null;
+      if (/get_bidding_info|search_bids/.test(tool) && !isTargetBuyerProcurementEvidenceText(body, report)) return null;
       return {
         text: compactText(body, 240),
         sourceId: sourceId(source, index)
@@ -6648,6 +6817,35 @@ function textMentionsTargetNear(text = "", report = {}, rolePattern = /./) {
     const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`(?:${rolePattern.source})[：:，,\\s]{0,16}${escaped}|${escaped}.{0,24}(?:${rolePattern.source})`).test(value);
   });
+}
+
+function isTargetBuyerProcurementEvidenceText(value = "", report = {}) {
+  const text = cleanBusinessText(value, 520);
+  if (!isBuyerProcurementEvidenceText(text)) return false;
+  return textMentionsTargetNear(text, report, /采购人|招标人|采购单位|业主单位|招标单位|甲方|发布采购|采购公告|招标公告|采购项目|采购意向/);
+}
+
+function isTargetPurchaseBudgetEvidenceText(value = "", report = {}) {
+  const text = cleanBusinessText(value, 520);
+  if (!meaningful(text)) return false;
+  if (isProcurementDirectoryOnlyText(text)) return false;
+  if (isBuyerProcurementEvidenceText(text)) return isTargetBuyerProcurementEvidenceText(text, report);
+  if (/采购人|招标人|采购单位|业主单位|中标单位|成交供应商|采购公告|招标公告|中标公告|成交公告/.test(text)) return false;
+  return isPurchaseBudgetEvidenceText(text);
+}
+
+function isDevelopmentStageEvidenceForTarget(value = "", report = {}) {
+  const text = cleanBusinessText(value, 520);
+  if (!meaningful(text)) return false;
+  if (isBuyerProcurementEvidenceText(text) && !isTargetBuyerProcurementEvidenceText(text, report)) return false;
+  return isDevelopmentStageEvidenceText(text);
+}
+
+function isEntryWindowEvidenceForTarget(value = "", report = {}) {
+  const text = cleanBusinessText(value, 520);
+  if (!meaningful(text)) return false;
+  if (isBuyerProcurementEvidenceText(text) && !isTargetBuyerProcurementEvidenceText(text, report)) return false;
+  return isEntryWindowEvidenceText(text);
 }
 
 function procurementEvidenceProfile(value = "", report = {}) {
@@ -7162,9 +7360,9 @@ function visitValidationSection(report, round, sources = []) {
     };
   }
   const procurementDirectorySignal = combinedSignal(round, sources, /招投标|招标项目|采购平台|供应商门户|供应商平台|工程招投标/i, 5, {
-    sourcePredicate: (_source, text) => isProcurementDirectoryOnlyText(text),
-    signalPredicate: isProcurementDirectoryOnlyText,
-    itemPredicate: (_section, _item, candidate) => isProcurementDirectoryOnlyText(candidate)
+    sourcePredicate: (_source, text) => isProcurementDirectoryOnlyText(text) && /采购平台|供应商门户|供应商平台|招标采购平台|采购中心/.test(text) && !/参与招投标|企业黄页|中标查询|以从事零售业/.test(text),
+    signalPredicate: (text) => isProcurementDirectoryOnlyText(text) && /采购平台|供应商门户|供应商平台|招标采购平台|采购中心/.test(text) && !/参与招投标|企业黄页|中标查询|以从事零售业/.test(text),
+    itemPredicate: (_section, _item, candidate) => isProcurementDirectoryOnlyText(candidate) && /采购平台|供应商门户|供应商平台|招标采购平台|采购中心/.test(candidate) && !/参与招投标|企业黄页|中标查询|以从事零售业/.test(candidate)
   });
   return decisionTreeSection({
     title: "初访验证清单",
@@ -7954,7 +8152,8 @@ function deliveryWithDerivedSow(delivery = {}, report = {}, round = {}) {
 }
 
 function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
-  const explicitOutline = normalizeSowOutline(delivery.sowOutline, { report, round });
+  const solutions = visibleSolutionsForRound(report, round, buildSolutionStrategy(report, round), 8);
+  const explicitOutline = alignedSowOutlineWithSolutions(normalizeSowOutline(delivery.sowOutline, { report, round }), solutions);
   const outline = explicitOutline.length ? explicitOutline : normalizeSowOutline(solutionDerivedSowOutline(report, round), { report, round });
   return outline
     .slice(0, 8)
@@ -7982,6 +8181,54 @@ function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
       };
     })
     .filter((branch) => arr(branch.rows).length);
+}
+
+function solutionMatchTokens(value = "") {
+  return uniqueTexts(
+    cleanBusinessText(value, 180)
+      .replace(/^P[0-2]\s*[｜|:：-]\s*/i, "")
+      .split(/[\s｜|:：，,、\/+＋\-—；;。()（）]+/)
+      .map((item) => cleanBusinessText(item, 18))
+      .filter((item) => item.length >= 3)
+      .filter((item) => !/方案|平台|系统|能力|功能|模块|试点|统一|管理|智能|数据/.test(item)),
+    8
+  );
+}
+
+function sowModuleMatchesSolution(module = {}, solution = {}) {
+  const sowText = [
+    module.priority,
+    module.solutionTitle,
+    module.primaryFunction,
+    module.description,
+    ...arr(module.items).flatMap((item) => [item.name, item.description])
+  ].filter(Boolean).join(" ");
+  const solutionText = [
+    solution.priority,
+    solution.title,
+    solution.customerPain,
+    solution.introduction,
+    solution.value,
+    solution.why
+  ].filter(Boolean).join(" ");
+  const sowKey = normalizeForCompare(sowText);
+  const solutionTitleKey = normalizeForCompare(solution.title || "");
+  if (solutionTitleKey && sowKey && (sowKey.includes(solutionTitleKey) || solutionTitleKey.includes(normalizeForCompare(module.solutionTitle || module.primaryFunction || "")))) return true;
+  const sowPriority = explicitPriorityLabel(module.priority);
+  const solutionPriority = explicitPriorityLabel(solution.priority);
+  const samePriority = sowPriority && solutionPriority && sowPriority === solutionPriority;
+  const solutionTokens = solutionMatchTokens(solutionText);
+  const sowTokens = new Set(solutionMatchTokens(sowText));
+  const overlap = solutionTokens.filter((token) => sowTokens.has(token));
+  return samePriority && overlap.length >= 1;
+}
+
+function alignedSowOutlineWithSolutions(outline = [], solutions = []) {
+  const normalized = arr(outline);
+  const visible = arr(solutions).filter((item) => meaningful(item.title));
+  if (!normalized.length) return [];
+  if (!visible.length) return [];
+  return normalized.filter((module) => visible.some((solution) => sowModuleMatchesSolution(module, solution)));
 }
 
 function sowTaskList(group = {}, solution = {}, complexityMap = null, groupIndex = 0) {
@@ -8117,8 +8364,8 @@ function basicCustomerProfileIntro(round = {}, sources = []) {
     firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /主营|经营范围|生产|经销|提供|专注于|业务|乳制品|制造|服务/) ||
     firstProfileSourceLine(sources, /主营|经营范围|生产|经销|提供|专注于|业务|乳制品|制造|服务/);
   const product =
-    firstProfileSourceLine(sources, /产品矩阵|产品|品类|品牌|液态奶|冰淇淋|奶粉|奶酪|平台|系统|工业互联网|智能制造/) ||
-    firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /产品|品类|品牌|平台|系统|液态奶|冰淇淋|奶粉|奶酪|Holli|MES|APS|ERP|WMS|LIMS|工业互联网|智能制造/);
+    firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /核心产品|产品包括|主要产品|业务涉及|品类|品牌|平台|系统|液态奶|冰淇淋|奶粉|奶酪|Holli|MES|APS|ERP|WMS|LIMS|工业互联网|智能制造/) ||
+    firstProfileSourceLine(sources, /核心产品|产品包括|主要产品|业务涉及|产品矩阵|产能主要涉及|液态奶|冰淇淋|奶粉|奶酪|平台|系统|工业互联网|智能制造|涡轮增压器|发动机正时链条|可变凸轮正时/);
   const customer =
     firstMatchingInfoLine(round, /business|业务|产品|客户|market|案例/, /客户|消费者|服务对象|客户名单|服务于|面向|全球消费者/) ||
     firstProfileSourceLine(sources, /客户|消费者|服务对象|服务于|面向|全球消费者|中国和全球消费者/);
@@ -8181,11 +8428,11 @@ function customerProfilePerspective(report, round, sources = []) {
   const triggerRows = mergeEvidenceRows(
     combinedSignal(round, sources, /融资|上市|并购|新设|新建|基地|招聘|中标|项目|合作|扩张|扩产|转型|数字化|智能制造|升级|裁员|舆情|入选|补助|重点研发/i, 6, {
       excludeFamilies: ["subject_registry"],
-      sourcePredicate: (_source, text) => isDevelopmentStageEvidenceText(text),
-      signalPredicate: isDevelopmentStageEvidenceText,
-      itemPredicate: (_section, _item, candidate) => isDevelopmentStageEvidenceText(candidate)
+      sourcePredicate: (source) => isDevelopmentStageEvidenceForTarget(sourceDecisionSignalText(source), report),
+      signalPredicate: (text) => isDevelopmentStageEvidenceForTarget(text, report),
+      itemPredicate: (_section, _item, candidate) => isDevelopmentStageEvidenceForTarget(candidate, report)
     }).evidence.map((text) => ({ text }))
-  ).filter((row) => isDevelopmentStageEvidenceText(row.text));
+  ).filter((row) => isDevelopmentStageEvidenceForTarget(row.text, report));
   const industrySupportRows = mergeEvidenceRows(industryRows, triggerRows.filter((row) => isIndustryPositionEvidenceText(row.text)));
   const maturityRows = mergeEvidenceRows(
     infoEvidenceBySection(round, /digital|AI|数字|系统|技术/, /.*/, 5),
@@ -8362,15 +8609,15 @@ function salesPerspective(report, round, sources = []) {
   const operating = cards[3] || {};
   const triggerSignal = filterSignal(
     combinedSignal(round, sources, /扩张|扩产|新建|新增|投产|产能|融资|上市|并购|战略合作|重大合作|签约|招投标|中标|采购项目|招聘|高管|组织调整|处罚|诉讼|监管|政策|国产化|安全|合规|转型|升级|项目|立项|客户案例|合作/i, 5),
-    isActionTriggerSignal
+    (text) => isActionTriggerSignal(text) && isDevelopmentStageEvidenceForTarget(text, report)
   );
-  const entryWindowSignal = filterSignal(triggerSignal, isEntryWindowEvidenceText);
+  const entryWindowSignal = filterSignal(triggerSignal, (text) => isEntryWindowEvidenceForTarget(text, report));
   let procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 5, {
-    sourcePredicate: (_source, text) => isBuyerProcurementEvidenceText(text),
-    signalPredicate: isBuyerProcurementEvidenceText,
-    itemPredicate: (_section, _item, candidate) => isBuyerProcurementEvidenceText(candidate)
+    sourcePredicate: (source) => isTargetBuyerProcurementEvidenceText(sourceDecisionSignalText(source), report),
+    signalPredicate: (text) => isTargetBuyerProcurementEvidenceText(text, report),
+    itemPredicate: (_section, _item, candidate) => isTargetBuyerProcurementEvidenceText(candidate, report)
   });
-  const structuredProcurementRows = structuredProcurementEvidenceRows(sources, 5);
+  const structuredProcurementRows = structuredProcurementEvidenceRows(sources, report, 5);
   if (structuredProcurementRows.length) {
     procurementSignal = {
       evidence: structuredProcurementRows.map((row) => row.text),
@@ -8393,9 +8640,9 @@ function salesPerspective(report, round, sources = []) {
     itemPredicate: (_section, _item, candidate) => isSupplierDeliveryEvidenceText(candidate)
   });
   const budgetSignal = combinedSignal(round, sources, /营收|营业收入|净利润|利润|现金流|研发投入|注册资本|实缴|融资|上市|采购人|招标人|采购单位|采购公告|预算|项目金额|合同金额|固定资产|扩产|产能/i, 6, {
-    sourcePredicate: (_source, text) => isPurchaseBudgetEvidenceText(text),
-    signalPredicate: isPurchaseBudgetEvidenceText,
-    itemPredicate: (_section, _item, candidate) => isPurchaseBudgetEvidenceText(candidate)
+    sourcePredicate: (source) => isTargetPurchaseBudgetEvidenceText(sourceDecisionSignalText(source), report),
+    signalPredicate: (text) => isTargetPurchaseBudgetEvidenceText(text, report),
+    itemPredicate: (_section, _item, candidate) => isTargetPurchaseBudgetEvidenceText(candidate, report)
   });
   const budgetEvidence = uniqueTexts([
     ...budgetMetrics,
@@ -8473,13 +8720,9 @@ function salesPerspective(report, round, sources = []) {
   const purchaseHabitClaim =
     arr(procurementSignal.evidence).length
       ? `客户存在公开招投标或项目制采购记录，采购习惯可作定性判断：会通过公告、招标/成交结果或供应商记录留下痕迹，但当前样本仍需区分融资公告、办公采购和业务系统采购。`
-      : arr(procurementDirectorySignal.evidence).length
-        ? "只查到招投标/供应商门户目录入口，尚未查到具体采购项目、预算金额或成交供应商明细。"
     : "未查到客户作为甲方的公开采购记录，采购习惯未形成有效判断。";
   const purchaseHabitEvidence = arr(procurementSignal.evidence).length
     ? arr(procurementSignal.evidence)
-    : arr(procurementDirectorySignal.evidence).length
-      ? arr(procurementDirectorySignal.evidence)
     : ["已读来源未形成客户作为甲方的采购公告、采购平台记录或供应商记录；现有材料主要体现客户对外交付能力。"];
   const nearBudgetEvidence = uniqueTexts([...arr(entryWindowSignal.evidence), ...arr(procurementSignal.evidence), ...arr(budgetSignal.evidence)].filter(isBudgetWindowEvidenceText), 6);
   const nearBudgetClaim =
@@ -8549,15 +8792,13 @@ function salesPerspective(report, round, sources = []) {
       evidence: purchaseHabitEvidence,
       branches: arr(procurementSignal.evidence).length
         ? [forcedBranch("采购记录依据", procurementDetailClaim(arr(procurementSignal.evidence)), arr(procurementSignal.evidence), arr(procurementSignal.sourceIds))]
-        : arr(procurementDirectorySignal.evidence).length
-          ? [forcedBranch("目录线索", "只查到招投标或供应商门户入口；当前证据没有给出具体采购内容、预算金额或成交供应商，不能当作采购习惯强证据。", arr(procurementDirectorySignal.evidence), arr(procurementDirectorySignal.sourceIds))]
         : [boundaryBranch("未查到客户作为甲方的采购公告、采购平台记录或供应商记录。")],
-      sourceIds: arr(procurementSignal.sourceIds).length ? arr(procurementSignal.sourceIds) : arr(procurementDirectorySignal.sourceIds),
+      sourceIds: arr(procurementSignal.sourceIds),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
-      tone: arr(procurementSignal.evidence).length ? "strong" : arr(procurementDirectorySignal.evidence).length ? "watch" : ""
+      tone: arr(procurementSignal.evidence).length ? "strong" : ""
     },
     {
       label: "是否近期可能有预算",
@@ -8656,12 +8897,50 @@ function salesPerspective(report, round, sources = []) {
   </div>`;
 }
 
+function coreBusinessSceneEvidenceText(value = "") {
+  const text = cleanBusinessText(value, 520);
+  if (!meaningful(text)) return "";
+  const bad = /杰出雇主|人才战略|敏捷办公|证券代码|提示性公告|虚假记载|误导性陈述|客户代表、合作伙伴|齐聚现场|共同见证|庆典仪式|二十周年|搜寻网站|参展商搜索|备注:/;
+  const good = /核心产品|产品包括|业务涉及|生产基地|年产|产量|涡轮增压器|发动机正时链条|可变凸轮|链条系统|质量实验室|检测中心|软件著作权|自研|智能设备管理系统|智能模具管理系统|专利|研发/;
+  const sentence = splitChineseSentences(text)
+    .map((item) => cleanBusinessText(item, 190))
+    .find((item) => good.test(item) && !bad.test(item));
+  return sentence || "";
+}
+
+function solutionIntroFallback(item = {}, customerPain = "") {
+  const title = cleanBusinessText(item.title || "建议方案", 70);
+  const pain = cleanBusinessText(customerPain, 120);
+  if (/知识|问答|数据|追溯|质量|报告|检索/.test(`${title} ${pain}`)) {
+    return `围绕“${title}”先做一个数据样例到问答/追溯结果的最小闭环，验证资料来源、字段口径、回答准确性和业务人员是否愿意使用。`;
+  }
+  if (/智能体|Agent|流程|自动化|编排|助手/.test(`${title} ${pain}`)) {
+    return `围绕“${title}”先选一个高频业务流程，把输入资料、判断步骤、人工复核和输出结果串成可演示的智能体闭环。`;
+  }
+  if (/接口|集成|系统|平台|应用/.test(`${title} ${pain}`)) {
+    return `围绕“${title}”先确认一个可开放系统或数据源，做轻量接入和样例验证，再决定是否扩大到正式集成。`;
+  }
+  return `围绕“${title}”先选择一个客户认可的子场景，形成可演示、可验收、边界清楚的轻量验证。`;
+}
+
+function solutionBranchDecisionClaim(item = {}, index = 0, customerPain = "", value = "") {
+  const priority = normalizePriorityLabel(item.priority, index);
+  const title = cleanBusinessText(item.title || "建议方案", 70);
+  const text = `${title} ${customerPain} ${value} ${item.why || ""} ${item.introduction || ""}`;
+  let target = "客户是否认可该场景的业务价值和落地边界";
+  if (/质量|追溯|检测|实验室/.test(text)) target = "质量数据能否被统一检索、追溯和问答";
+  else if (/知识|问答|检索|资料|文档/.test(text)) target = "知识和资料能否被快速检索、问答和复用";
+  else if (/智能体|Agent|流程|编排|助手/.test(text)) target = "高频流程能否被智能体稳定串联并保留人工复核";
+  else if (/接口|集成|系统|平台|应用/.test(text)) target = "现有系统或数据源是否具备轻量接入和样例验证条件";
+  return `${priority}｜${title}：优先验证${target}。`;
+}
+
 function presalesPerspective(report, round, sources = []) {
   const strategy = buildSolutionStrategy(report, round);
   const sellerMode = sellerCapabilityMode(report);
   const rawPains = arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity));
   const operationalPains = [];
-  const solutions = visibleSolutionCards(arr(round.solutionCards).filter((item) => meaningful(item.title)), 5);
+  const solutions = visibleSolutionsForRound(report, round, strategy, 5);
   const pains = painItemsForVisibleSolutions(mergeOperationalPainItems(rawPains, operationalPains, 8), solutions, solutions.length || 5);
   const topPain = pains[0] || rawPains[0] || {};
   const topSolution = solutions[0] || {};
@@ -8761,8 +9040,16 @@ function presalesPerspective(report, round, sources = []) {
   const solutionSummary = topSolution.title
     ? `${topSolution.priority || "P0"} 方案应先围绕“${cleanBusinessText(topSolution.title, 60)}”展开，再按价值和可落地性扩展。`
     : "配套解决方案应先围绕最强痛点做一个可验证闭环，不宜一次铺开所有能力。";
-  const coreSceneEvidence = arr(coreSceneSignal.evidence).filter((item) => !/产品中心|提供智能化系统解决方案|企业展厅|详情\s*-\s*/.test(String(item || "")));
+  const coreSceneEvidence = uniqueTexts(
+    arr(coreSceneSignal.evidence)
+      .filter((item) => !/产品中心|提供智能化系统解决方案|企业展厅|详情\s*-\s*/.test(String(item || "")))
+      .map(coreBusinessSceneEvidenceText)
+      .filter(meaningful),
+    6
+  );
   const coreSceneLead = cleanBusinessText(strategy.currentSituation || painSummary || topPain.customerSignal || coreSceneEvidence[0] || "", 130)
+    .replace(/[。；;，,]+$/, "")
+    .replace(/(?:同时|此外|并且|以及|但|而且|然后)$/g, "")
     .replace(/[。；;，,]+$/, "");
   const digitalRows = namedSystemEvidenceRows(arr(digitalMaturitySignal.evidence).map((text) => ({ text })));
   const existingRows = namedSystemEvidenceRows(arr(existingSystemSignal.evidence).map((text) => ({ text })));
@@ -8793,7 +9080,7 @@ function presalesPerspective(report, round, sources = []) {
     );
     const intro = safeFieldText(
       item.introduction || item.solutionIntro || item.how || item.body || "",
-      `围绕“${cleanBusinessText(item.title || "建议方案", 70)}”形成一个可演示、可验证的解决闭环。`,
+      solutionIntroFallback(item, customerPain),
       280
     );
     const value = safeFieldText(
@@ -8820,7 +9107,7 @@ function presalesPerspective(report, round, sources = []) {
     ];
     return structuredBranch(
       `${item.priority || "P1"}｜${cleanBusinessText(item.title || "方案", 44)}`,
-      `${normalizePriorityLabel(item.priority, index)} 方案是“${cleanBusinessText(item.title || "建议方案", 70)}”。`,
+      solutionBranchDecisionClaim(item, index, customerPain, value),
       fields,
       normalizeSourceIdList(item),
       "solution-fields"
@@ -8889,9 +9176,9 @@ function presalesPerspective(report, round, sources = []) {
         : "未查到足够具体的核心业务场景。",
       evidence: uniqueTexts([...coreSceneEvidence, painSummary, topPain.customerSignal], 6),
       branches: coreSceneEvidence.length
-        ? [forcedBranch("业务场景依据", "已查到以下业务、产品、服务对象、客户案例或行业属性线索。", coreSceneEvidence, arr(coreSceneSignal.sourceIds))]
+        ? [forcedBranch("业务场景依据", "已查到以下业务、产品、服务对象、客户案例或行业属性线索。", coreSceneEvidence, [])]
         : [boundaryBranch("未查到官网业务、产品线、服务对象、客户案例或行业属性等可用依据。")],
-      sourceIds: Array.from(new Set([...arr(coreSceneSignal.sourceIds), ...normalizeSourceIdList(topPain)])).slice(0, 6),
+      sourceIds: normalizeSourceIdList(topPain),
       forceDisplay: true,
       allowBoundaryEvidence: true,
       useExplicitBranchesOnly: true,
@@ -9113,7 +9400,8 @@ function deliveryRiskResponseBranches(report = {}, round = {}, delivery = {}) {
     .filter(meaningful)
     .filter((item) => !isDependencyInstructionText(item))
     .filter((item) => /数据|接口|系统|权限|安全|部署|验收|模型|算法|现场|设备/.test(item));
-  const mergedRisks = uniqueTexts([...risks, ...solutionRisks], 5);
+  const derivedRisks = deriveTechnicalRisksFromDelivery(report, round, delivery);
+  const mergedRisks = uniqueTexts([...risks, ...solutionRisks, ...derivedRisks], 5);
   return mergedRisks.slice(0, 5).map((risk, index) => {
     const response = responses[index] || responses.find((item) => deliveryRiskCategory(item) === deliveryRiskCategory(risk)) || defaultResponseForRisk(risk);
     return {
@@ -9130,6 +9418,49 @@ function deliveryRiskResponseBranches(report = {}, round = {}, delivery = {}) {
       forceDisplay: true
     };
   });
+}
+
+function deliveryTechnicalContextText(report = {}, round = {}, delivery = {}) {
+  const solutions = visibleSolutionsForRound(report, round, buildSolutionStrategy(report, round), 8);
+  const outline = alignedSowOutlineWithSolutions(normalizeSowOutline(delivery.sowOutline, { report, round }), solutions);
+  return [
+    ...solutions.flatMap((item) => [item.title, item.customerPain, item.introduction, item.value, item.why]),
+    ...arr(outline).flatMap((module) => [
+      module.solutionTitle,
+      module.primaryFunction,
+      module.description,
+      ...arr(module.items).flatMap((item) => [item.name, item.description])
+    ]),
+    ...arr(delivery.responsePlan)
+  ].filter(meaningful).join("；");
+}
+
+function firstSowTaskName(delivery = {}) {
+  const module = arr(delivery.sowOutline).find((item) => arr(item.items).some((task) => meaningful(task.name || task.title || task.label)));
+  const task = arr(module?.items).find((item) => meaningful(item.name || item.title || item.label));
+  return cleanBusinessText(task?.name || task?.title || task?.label || "", 60);
+}
+
+function deriveTechnicalRisksFromDelivery(report = {}, round = {}, delivery = {}) {
+  const text = deliveryTechnicalContextText(report, round, delivery);
+  const risks = [];
+  if (/数据|字段|样例|质量|追溯|问答|知识/.test(text)) {
+    risks.push("数据来源、字段口径、样例质量和更新频率未核验时，智能问答、质量追溯或知识库结果只能作为样例验证。");
+  }
+  if (/接口|API|数据库|文件导入|系统|对接|接入/.test(text)) {
+    risks.push("现有系统接口、导出方式、鉴权方式和测试环境未确认时，接入方案只能按客户可提供的数据边界设计。");
+  }
+  if (/权限|安全|合规|脱敏|本地化|部署|日志|审计/.test(text)) {
+    risks.push("数据安全、权限、脱敏、本地化部署和日志审计要求未确认时，不能承诺生产环境接入范围。");
+  }
+  if (/模型|算法|准确率|误报|漏报|根因|预测|生成/.test(text)) {
+    risks.push("模型效果、准确率、误报漏报和人工复核流程未验证时，不能把样例结果当成正式业务结论。");
+  }
+  if (!risks.length) {
+    const task = firstSowTaskName(delivery);
+    if (task) risks.push(`二级功能项“${task}”的数据样例、系统边界和验收口径未确认时，只能先收敛为轻量验证。`);
+  }
+  return risks;
 }
 
 function isTechnicalDependencyText(value = "") {
@@ -9162,7 +9493,10 @@ function technicalDependencyBranches(delivery = {}, round = {}, report = {}) {
     .map(normalizeTechnicalDependency)
     .filter(meaningful)
     .slice(0, 5);
-  return dependencies.slice(0, 5).map((item, index) => ({
+  const finalDependencies = dependencies.length
+    ? dependencies
+    : deriveTechnicalDependenciesFromDelivery(report, round, delivery);
+  return finalDependencies.slice(0, 5).map((item, index) => ({
     title: `技术依赖${index + 1}`,
     claim: cleanBusinessText(item, 180),
     fields: [
@@ -9176,6 +9510,24 @@ function technicalDependencyBranches(delivery = {}, round = {}, report = {}) {
     evidence: [item],
     forceDisplay: true
   }));
+}
+
+function deriveTechnicalDependenciesFromDelivery(report = {}, round = {}, delivery = {}) {
+  const text = deliveryTechnicalContextText(report, round, delivery);
+  const dependencies = [];
+  if (/数据|字段|样例|质量|追溯|问答|知识/.test(text)) {
+    dependencies.push("现有数据源清单、字段字典、历史样例、缺失率、更新频率和可导出范围。");
+  }
+  if (/接口|API|数据库|文件导入|系统|对接|接入/.test(text)) {
+    dependencies.push("可用的数据导出方式或接口方式，包括 API、文件导入、数据库只读访问、鉴权方式和测试环境。");
+  }
+  if (/权限|安全|合规|脱敏|本地化|部署|日志|审计/.test(text)) {
+    dependencies.push("账号权限、数据脱敏、本地化部署、日志审计和安全审批要求。");
+  }
+  if (/模型|算法|准确率|误报|漏报|根因|预测|生成|验收/.test(text)) {
+    dependencies.push("可验收样例、指标口径、边界场景、人工复核流程和不承诺项。");
+  }
+  return dependencies;
 }
 
 function deliveryArgumentSection(report, round) {
@@ -9325,13 +9677,13 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
   const topSolution = arr(round.solutionCards).find((item) => meaningful(item.title)) || {};
   const concreteSensitive = arr(report.sensitiveVerification?.categories).filter(hasImpactfulSensitiveRisk);
   const procurementSignal = combinedSignal(round, sources, /招标|采购|合同|预算|项目金额|采购金额|投标邀请|采购人|招标人|采购单位|政府采购/i, 4, {
-    sourcePredicate: (_source, text) => isBuyerProcurementEvidenceText(text),
-    signalPredicate: isBuyerProcurementEvidenceText,
-    itemPredicate: (_section, _item, candidate) => isBuyerProcurementEvidenceText(candidate)
+    sourcePredicate: (source) => isTargetBuyerProcurementEvidenceText(sourceDecisionSignalText(source), report),
+    signalPredicate: (text) => isTargetBuyerProcurementEvidenceText(text, report),
+    itemPredicate: (_section, _item, candidate) => isTargetBuyerProcurementEvidenceText(candidate, report)
   });
   const entrySignal = filterSignal(
     combinedSignal(round, sources, /采购意向|招标计划|预算金额|采购预算|采购公告|招标公告|新建|扩产|投产|融资|募投|并购|专项资金|政府补助|技改|改造|组织调整|高管变更/i, 5),
-    isEntryWindowEvidenceText
+    (text) => isEntryWindowEvidenceForTarget(text, report)
   );
   const riskTexts = usefulRatingEvidence([
     ...arr(rating.riskFlags),
