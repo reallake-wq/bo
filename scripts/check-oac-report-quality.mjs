@@ -446,6 +446,10 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u9884\u7b97|\u4e70\u5355|\u4ed8\u6b3e\u80fd\u529b|\u8425\u6536|\u5229\u6da6"),
     decision: html.includes("decision-section") || hasText(text, "\u51b3\u7b56\u94fe|\u62cd\u677f|\u9884\u7b97\u5f52\u5c5e|\u91c7\u8d2d\u6743")
   };
+  const deliverySowBoundaryOnly =
+    html.includes("delivery-argument-section") &&
+    hasText(text, "\u6682\u65e0\u53ef\u5c55\u793a\u7684SOW\u5206\u89e3") &&
+    hasText(text, "\u4e0d\u4f7f\u7528\u540e\u53f0\u6a21\u677f\u8865\u5168");
   const structure = {
     consultingViews:
       html.includes("view-profile") &&
@@ -454,10 +458,13 @@ function scoreHtml(html, report = {}) {
       html.includes("view-delivery") &&
       html.includes("argument-tree"),
     workPackages:
-      html.includes("delivery-argument-section") &&
-      (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")) &&
-      hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") &&
-      hasText(text, "\u96be\u70b9\u6807\u8bc6|\u96be\u70b9"),
+      (
+        html.includes("delivery-argument-section") &&
+        (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")) &&
+        hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") &&
+        hasText(text, "\u96be\u70b9\u6807\u8bc6|\u96be\u70b9")
+      ) ||
+      deliverySowBoundaryOnly,
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
     deliveryAssessment: html.includes("delivery-argument-section") && (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")),
     deliveryOrder:

@@ -1324,9 +1324,10 @@ function decisionTextFromItem(item = {}) {
   ].filter(Boolean).join("；");
 }
 
-function cleanDecisionCardItems(items = [], limit = 12) {
+function cleanDecisionCardItems(items = [], limit = 12, context = {}) {
   return arr(items)
     .map(cleanRoundTextItem)
+    .map((item) => sanitizeDomainTemplateItem(item, context))
     .filter((item) => meaningful(item.title) || meaningful(decisionTextFromItem(item)))
     .filter((item) => !isNonDecisionClaim(decisionTextFromItem(item)) || arr(item.facts).some(meaningful))
     .slice(0, limit);
@@ -1538,6 +1539,72 @@ function nonDigitalSellerGenericFit(text = "") {
   return /供应商|供货|车型|定点|份额|质量|交付|成本|年降|认证|样品|小批|量产|研发协同|技术规格|技术要求|BOM|海外|本地化|产能|配套|零部件|主机厂|整车厂|客户订单|框架协议|准入/.test(String(text || ""));
 }
 
+function fixedIndustryTemplateText(value = "") {
+  return /新车型|车型定点|车型平台|整车厂|主机厂|PPAP|IATF|EGR|国六|国七|涡轮|热管理|电驱|执行器|车灯|PCBA|BOM|量产|小批|供货份额|扩大供货|年降谈判|技术规格对标|车型认证|车型.*验证|定点前进入研发验证|样品测试|小批\/量产|规格、认证、样品|商务准入/.test(String(value || ""));
+}
+
+function physicalSupplyTemplateText(value = "") {
+  return /样品、测试数据和技术规格|样品\/图纸\/BOM|车型\/品类|供应商准入|产能\/物料|小批试用|量产放量|供货车型|竞品份额|质量交付表现|报价空间|规格.*认证.*样品|客户需求规格.*样品/.test(String(value || ""));
+}
+
+function fixedBackendTemplateText(value = "") {
+  return /业务数据\/文档\/系统样例|知识\/数据底座|系统连接器|业务应用前台|运营管理后台|客户业务数据\/文档\/系统样例|工作台\/报表\/告警输出/.test(String(value || ""));
+}
+
+function sanitizeDomainTemplateText(value = "", context = {}) {
+  if (typeof value !== "string" || !value) return value;
+  if (!fixedIndustryTemplateText(value) && !physicalSupplyTemplateText(value) && !fixedBackendTemplateText(value)) return value;
+  return "";
+}
+
+function sanitizeDomainTemplateItem(item = {}, context = {}) {
+  if (!item || typeof item !== "object") return item;
+  const next = { ...item };
+  let removedTemplateText = false;
+  const textKeys = [
+    "body",
+    "summary",
+    "insight",
+    "note",
+    "customerSignal",
+    "pain",
+    "opportunity",
+    "sourceBasis",
+    "reasoning",
+    "aiEntry",
+    "customerPain",
+    "introduction",
+    "value",
+    "expectedImpact",
+    "prerequisite",
+    "how",
+    "why"
+  ];
+  for (const key of textKeys) {
+    if (typeof next[key] === "string") {
+      const before = next[key];
+      next[key] = sanitizeDomainTemplateText(next[key], context);
+      if (before && !next[key]) removedTemplateText = true;
+    }
+  }
+  const listKeys = ["facts", "evidence", "toConfirm", "validationSignals", "deductions", "riskFlags", "uncertainties"];
+  for (const key of listKeys) {
+    if (Array.isArray(next[key])) {
+      next[key] = next[key].map((value) => {
+        if (typeof value !== "string") return value;
+        const cleaned = sanitizeDomainTemplateText(value, context);
+        if (value && !cleaned) removedTemplateText = true;
+        return cleaned;
+      }).filter(meaningful);
+    }
+  }
+  if (removedTemplateText && !meaningful(decisionTextFromItem(next))) {
+    next.title = "";
+    next.label = "";
+  }
+  return next;
+}
+
 function digitalSolutionAssumptionText(value = "") {
   return /智用开物|智能体|Agent|知识库|数据问答|RAG|HolliCube|AIOps|AI(?:辅助|分析|建模)|工业AI|编排工作台|投标售前|标书|投标材料|材料复用|材料生成|检索助手|问答助手|生态应用|伙伴应用|应用接入|场景智能体|流程智能化|上层应用定制|工具调用|API\/工具调用|知识运营|数据中台/.test(String(value || ""));
 }
@@ -1554,13 +1621,6 @@ function sellerAlignedText(text = "", context = {}) {
 }
 
 function sellerAlignedOpportunityForPain(item = {}, context = {}) {
-  const report = contextReport(context);
-  const offer = sellerCoreOffer(report);
-  const text = [item.title, item.customerSignal, item.sourceBasis, item.reasoning, item.pain].join(" ");
-  if (/海外|本地化|全球/.test(text)) return `围绕${offer}评估海外车型认证、本地化配套、仓储或伙伴协作路径，先确认客户海外工厂的采购政策和技术认证要求。`;
-  if (/年降|成本|利润|毛利|降本/.test(text)) return `围绕${offer}做工艺降本、良率提升和交付稳定性方案，用可量化的成本/质量数据支撑年降谈判。`;
-  if (/车型|新车型|定点|研发|技术|专利|执行器/.test(text)) return `围绕${offer}提前准备样品、测试数据和技术规格对标，争取在新车型定点前进入研发验证。`;
-  if (/份额|供货|供应商|采购/.test(text)) return `围绕${offer}梳理现有供货车型、竞品份额、质量交付表现和报价空间，争取扩大供货份额。`;
   return "";
 }
 
@@ -1574,7 +1634,7 @@ function sanitizeSellerPain(item = {}, context = {}) {
     return {
       ...item,
       aiEntry: replacement,
-      opportunity: replacement || item.opportunity
+      opportunity: replacement
     };
   }
   return item;
@@ -1768,6 +1828,7 @@ function sanitizeUngroundedDigitalPain(item = {}, context = {}) {
 function cleanDecisionSolutions(items = [], context = {}) {
   const cleaned = arr(items)
     .map(cleanRoundTextItem)
+    .map((item) => sanitizeDomainTemplateItem(item, context))
     .map((item) => neutralizeUnsupportedBrandItem(item, context))
     .map((item) => sanitizeUngroundedDigitalSolution(item, context))
     .filter((item) => meaningful(item.title))
@@ -1949,6 +2010,7 @@ function visibleSolutionCards(items = [], limit = 5) {
 function cleanDecisionPains(items = [], context = {}) {
   return arr(items)
     .map(cleanRoundTextItem)
+    .map((item) => sanitizeDomainTemplateItem(item, context))
     .map((item) => neutralizeUnsupportedBrandItem(item, context))
     .map((item) => sanitizeUngroundedDigitalPain(item, context))
     .map((item) => sanitizeSellerPain(item, context))
@@ -1984,10 +2046,10 @@ function cleanStrategyData(strategy = {}, context = {}) {
       : "";
   const implementationPath = arr(strategy.implementationPath)
     .map(cleanListItem)
+    .map((item) => sanitizeDomainTemplateText(item, context))
     .filter(meaningful)
     .filter((item) => substantiveText(item, 8) && !isNonDecisionClaim(item))
     .slice(0, 8);
-  const shouldCompletePath = meaningful(currentSituation) || meaningful(overallApproach) || arr(strategy.rankedSolutions).length;
   return {
     ...strategy,
     currentSituation,
@@ -1995,30 +2057,13 @@ function cleanStrategyData(strategy = {}, context = {}) {
     rankedSolutions: normalizePrioritizedSolutions(
       arr(strategy.rankedSolutions)
         .map(cleanRoundTextItem)
+        .map((item) => sanitizeDomainTemplateItem(item, context))
         .filter((item) => meaningful(item.title) || meaningful(item.why))
         .filter((item) => !isNonDecisionClaim(`${item.title || ""} ${item.why || ""}`))
         .filter((item) => !isUnsupportedSellerCapabilitySolution(item, context)),
       6
     ),
-    implementationPath: implementationPath.length || !shouldCompletePath
-      ? implementationPath
-      : sellerMode === "digital" && hasDigitalTargetEvidence
-        ? [
-          "业务访谈先锁定真实痛点、责任部门和预算归属。",
-          "P0场景先采集样例数据和流程材料，定义边界、指标和成功标准。",
-          "按轻量验证、小范围试点、系统或知识体系集成三步推进。"
-        ]
-        : sellerMode === "digital"
-          ? [
-          "先确认客户真实业务场景、影响指标、责任部门和预算归属。",
-          "只要求客户提供可脱敏资料、流程样例或业务规则，不预设其已有IT系统。",
-          "验证通过后再判断是否需要系统接口、数据接入或正式项目范围。"
-        ]
-        : [
-          "先确认客户具体采购品类、使用场景、现有供应商和验收要求。",
-          "P0场景先拿一个最小品类或服务范围做匹配、验证、报价或份额提升闭环。",
-          "按方案匹配、小范围验证、准入评审和规模化合作路径推进。"
-        ]
+    implementationPath
   };
 }
 
@@ -2037,92 +2082,44 @@ function cleanDeliveryData(delivery = {}, context = {}) {
   const sellerMode = sellerCapabilityMode(report);
   const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence(context);
   const rawArchitectureSketch = usefulDecisionText(delivery.architectureSketch) || "";
-  const architectureSketch =
+  const architectureSketch = sanitizeDomainTemplateText(
     (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(rawArchitectureSketch)
       ? rawArchitectureSketch
-      : "";
+      : "",
+    context
+  );
   const responsePlan = arr(delivery.responsePlan || delivery.mitigations || delivery.riskResponses)
     .map((item) => cleanBusinessText(item, 180))
+    .map((item) => sanitizeDomainTemplateText(item, context))
     .filter(meaningful)
     .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 5);
   const deliveryRisks = arr(delivery.deliveryRisks)
     .map(actionableRiskText)
+    .map((item) => sanitizeDomainTemplateText(item, context))
     .filter(meaningful)
     .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 6);
   const dependencies = arr(delivery.dependencies)
     .map(actionableDependencyText)
+    .map((item) => sanitizeDomainTemplateText(item, context))
     .filter(meaningful)
     .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 6);
   const sowOutline = arr(delivery.sowOutline)
     .map(cleanListItem)
+    .map((item) => sanitizeDomainTemplateText(item, context))
     .filter(meaningful)
     .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .filter((item) => substantiveText(item, 8) && !isNonDecisionClaim(item))
     .slice(0, 10);
-  const shouldCompleteDelivery = meaningful(architectureSketch) || responsePlan.length || deliveryRisks.length || dependencies.length || sowOutline.length;
-  const fallbackSowOutline = shouldCompleteDelivery
-    ? sellerMode === "digital"
-      ? hasDigitalTargetEvidence
-        ? defaultDeliverySowOutline().map((item) => `${item.title}：${arr(item.items).join("、")}`)
-        : [
-          "业务场景核验：业务问题、影响岗位、当前做法、优先级",
-          "资料样例核验：脱敏资料、流程样例、业务规则、历史案例",
-          "方案边界判断：轻量验证范围、验收指标、是否需要后续系统接入"
-        ]
-      : [
-          "方案匹配确认：目标品类/服务、关键指标、认证或验收要求",
-          "小范围验证：样品、试用服务、测试数据或效果证明",
-          "商务与交付准备：报价、准入、人员/产能/物料/服务响应和交付计划"
-        ]
-    : [];
-  const fallbackDependencies = shouldCompleteDelivery
-    ? sellerMode === "digital"
-      ? hasDigitalTargetEvidence
-        ? [
-        "现有系统清单、接口/API文档、读写权限、鉴权方式和日志审计要求。",
-        "脱敏业务文档、系统样例、接口说明或离线数据样例。",
-        "既有系统的只读/写入边界、账号权限和审计要求。"
-      ]
-        : [
-        "客户真实业务问题、影响岗位、当前处理方式和优先级。",
-        "可脱敏资料、流程样例、历史案例、业务规则或线下表单。",
-        "本轮验证目标、验收指标、不可触碰的数据/合规边界和后续决策口径。"
-      ]
-      : [
-        "目标品类/服务、关键规格、认证要求和验收标准。",
-        "样品、资料、测试条件、质量问题记录或竞品供应信息。",
-        "供应商准入要求、报价口径、账期、合同主体和付款主体。"
-      ]
-    : [];
-  const fallbackDeliveryRisks = shouldCompleteDelivery
-    ? sellerMode === "digital"
-      ? hasDigitalTargetEvidence
-        ? [
-        "系统接口、权限和脱敏样例未锁定时，只能做轻量验证，不能承诺正式对接效果。",
-        "客户既有平台能力边界不清时，方案定位容易与现有系统发生冲突。",
-        "多系统数据口径和现场责任岗位不清，会影响数据问答、运维闭环和验收口径。"
-      ]
-        : [
-        "客户业务场景、资料样例和成功指标未确认时，只能做会前假设或现场轻量验证。",
-        "未确认客户是否具备IT系统、数据接口或内部技术能力前，不能承诺系统对接、自动化闭环或正式上线效果。",
-        "如果客户只希望采购外部供应商服务，方案应按资料、流程和人工协同边界设计，不能默认客户自建平台。"
-      ]
-      : [
-        "技术规格、认证要求和测试工况未锁定时，样品验证可能反复返工。",
-        "既有供应商、客户自研替代或目标价压力未摸清时，报价和份额判断容易失真。",
-        "预测需求量、交付节奏和质量责任边界不清，会影响小批试用和量产放量。"
-      ]
-    : [];
   return {
     ...delivery,
     architectureSketch,
-    deliveryRisks: deliveryRisks.length ? deliveryRisks : fallbackDeliveryRisks,
-    dependencies: dependencies.length ? dependencies : fallbackDependencies,
+    deliveryRisks,
+    dependencies,
     responsePlan,
-    sowOutline: sowOutline.length ? sowOutline : fallbackSowOutline
+    sowOutline
   };
 }
 
@@ -2145,24 +2142,9 @@ function hasCompleteStrategy(strategy = {}) {
 }
 
 function completeStrategyData(strategy = {}, context = {}) {
-  const report = contextReport(context);
-  const round = context.round || {};
   const cleaned = cleanStrategyData(strategy, context);
   if (hasCompleteStrategy(cleaned)) return cleaned;
-  const fallback = cleanStrategyData(
-    buildSolutionStrategy(
-      { ...report, solutionStrategy: {} },
-      { ...round, solutionStrategy: {} }
-    ),
-    context
-  );
-  return {
-    ...cleaned,
-    currentSituation: cleaned.currentSituation || fallback.currentSituation || "",
-    overallApproach: cleaned.overallApproach || fallback.overallApproach || "",
-    rankedSolutions: arr(cleaned.rankedSolutions).length ? cleaned.rankedSolutions : arr(fallback.rankedSolutions),
-    implementationPath: arr(cleaned.implementationPath).length ? cleaned.implementationPath : arr(fallback.implementationPath)
-  };
+  return cleaned;
 }
 
 function hasUsefulDelivery(delivery = {}) {
@@ -2179,9 +2161,9 @@ function sanitizeReportDecisionData(report = {}) {
   const customerInsights = report.customerInsights || {};
   return {
     ...report,
-    quickCards: cleanDecisionCardItems(report.quickCards, 4),
-    conclusions: cleanDecisionCardItems(report.conclusions, 5),
-    businessInsights: cleanDecisionCardItems(report.businessInsights, 12),
+    quickCards: cleanDecisionCardItems(report.quickCards, 4, { report }),
+    conclusions: cleanDecisionCardItems(report.conclusions, 5, { report }),
+    businessInsights: cleanDecisionCardItems(report.businessInsights, 12, { report }),
     pains: cleanDecisionPains(report.pains, { report }),
     solutions: cleanDecisionSolutions(report.solutions, { report }),
     opportunityFit: cleanOpportunityFitData(report.opportunityFit),
@@ -2189,10 +2171,10 @@ function sanitizeReportDecisionData(report = {}) {
     deliveryAssessment: cleanDeliveryData(report.deliveryAssessment, { report }),
     customerInsights: {
       ...customerInsights,
-      localCards: cleanDecisionCardItems(customerInsights.localCards, 8),
-      groupCards: cleanDecisionCardItems(customerInsights.groupCards, 8),
+      localCards: cleanDecisionCardItems(customerInsights.localCards, 8, { report }),
+      groupCards: cleanDecisionCardItems(customerInsights.groupCards, 8, { report }),
       metrics: cleanDecisionMetrics(customerInsights.metrics),
-      digitalCards: cleanDecisionCardItems(customerInsights.digitalCards, 8)
+      digitalCards: cleanDecisionCardItems(customerInsights.digitalCards, 8, { report })
     }
   };
 }
@@ -2286,6 +2268,17 @@ function painFromSignal(signal = {}, report = {}) {
   const text = [signal.title, signal.basis, signal.aiEntry].join(" ");
   const sourceBasis = safeScenarioText(signal.basis || signal.sourceBasis || "", 240);
   const sourceIds = arr(signal.sourceIds).slice(0, 6);
+  return {
+    title: safeScenarioText(signal.title || "潜在痛点", 80),
+    sourceBasis,
+    reasoning: safeScenarioText(signal.reasoning || signal.body || signal.summary || signal.basis || "", 280),
+    validationSignals: arr(signal.validationSignals || signal.toConfirm)
+      .map((item) => safeScenarioText(item, 120))
+      .filter(meaningful)
+      .slice(0, 5),
+    aiEntry: safeScenarioText(signal.aiEntry || signal.opportunity || "", 280),
+    sourceIds
+  };
   if (/售前|投标|招投标|标书|项目交付|验收材料/.test(text) && isPresalesEfficiencyEvidenceText(text, report)) {
     return {
       title: "投标售前与交付材料复用压力",
@@ -2363,6 +2356,7 @@ function solutionFromPainSignal(signal = {}, index = 0, report = {}) {
   const text = [signal.title, signal.basis, signal.aiEntry].join(" ");
   const basePain = safeScenarioText(signal.basis || signal.title || "", 220);
   const sourceIds = arr(signal.sourceIds).slice(0, 6);
+  return null;
   const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report }, text);
   if (/生态|伙伴|应用融合|接入/.test(text) && hasDigitalTargetEvidence) {
     const platform = customerPlatformLabel({ report }, text);
@@ -2478,17 +2472,24 @@ function augmentScenarioPainsAndSolutions(report = {}) {
   const signals = allTopicPainSignals(report)
     .filter((signal) => usefulScenarioSignalForSeller(signal, report))
     .sort((a, b) => scenarioSignalScore(b) - scenarioSignalScore(a));
-  const signalPains = signals.map((signal) => painFromSignal(signal, report));
+  const signalPains = signals
+    .map((signal) => ({
+      title: safeScenarioText(signal.title || "潜在痛点", 80),
+      sourceBasis: safeScenarioText(signal.basis || signal.sourceBasis || "", 240),
+      reasoning: safeScenarioText(signal.reasoning || signal.body || signal.summary || "", 280),
+      validationSignals: arr(signal.validationSignals || signal.toConfirm)
+        .map((item) => safeScenarioText(item, 120))
+        .filter(meaningful)
+        .slice(0, 5),
+      aiEntry: safeScenarioText(signal.aiEntry || signal.opportunity || "", 280),
+      sourceIds: arr(signal.sourceIds).slice(0, 6)
+    }))
+    .filter((item) => meaningful(item.title) && (meaningful(item.sourceBasis) || meaningful(item.reasoning) || meaningful(item.aiEntry)));
   const mergedPains = mergeScenarioItemsByTheme(existingPains, signalPains, 6);
-  const existingSolutionTitles = new Set(existingSolutions.map((item) => normalizeForCompare(item.title)));
-  const signalSolutions = signals
-    .map((signal, index) => solutionFromPainSignal(signal, index, report))
-    .filter((item) => meaningful(item.title) && !existingSolutionTitles.has(normalizeForCompare(item.title)));
-  const mergedSolutions = mergeByTitle(existingSolutions, signalSolutions, 8);
   return {
     ...report,
     pains: cleanDecisionPains(mergedPains, { report }),
-    solutions: cleanDecisionSolutions(mergedSolutions, { report })
+    solutions: cleanDecisionSolutions(existingSolutions, { report })
   };
 }
 
@@ -2986,7 +2987,7 @@ export function normalizeReportShape(report = {}) {
   const guarded = ensureReportRounds(applyFreshnessGuardrails(sanitizeReportDecisionData(shaped)));
   const roundsWithStrategy = arr(guarded.rounds).map((round) => {
     const nextRound = { ...round };
-    const cleanedBusinessInsights = cleanDecisionCardItems(nextRound.businessInsights, 12);
+    const cleanedBusinessInsights = cleanDecisionCardItems(nextRound.businessInsights, 12, { report: guarded, round: nextRound });
     const cleanedPains = cleanDecisionPains(nextRound.painsAndOpportunities, { round: nextRound, report: guarded });
     const cleanedSolutions = cleanDecisionSolutions(nextRound.solutionCards, { round: nextRound, report: guarded });
     const strategyRound = {
@@ -3000,7 +3001,7 @@ export function normalizeReportShape(report = {}) {
     nextRound.solutionStrategy = hasCompleteStrategy(cleanedStrategy)
       ? cleanedStrategy
       : completeStrategyData(cleanedStrategy, { report: guarded, round: strategyRound });
-    nextRound.deliveryAssessment = hasUsefulDelivery(cleanedDelivery) ? cleanedDelivery : buildDeliveryAssessment(guarded, strategyRound);
+    nextRound.deliveryAssessment = cleanedDelivery;
     return {
       ...nextRound,
       solutionStrategy: cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: strategyRound }),
@@ -3008,7 +3009,7 @@ export function normalizeReportShape(report = {}) {
       painsAndOpportunities: cleanedPains,
       solutionCards: cleanedSolutions,
       businessInsights: cleanedBusinessInsights,
-      conclusions: cleanDecisionCardItems(nextRound.conclusions, 8),
+      conclusions: cleanDecisionCardItems(nextRound.conclusions, 8, { report: guarded, round: strategyRound }),
       customerInfo: arr(nextRound.customerInfo).map(cleanRoundSection).filter((section) => arr(section.items).length),
       internalNotes: arr(nextRound.internalNotes).map(cleanInternalNote).filter(isActionableInternalNote)
     };
@@ -3026,7 +3027,7 @@ export function normalizeReportShape(report = {}) {
     })(),
     deliveryAssessment: (() => {
       const cleaned = cleanDeliveryData(guarded.deliveryAssessment || active.deliveryAssessment, { report: guarded, round: active });
-      return hasUsefulDelivery(cleaned) ? cleaned : cleanDeliveryData(buildDeliveryAssessment(guarded, active), { report: guarded, round: active });
+      return cleaned;
     })()
   };
   return sanitizeReportDecisionData(withStrategicViews);
@@ -3227,10 +3228,10 @@ function buildFallbackStructuredReport(company, sourcePack, topicBriefs, quality
     ],
     conclusions: [
       { title: "一句话判断", body: "本次已完成证据采集和分主题整理，但最终整合模型超时；建议将本报告作为会前参考继续核对。", sourceIds: [] },
-      { title: "优先切入", body: firstTexts(pain.painSignals, "aiEntry", 1)[0] || company.aiNeeds || "围绕客户已知需求线索做轻量验证。", sourceIds: arr(pain.sourceIds).slice(0, 2) },
+      { title: "优先切入", body: firstTexts(pain.painSignals, "aiEntry", 1)[0] || company.aiNeeds || "围绕客户已知需求线索做现场澄清。", sourceIds: arr(pain.sourceIds).slice(0, 2) },
       { title: "核心依据", body: `已形成 ${sourcePack.length} 条来源证据池，其中结论只使用可追溯来源。`, sourceIds: sourcePack.slice(0, 3).map((item) => item.id) },
       { title: "主要风险", body: "保底版未完成最终模型整合，主要风险是预算能力、决策链、既有系统供应商和付款质量尚未被充分核验。", sourceIds: [] },
-      { title: "下一步建议", body: "先带着来源角标和问题清单做会前讨论；如需正式方案，再补客户目标、系统现状和数据样例。", sourceIds: [] }
+      { title: "下一步建议", body: "先带着来源角标和问题清单做会前讨论；如需正式方案，再补客户目标、现有做法、关键约束和验收口径。", sourceIds: [] }
     ],
     customerInsights: {
       localCards: [{ title: "主体与本地信息", facts: firstTexts(subject.facts), insight: "主体信息以已读来源和核验结果为准。", toConfirm: arr(subject.uncertainties), sourceIds: arr(subject.sourceIds).slice(0, 3) }],
@@ -3243,30 +3244,28 @@ function buildFallbackStructuredReport(company, sourcePack, topicBriefs, quality
       worthFollowing: "是否重点跟进需结合客户真实痛点、预算归属和参会角色确认。",
       budgetJudgment: firstTexts(finance.metrics, "value", 1)[0] || "预算/买单能力未形成硬结论，需现场确认。",
       decisionPath: "项目级推进人、预算归属和最终拍板人需现场确认。",
-      operatingAdvice: "先围绕一个可验证业务场景确认痛点和样例，再决定是否投入定制方案。"
+      operatingAdvice: "先围绕一个可验证业务场景确认痛点、现有做法和验收口径，再决定是否投入定制方案。"
     },
     pains: arr(pain.painSignals).slice(0, 4).map((item) => ({
       title: item.title || "潜在痛点",
       sourceBasis: item.basis || "来自分主题证据整理。",
       reasoning: item.body || item.title || "需现场确认痛点强度。",
-      validationSignals: item.validationSignals || ["确认业务场景、指标口径和数据可用性。"],
-      aiEntry: item.aiEntry || "围绕该线索做场景澄清，再判断AI切入方向。",
+      validationSignals: item.validationSignals || ["确认业务场景、指标口径和现有做法。"],
+      aiEntry: item.aiEntry || "围绕该线索做场景澄清，再判断是否形成可推进机会。",
       sourceIds: item.sourceIds || arr(pain.sourceIds).slice(0, 2)
     })),
-    solutions: [
-      { priority: "P1", title: "先做轻量场景确认", customerPain: "当前已形成可交流线索，需先把业务场景和成功指标收敛清楚。", introduction: "以证据池和用户线索锁定一个可验证小场景。", value: "把交流从标准功能介绍收敛到可确认的客户问题和成功指标。", expectedImpact: "形成下一步是否进入方案深化和轻量验证的判断依据。", prerequisite: "确认业务目标、系统边界、数据样例和验收口径。", why: "先以证据池和用户线索锁定小场景。", how: "确认业务目标、系统边界、数据样例和成功指标后再进入方案。", sourceIds: sourcePack.slice(0, 2).map((item) => item.id) }
-    ],
+    solutions: [],
     solutionStrategy: {
       currentSituation: firstTexts(pain.painSignals, "body", 1)[0] || "客户现状和问题需结合现场信息继续确认。",
-      overallApproach: "先把公开线索收敛为一个可验证场景，再围绕业务应用、知识/数据底座、系统连接和运营后台拆方案。",
-      rankedSolutions: [{ priority: "P1", title: "先做轻量场景确认", why: "保底版优先降低误判和重投入风险。" }],
-      implementationPath: ["确认业务目标、责任人和预算归属。", "准备样例数据、流程材料和系统清单。", "按业务应用、知识/数据底座、系统连接和运营后台拆分方案边界。"]
+      overallApproach: "",
+      rankedSolutions: [],
+      implementationPath: []
     },
     deliveryAssessment: {
-      architectureSketch: "业务数据/文档/系统样例 → 知识库或场景智能体 → 工作台/报表/告警输出。",
-      deliveryRisks: ["数据样例、系统接口、权限边界和验收口径会直接影响正式交付范围。"],
-      dependencies: ["现有系统清单和接口边界", "脱敏样例、字段字典或流程材料", "权限、安全和部署要求"],
-      sowOutline: ["业务应用前台", "知识/数据底座", "系统连接器", "运营管理后台"]
+      architectureSketch: "",
+      deliveryRisks: [],
+      dependencies: [],
+      sowOutline: []
     },
     requirements: {
       preMeeting: ["确认参会角色、业务线、最关注的业务问题和是否已有数据样例。"],
@@ -4614,17 +4613,13 @@ function salesForwardNextAction(report, round, brief = buildExecutiveBrief(repor
     .filter((item) => usefulDecisionText(item) && !isNarrowFinanceAction(item));
   const solution = arr(round.solutionCards).find((item) => meaningful(item.title));
   if (solution?.title) {
-    return sellerCapabilityMode(report) === "digital"
-      ? `围绕“${shortSceneTitle(solution.title)}”约业务和IT/数据负责人做场景澄清，锁定样例、价值指标和下一步验证方式。`
-      : `围绕“${shortSceneTitle(solution.title)}”约采购、研发、质量或项目负责人做品类澄清，锁定技术规格、样品测试、报价边界和下一步验证方式。`;
+    return `围绕“${shortSceneTitle(solution.title)}”做客户事实澄清，锁定业务目标、现有做法、价值指标和下一步验证方式。`;
   }
   const pain = arr(round.painsAndOpportunities).find((item) => meaningful(item.title || item.pain || item.opportunity));
   if (pain) {
     return `围绕“${shortSceneTitle(pain.title || pain.pain || pain.opportunity)}”做一次场景访谈，锁定问题强度、责任人和可验证样例。`;
   }
-  return candidates[0] || (sellerCapabilityMode(report) === "digital"
-    ? "约业务负责人和技术/数据负责人做场景澄清，锁定真实痛点、样例数据和下一步验证方式。"
-    : "约采购、研发、质量或项目负责人做品类澄清，锁定技术规格、样品测试、报价边界和下一步验证方式。");
+  return candidates[0] || "围绕客户已知线索做场景澄清，锁定真实痛点、现有做法、价值指标和下一步验证方式。";
 }
 
 function dimensionByKey(report, key) {
@@ -5273,7 +5268,6 @@ function buildSolutionStrategy(report, round) {
   const solutions = cleanDecisionSolutions(arr(round.solutionCards).filter((item) => meaningful(item.title)), { report, round });
   const pains = alignPainPrioritiesWithSolutions(arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain)), solutions, 8);
   const topPain = pains[0] || {};
-  const p0 = solutions.find((item) => String(item.priority || "").toUpperCase() === "P0") || solutions[0] || {};
   const ranked = solutions.length
     ? solutions.slice(0, 5).map((item, index) => ({
         priority: normalizePriorityLabel(item.priority, index),
@@ -5287,40 +5281,15 @@ function buildSolutionStrategy(report, round) {
           : `围绕“${compactText(item.title || item.pain || "客户痛点", 28)}”验证方案方向`,
         why: item.pain || item.customerSignal || item.reasoning || "该方向仅作为现场验证入口，需用客户事实确认后再形成正式方案。"
       }));
-  const defaultPath = [
-    ...(sellerMode === "digital" && hasDigitalTargetEvidence
-      ? [
-          "业务访谈先锁定真实痛点、责任部门和预算归属。",
-          "P0场景先采集样例数据和流程材料，定义边界、指标和成功标准。",
-          "按轻量验证、小范围试点、系统或知识体系集成三步推进。"
-        ]
-      : sellerMode === "digital"
-        ? [
-          "先确认客户真实业务场景、影响指标、责任部门和预算归属。",
-          "只要求客户提供可脱敏资料、流程样例或业务规则，不预设其已有IT系统。",
-          "验证通过后再判断是否需要系统接口、数据接入或正式项目范围。"
-        ]
-      : [
-          "先确认客户具体采购品类、使用场景、现有供应商和验收要求。",
-          "P0场景先拿一个最小品类或服务范围做匹配、验证、报价或份额提升闭环。",
-          "按方案匹配、小范围验证、准入评审和规模化合作路径推进。"
-        ])
-  ];
   return {
     currentSituation: explicit.currentSituation || topPain.pain || topPain.customerSignal || "",
     overallApproach:
       ((sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(explicit.overallApproach) ? explicit.overallApproach : "") ||
-      (p0.title
-        ? sellerMode === "digital" && hasDigitalTargetEvidence
-          ? `围绕“${p0.title}”建立第一切入点，再用知识库、数据问答或自动化能力补齐交付和复用链路。`
-          : sellerMode === "digital"
-            ? `围绕“${p0.title}”先核验业务场景、资料样例和客户侧成功指标，再判断是否进入数据、系统或知识库方案。`
-          : `围绕“${p0.title}”建立第一切入点，再按方案匹配、小范围验证、商务准入和规模化合作路径推进。`
-        : "先把客户问题收敛到一个可验证场景，再逐步扩大到流程、数据和组织协同。"),
+      "",
     rankedSolutions: arr(explicit.rankedSolutions).length ? cleanDecisionSolutions(explicit.rankedSolutions, { report, round }) : ranked,
     implementationPath: arr(explicit.implementationPath).filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item)).length
       ? arr(explicit.implementationPath).filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
-      : defaultPath
+      : []
   };
 }
 
@@ -5344,6 +5313,7 @@ function solutionStrategySection(report, round) {
 }
 
 function solutionWorkItems(solution = {}, report = {}) {
+  return [];
   const text = `${solution.title || ""} ${solution.introduction || ""} ${solution.value || ""} ${solution.prerequisite || ""}`;
   const items = [];
   if (sellerCapabilityMode(report) !== "digital") {
@@ -5400,6 +5370,7 @@ function solutionWorkItems(solution = {}, report = {}) {
 }
 
 function solutionWorkPackages(solution = {}, report = {}) {
+  return [];
   const text = `${solution.title || ""} ${solution.introduction || ""} ${solution.value || ""} ${solution.expectedImpact || ""} ${solution.prerequisite || ""}`;
   if (sellerCapabilityMode(report) !== "digital") {
     if (/国六|国七|排放|EGR|涡轮|增压|VTG|SCR|NOx|PM|柴油|天然气/.test(text)) {
@@ -5590,6 +5561,13 @@ function solutionWorkPackages(solution = {}, report = {}) {
 
 function buildDeliveryAssessment(report, round) {
   const explicit = round.deliveryAssessment || report.deliveryAssessment || {};
+  return cleanDeliveryData({
+    architectureSketch: explicit.architectureSketch || "",
+    deliveryRisks: arr(explicit.deliveryRisks),
+    dependencies: arr(explicit.dependencies),
+    responsePlan: arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses),
+    sowOutline: arr(explicit.sowOutline)
+  }, { report, round });
   const solutions = arr(round.solutionCards);
   const sellerMode = sellerCapabilityMode(report);
   const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report, round });
@@ -5769,8 +5747,12 @@ function deliveryRiskMatrixRows(delivery = {}) {
   }));
 }
 
+function existingDeliveryAssessment(report = {}, round = {}) {
+  return cleanDeliveryData(round.deliveryAssessment || report.deliveryAssessment || {}, { report, round });
+}
+
 function deliveryAssessmentSection(report, round) {
-  const delivery = buildDeliveryAssessment(report, round);
+  const delivery = existingDeliveryAssessment(report, round);
   const rows = deliveryRiskMatrixRows(delivery);
   if (!rows.length) return "";
   return `<section class="battle-section delivery-section">
@@ -5859,29 +5841,29 @@ function contextualQuestionnaireGroups(round = {}, report = {}) {
       business.push(`客户是否把“${coreScene}”列为本轮优先业务场景，影响的是收入、成本、质量、交付还是客户满意度？`);
     }
     business.push("客户当前使用或采购同类产品/服务的场景、频次、规模和痛点分别是什么？");
-    business.push("客户现在的供应商或内部解决方式是谁，最不满意的是质量、交期、价格、服务还是适配能力？");
-    business.push("如果先做小范围验证，客户希望覆盖哪个产品线、区域、项目、客户或流程？");
+    business.push("客户现在的外部供应商、内部团队或替代做法是什么，最不满意的是效果、成本、交付、服务还是适配能力？");
+    business.push("如果先做小范围验证，客户希望覆盖哪个业务范围、区域、项目、客户群或流程？");
 
     const product = [];
-    product.push(`客户对${sellerOffer}最关键的技术指标、认证要求、接口边界或验收标准是什么？`);
-    product.push("客户现有产品/设备/系统/供应商清单是什么，哪些部分需要替换、补位或联合交付？");
-    product.push("客户是否有样品、图纸、BOM、工况参数、测试数据或历史质量问题可用于评估匹配度？");
-    product.push("客户内部谁负责技术确认、质量认可、试用验证和最终验收？");
+    product.push(`客户对${sellerOffer}最关键的能力要求、约束条件和验收标准是什么？`);
+    product.push("客户现有解决方式、合作伙伴或内部资源是什么，哪些部分需要替换、补位或联合交付？");
+    product.push("客户是否有可用于判断匹配度的需求说明、历史案例、样例资料、效果数据或问题记录？");
+    product.push("客户内部谁负责能力确认、使用认可、验证推进和最终验收？");
 
     const procurement = [];
     procurement.push("本次采购或合作预算来自哪个部门、项目、客户订单、年度预算或专项资金？");
     procurement.push("客户采购流程是询价、招标、指定供应商、框架协议还是项目制采购？");
     procurement.push("付款主体、合同主体、账期和供应商准入要求分别是什么？");
-    procurement.push("如果验证通过，下一步是样品测试、小批试用、商务报价、招采流程还是高层评审？");
+    procurement.push("如果验证通过，下一步是二次交流、试用验证、商务报价、招采流程还是高层评审？");
 
     const risk = [];
     risk.push("哪些质量、交付、合规、安全、售后或保密要求会直接影响能否成交？");
     risk.push("是否存在既有供应商绑定、认证周期、客户指定品牌或价格红线？");
     risk.push("哪些承诺不能在本轮给出：价格、交期、性能、产能、质保、账期或独家条款？");
-    risk.push("客户需要先提供哪些样品、资料、现场条件或责任人，否则无法推进下一步？");
+    risk.push("客户需要先提供哪些资料、场景条件、验证边界或内部确认意见，否则无法推进下一步？");
     return {
       业务与场景: uniqueTexts(business, 8),
-      产品与技术匹配: uniqueTexts(product, 8),
+      能力匹配: uniqueTexts(product, 8),
       采购与交付: uniqueTexts(procurement, 8),
       风险与边界: uniqueTexts(risk, 8)
     };
@@ -5899,9 +5881,9 @@ function contextualQuestionnaireGroups(round = {}, report = {}) {
   business.push("如果只选一个小范围试点，客户希望覆盖哪个部门、产线、区域、产品或流程？");
 
   const it = [];
-  it.push(knownSystems ? `当前业务涉及哪些具体系统或平台，是否包括 ${knownSystems}，每个系统分别掌握哪些关键数据？` : "当前业务涉及哪些具体系统或平台，请客户直接列出系统名称、归属部门和关键数据？");
-  it.push("这些系统能否导出数据、开放接口或提供离线样例，数据口径由谁维护？");
-  it.push("客户是否允许提供脱敏样例、离线数据或测试账号，用于验证模型、知识库或自动化流程？");
+  it.push(knownSystems ? `本场景是否实际涉及系统或平台；如涉及，是否包括 ${knownSystems}，每个系统分别掌握哪些关键数据？` : "本场景是否实际涉及系统或平台；如涉及，请列出系统名称、归属部门和关键数据？");
+  it.push("如涉及系统或数据，这些系统能否导出数据、开放接口或提供离线样例，数据口径由谁维护？");
+  it.push("客户是否允许提供脱敏样例、离线数据、业务文档或测试账号，用于验证模型、知识库或自动化流程？");
   it.push("是否存在私有化、内网、国产化、等保、安全审计或数据不出域要求？");
   it.push("业务文档、SOP、制度文件、报表模板和历史案例由谁提供，后续由谁持续维护？");
 
@@ -5947,7 +5929,7 @@ function normalizedQuestionnaireGroups(round = {}, report = {}) {
         title,
         questions: uniqueTexts([...arr(questions), ...sellerSafeQuestions.filter((item) => {
           if (/业务|场景/.test(title)) return !isBudgetDecisionQuestion(item) && !isRiskQuestion(item);
-          if (/产品|技术/.test(title)) return isDataQuestion(item) || /产品|质量|技术|认证|样品|图纸|BOM|工况|指标|验收/.test(item);
+          if (/产品|技术|能力/.test(title)) return isDataQuestion(item) || /能力|产品|质量|技术|认证|资料|案例|效果|指标|验收/.test(item);
           if (/采购|交付/.test(title)) return isBudgetDecisionQuestion(item) || /采购|交付|合同|付款|报价|试用|小批|招标/.test(item);
           if (/风险|边界/.test(title)) return isRiskQuestion(item) || /质量|交期|保密|准入|供应商|认证|承诺/.test(item);
           return true;
@@ -8165,54 +8147,32 @@ function sowTaskRowsForSolution(item = {}, index = 0, report = {}) {
 }
 
 function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
-  const solutions = visibleSolutionCards(arr(round.solutionCards).filter((item) => meaningful(item.title)), 5);
-  const fallbackItems = !solutions.length
-    ? arr(delivery.sowOutline)
-        .filter(meaningful)
-        .filter((item) => !isDeliveryEstimateText(item))
-        .slice(0, 4)
-        .map((item, index) => {
-          const [title, rest] = String(item).split(/[：:]/);
-          return {
-            priority: `P${Math.min(index, 2)}`,
-            title: cleanBusinessText(title || item, 48),
-            introduction: cleanBusinessText(rest || item, 140),
-            prerequisite: arr(delivery.dependencies)[index] || ""
-          };
-        })
-    : [];
-  const workItems = solutions.length ? solutions : fallbackItems;
-  const rows = workItems.flatMap((item, index) => sowTaskRowsForSolution(item, index, report));
-  const groups = new Map();
-  rows.forEach((row) => {
-    const key = `${row.priority}|${row.solutionTitle}|${row.moduleTitle}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        priority: row.priority,
-        solutionTitle: row.solutionTitle,
-        moduleTitle: row.moduleTitle,
-        solutionIndex: row.solutionIndex,
-        moduleIndex: row.moduleIndex,
-        tasks: [],
-        sourceIds: []
-      });
-    }
-    const group = groups.get(key);
-    group.tasks.push({ label: row.task, description: row.description, hard: row.hard });
-    group.sourceIds = uniqueTexts([...group.sourceIds, ...arr(row.sourceIds)], 8);
-  });
-  return [...groups.values()]
-    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || (a.solutionIndex || 0) - (b.solutionIndex || 0) || (a.moduleIndex || 0) - (b.moduleIndex || 0))
+  return arr(delivery.sowOutline)
+    .filter(meaningful)
+    .filter((item) => !isDeliveryEstimateText(item))
     .slice(0, 8)
-    .map((group) => ({
-    title: `${group.priority}｜${group.solutionTitle}`,
-    claim: `一级功能：${group.moduleTitle}`,
-    rows: group.tasks.slice(0, 10),
-    evidence: group.tasks.map((task) => task.label).slice(0, 4),
-    kind: "sow-module-fields",
-    sourceIds: group.sourceIds,
-    forceDisplay: true
-  }));
+    .map((item, index) => {
+      const [rawTitle, ...restParts] = String(item).split(/[：:]/);
+      const title = cleanBusinessText(rawTitle || item, 58);
+      const rest = cleanBusinessText(restParts.join("：") || item, 260);
+      const tasks = uniqueTexts(
+        rest
+          .replace(title, "")
+          .split(/[、，,；;\/]/)
+          .map((task) => cleanBusinessText(task, 120))
+          .filter(meaningful),
+        8
+      );
+      return {
+        title: `P${Math.min(index, 2)}｜${title}`,
+        claim: title,
+        rows: (tasks.length ? tasks : [rest || title]).map((task) => ({ label: task, description: "", hard: false })).slice(0, 10),
+        evidence: [item],
+        kind: "sow-module-fields",
+        sourceIds: [],
+        forceDisplay: true
+      };
+    });
 }
 
 function sowTaskList(group = {}, solution = {}, complexityMap = null, groupIndex = 0) {
@@ -8891,7 +8851,7 @@ function presalesPerspective(report, round, sources = []) {
   const strategy = buildSolutionStrategy(report, round);
   const sellerMode = sellerCapabilityMode(report);
   const rawPains = arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain) || meaningful(item.opportunity));
-  const operationalPains = operationalInsightItems(report, round, sources);
+  const operationalPains = [];
   const solutions = visibleSolutionCards(arr(round.solutionCards).filter((item) => meaningful(item.title)), 5);
   const pains = painItemsForVisibleSolutions(mergeOperationalPainItems(rawPains, operationalPains, 8), solutions, solutions.length || 5);
   const topPain = pains[0] || rawPains[0] || {};
@@ -8958,21 +8918,21 @@ function presalesPerspective(report, round, sources = []) {
   const existingAlternativeSignal = combinedSignal(
     round,
     sources,
-    /自研|专利|供应商|合作伙伴|采购平台|供应商门户|供应链|竞品|替代|NVIDIA|英伟达|定点|准入/i,
+    /自研|专利|供应商|合作伙伴|采购平台|供应商门户|供应链|竞品|替代|NVIDIA|英伟达|准入|外部伙伴|内部团队|既有方案/i,
     6,
     businessSignalOptions
   );
   const industrialOpportunitySignal = combinedSignal(
     round,
     sources,
-    /份额|新车型|新品类|海外|本地化|定点|扩产|销量|车型平台|供应链|配套|采购体量/i,
+    /新增|深化|扩展|扩产|新业务|新品类|新项目|海外|本地化|采购体量|采购计划|预算|合作|替换|升级|改造|续建|扩容/i,
     6,
     businessSignalOptions
   );
   const industrialRiskSignal = combinedSignal(
     round,
     sources,
-    /认证|质量|交付|成本|年降|目标价|自研|替代|专利|供应商|海外|本地化|准入|测试|样品|产能|账期/i,
+    /认证|质量|交付|成本|目标价|自研|替代|专利|供应商|海外|本地化|准入|测试|产能|账期|合规|安全|验收/i,
     6,
     businessSignalOptions
   );
@@ -9039,7 +8999,7 @@ function presalesPerspective(report, round, sources = []) {
     );
     const prereq = safeFieldText(
       item.prerequisite || item.precondition || item.condition || "",
-      "需要客户提供业务样例、数据口径、系统边界和责任人后再进入方案深化。",
+      "需要客户确认业务目标、现有做法、关键约束和验收标准后再进入方案深化。",
       240
     );
     const fields = [
@@ -9065,7 +9025,7 @@ function presalesPerspective(report, round, sources = []) {
         { label: "客户现象", value: safeFieldText(item.customerSignal || item.sourceBasis || "", "未形成足够具体的客户现象，需现场补客户原话或流程样例。", 260) },
         { label: "痛点判断", value: safeFieldText(item.pain || item.reasoning || "", "痛点强度暂不稳定，需确认发生频率、影响岗位和损失指标。", 260) },
         { label: "我方机会", value: safeFieldText(item.opportunity || item.aiEntry || "", "当前只形成待验证机会，需由客户场景、样例数据和价值指标确认后再展开方案。", 260) },
-        { label: item.evidenceLevel || "现场验证", value: safeFieldText(item.evidenceLevel ? `${item.reasoning || ""} ${uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 2).join("；")}` : uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 3).join("；"), "确认场景优先级、样例数据、责任人和可衡量成效。", 280) }
+        { label: item.evidenceLevel || "现场验证", value: safeFieldText(item.evidenceLevel ? `${item.reasoning || ""} ${uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 2).join("；")}` : uniqueTexts(arr(item.toConfirm).map((q) => cleanBusinessText(q, 120)), 3).join("；"), "确认场景优先级、客户事实、现有做法和可衡量成效。", 280) }
       ],
       normalizeSourceIdList(item),
       "pain-fields"
@@ -9128,20 +9088,20 @@ function presalesPerspective(report, round, sources = []) {
       tone: "watch"
     },
     {
-      label: sellerMode === "digital" ? "数字化成熟度" : "技术/供应链成熟度",
+      label: sellerMode === "digital" ? "数字化成熟度" : "能力匹配约束",
       claim: sellerMode === "digital"
         ? digitalMaturityClaimFromEvidence(digitalRows)
         : industrialRequirementEvidence.length
-          ? `客户存在明确技术或供应链约束，方案必须先锁定产品匹配、质量认证和交付能力；依据是${evidenceDecisionSummary(industrialRequirementEvidence, "技术/供应链线索")}。`
-          : "未查到足够具体的技术、质量、认证或供应链要求。",
+          ? `客户存在会影响方案匹配的约束，必须先核对能力适配、验收标准和交付边界；依据是${evidenceDecisionSummary(industrialRequirementEvidence, "能力约束线索")}。`
+          : "未查到足够具体的能力、质量、验收或交付约束。",
       evidence: sellerMode === "digital" ? evidenceTexts(digitalRows, 6) : industrialRequirementEvidence,
       branches: sellerMode === "digital"
         ? (digitalRows.length
         ? [forcedBranch("数字化线索", "已查到以下系统、IT岗位、数据岗位、系统采购、软著、专利或官网技术描述。", evidenceTexts(digitalRows, 6), arr(digitalMaturitySignal.sourceIds))]
         : [boundaryBranch("未查到IT岗位、数据岗位、系统采购、软著、专利或官网技术描述。")])
         : (industrialRequirementEvidence.length
-          ? [forcedBranch("技术/供应链线索", "以下线索直接指向客户的产品、质量、交付、成本或供应链协同要求。", industrialRequirementEvidence, Array.from(new Set([...arr(topicSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
-          : [boundaryBranch("未查到技术规格、认证、质量、交付、成本或供应链协同等具体要求。")]),
+          ? [forcedBranch("能力约束线索", "以下线索用于判断客户对能力适配、质量、交付、成本或协同方式的要求。", industrialRequirementEvidence, Array.from(new Set([...arr(topicSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
+          : [boundaryBranch("未查到能力适配、验收、质量、交付、成本或协同方式等具体要求。")]),
       sourceIds: sellerMode === "digital" ? arr(digitalMaturitySignal.sourceIds) : Array.from(new Set([...arr(topicSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
@@ -9150,22 +9110,22 @@ function presalesPerspective(report, round, sources = []) {
       tone: (sellerMode === "digital" ? digitalRows.length : industrialRequirementEvidence.length) ? "strong" : "watch"
     },
     {
-      label: sellerMode === "digital" ? "可能已有系统" : "既有供应商/自研替代",
+      label: sellerMode === "digital" ? "可能已有系统" : "既有方案/替代路径",
       claim: sellerMode === "digital"
         ? (existingRows.length
         ? `可查到的系统/平台包括${existingNames.length ? existingNames.join("、") : "公开系统线索"}。`
         : "未查到具体系统名称。")
         : alternativeEvidence.length
-          ? `客户存在既有供应链、外部技术伙伴或自研替代线索：${evidenceDecisionSummary(alternativeEvidence, "替代/伙伴线索")}。`
-          : "未查到既有供应商、自研替代或外部技术伙伴的具体线索。",
+          ? `客户存在既有合作方、内部方案或替代路径线索：${evidenceDecisionSummary(alternativeEvidence, "替代/伙伴线索")}。`
+          : "未查到既有合作方、内部方案或替代路径的具体线索。",
       evidence: sellerMode === "digital" ? evidenceTexts(existingRows, 6) : alternativeEvidence,
       branches: sellerMode === "digital"
         ? (existingRows.length
         ? [forcedBranch("系统名称依据", "已查到以下具体系统、平台、技术栈或历史供应商名称。", evidenceTexts(existingRows, 6), arr(existingSystemSignal.sourceIds))]
         : [boundaryBranch("未查到MES、APS、ERP、WMS、LIMS、SCADA、PLM、QMS、CRM、OA、SAP、用友、金蝶等具体系统名称。")])
         : (alternativeEvidence.length
-          ? [forcedBranch("替代/伙伴线索", "以下线索用于判断现有供应链、外部伙伴、自研替代或准入门槛。", alternativeEvidence, arr(existingAlternativeSignal.sourceIds))]
-          : [boundaryBranch("未查到既有供应商、自研替代、外部技术伙伴或准入门槛的具体线索。")]),
+          ? [forcedBranch("替代/伙伴线索", "以下线索用于判断现有合作方、内部替代、外部伙伴或准入门槛。", alternativeEvidence, arr(existingAlternativeSignal.sourceIds))]
+          : [boundaryBranch("未查到既有合作方、内部替代、外部伙伴或准入门槛的具体线索。")]),
       sourceIds: sellerMode === "digital" ? arr(existingSystemSignal.sourceIds) : arr(existingAlternativeSignal.sourceIds),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
@@ -9174,20 +9134,20 @@ function presalesPerspective(report, round, sources = []) {
       tone: (sellerMode === "digital" ? existingRows.length : alternativeEvidence.length) ? "watch" : ""
     },
     {
-      label: sellerMode === "digital" ? "替换机会" : "扩份额/新品类机会",
+      label: sellerMode === "digital" ? "替换机会" : "新增/深化合作机会",
       claim: sellerMode === "digital"
         ? replacementClaimFromEvidence(arr(replacementSignal.evidence))
         : opportunityEvidence.length
-          ? `扩份额或新品类机会来自${evidenceDecisionSummary(opportunityEvidence, "业务机会线索")}。`
-          : "未查到足够具体的扩份额、新车型、新品类或海外配套机会线索。",
+          ? `新增或深化合作机会来自${evidenceDecisionSummary(opportunityEvidence, "业务机会线索")}。`
+          : "未查到足够具体的新增、深化或替换合作触发线索。",
       evidence: sellerMode === "digital" ? arr(replacementSignal.evidence) : opportunityEvidence,
       branches: sellerMode === "digital"
         ? (arr(replacementSignal.evidence).length
         ? [forcedBranch("替换触发", replacementClaimFromEvidence(arr(replacementSignal.evidence)), arr(replacementSignal.evidence), arr(replacementSignal.sourceIds))]
         : [boundaryBranch("未查到旧系统采购时间、负面反馈、重复采购、升级项目或招聘运维岗位。")])
         : (opportunityEvidence.length
-          ? [forcedBranch("机会线索", "以下线索支撑扩份额、新车型定点、新品类准入或海外配套判断。", opportunityEvidence, arr(industrialOpportunitySignal.sourceIds))]
-          : [boundaryBranch("未查到扩份额、新车型定点、新品类准入或海外配套的具体触发线索。")]),
+          ? [forcedBranch("机会线索", "以下线索支撑新增、深化、替换或扩展合作判断。", opportunityEvidence, arr(industrialOpportunitySignal.sourceIds))]
+          : [boundaryBranch("未查到新增、深化、替换或扩展合作的具体触发线索。")]),
       sourceIds: sellerMode === "digital" ? arr(replacementSignal.sourceIds) : arr(industrialOpportunitySignal.sourceIds),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
@@ -9200,16 +9160,16 @@ function presalesPerspective(report, round, sources = []) {
       claim: sellerMode === "digital"
         ? solutionRiskClaimFromEvidence(arr(solutionRiskSignal.evidence))
         : industrialRiskEvidence.length
-          ? `方案风险主要来自技术认证、质量交付、成本年降、既有供应商或自研替代线索：${evidenceDecisionSummary(industrialRiskEvidence, "风险线索")}。`
-          : "未查到足以改变方案边界的技术、质量、成本或供应链风险线索。",
+          ? `方案风险主要来自能力验收、质量交付、成本约束、既有合作方或内部替代线索：${evidenceDecisionSummary(industrialRiskEvidence, "风险线索")}。`
+          : "未查到足以改变方案边界的能力、质量、成本或替代风险线索。",
       evidence: sellerMode === "digital" ? uniqueTexts([...arr(solutionRiskSignal.evidence), ...arr(industryPressure.evidence)], 6) : uniqueTexts([...industrialRiskEvidence, ...arr(industryPressure.evidence)], 6),
       branches: sellerMode === "digital"
         ? (arr(solutionRiskSignal.evidence).length
         ? [forcedBranch("风险依据", solutionRiskClaimFromEvidence(uniqueTexts([...arr(solutionRiskSignal.evidence), ...arr(industryPressure.evidence)], 6)), uniqueTexts([...arr(solutionRiskSignal.evidence), ...arr(industryPressure.evidence)], 6), Array.from(new Set([...arr(solutionRiskSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
         : [boundaryBranch("未查到行业特殊性、数据复杂、系统多、监管强或部署要求高等具体线索。")])
         : (industrialRiskEvidence.length
-          ? [forcedBranch("风险依据", "以下线索用于判断技术认证、质量交付、成本年降、既有供应商或自研替代风险。", uniqueTexts([...industrialRiskEvidence, ...arr(industryPressure.evidence)], 6), Array.from(new Set([...arr(industrialRiskSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
-          : [boundaryBranch("未查到技术认证、质量交付、成本年降、既有供应商或自研替代等具体风险线索。")]),
+          ? [forcedBranch("风险依据", "以下线索用于判断能力验收、质量交付、成本约束、既有合作方或内部替代风险。", uniqueTexts([...industrialRiskEvidence, ...arr(industryPressure.evidence)], 6), Array.from(new Set([...arr(industrialRiskSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6))]
+          : [boundaryBranch("未查到能力验收、质量交付、成本约束、既有合作方或内部替代等具体风险线索。")]),
       sourceIds: sellerMode === "digital" ? Array.from(new Set([...arr(solutionRiskSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6) : Array.from(new Set([...arr(industrialRiskSignal.sourceIds), ...arr(industryPressure.sourceIds)])).slice(0, 6),
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
@@ -9232,20 +9192,16 @@ function presalesPerspective(report, round, sources = []) {
 }
 
 function deliveryWorkPackageSection(round, report = {}) {
-  const delivery = buildDeliveryAssessment(report, round);
-  const solutions = arr(round.solutionCards).filter((item) => meaningful(item.title)).slice(0, 6);
-  const fallbackWorkItems = !solutions.length
-    ? arr(delivery.sowOutline)
-        .filter(meaningful)
-        .filter((item) => !isDeliveryEstimateText(item))
-        .slice(0, 5)
-        .map((item, index) => ({
-          priority: `P${Math.min(index, 2)}`,
-          title: cleanBusinessText(item, 48),
-          introduction: "按该功能模块拆出二级能力、输入输出、系统边界和客户侧准备项。"
-        }))
-    : [];
-  const workItems = solutions.length ? solutions : fallbackWorkItems;
+  const delivery = existingDeliveryAssessment(report, round);
+  const workItems = arr(delivery.sowOutline)
+    .filter(meaningful)
+    .filter((item) => !isDeliveryEstimateText(item))
+    .slice(0, 5)
+    .map((item, index) => ({
+      priority: `P${Math.min(index, 2)}`,
+      title: cleanBusinessText(item, 48),
+      introduction: cleanBusinessText(item, 140)
+    }));
   if (!workItems.length) return "";
   const rows = workItems.flatMap((item, index) => sowTaskRowsForSolution(item, index, report));
   if (!rows.length) return "";
@@ -9271,8 +9227,7 @@ function deliveryWorkPackageSection(round, report = {}) {
 }
 
 function deliveryBranches(items = [], titlePrefix = "要点") {
-  const defaults = ["客户侧输入、输出和验收口径是交付范围边界。", "未确认的接口、数据和权限不进入本轮承诺范围。"];
-  return uniqueTexts([...arr(items), ...defaults], 4).slice(0, 4).map((item, index) => ({
+  return uniqueTexts(arr(items), 4).slice(0, 4).map((item, index) => ({
     title: `${titlePrefix}${index + 1}`,
     claim: cleanBusinessText(item, 180),
     evidence: [item],
@@ -9309,10 +9264,7 @@ function deliveryRiskResponseBranches(report = {}, round = {}, delivery = {}) {
     .filter((item) => !isDependencyInstructionText(item))
     .filter((item) => /数据|接口|系统|权限|安全|部署|验收|模型|算法|现场|设备/.test(item));
   const mergedRisks = uniqueTexts([...risks, ...solutionRisks], 5);
-  const sourceItems = mergedRisks.length
-    ? mergedRisks
-    : ["数据样例、系统接口、权限安全和验收口径未确认时，交付范围不能扩大。"];
-  return sourceItems.slice(0, 5).map((risk, index) => {
+  return mergedRisks.slice(0, 5).map((risk, index) => {
     const response = responses[index] || responses.find((item) => deliveryRiskCategory(item) === deliveryRiskCategory(risk)) || defaultResponseForRisk(risk);
     return {
       title: `${deliveryRiskCategory(risk)}｜${deliveryRiskLevel(risk)}`,
@@ -9360,12 +9312,7 @@ function technicalDependencyBranches(delivery = {}, round = {}, report = {}) {
     .map(normalizeTechnicalDependency)
     .filter(meaningful)
     .slice(0, 5);
-  const base = dependencies.length
-    ? dependencies
-    : sellerMode === "digital"
-      ? ["数据样例、字段字典、系统接口/API、部署环境、安全权限、日志审计和验收数据口径。"]
-      : ["车型/品类需求、技术规格、认证要求、样品/图纸/BOM、测试工况、质量记录和交付节奏。"];
-  return base.slice(0, 5).map((item, index) => ({
+  return dependencies.slice(0, 5).map((item, index) => ({
     title: `技术依赖${index + 1}`,
     claim: cleanBusinessText(item, 180),
     fields: [
@@ -9382,27 +9329,33 @@ function technicalDependencyBranches(delivery = {}, round = {}, report = {}) {
 }
 
 function deliveryArgumentSection(report, round) {
-  const delivery = buildDeliveryAssessment(report, round);
-  const sellerMode = sellerCapabilityMode(report);
+  const delivery = existingDeliveryAssessment(report, round);
   const sow = arr(delivery.sowOutline).filter(meaningful).slice(0, 4);
   const sowBranches = sowArgumentBranches(report, round, delivery);
   const riskBranches = deliveryRiskResponseBranches(report, round, delivery);
   const dependencyBranches = technicalDependencyBranches(delivery, round, report);
+  const deliveryBoundaryBranch = (claim) => ({
+    title: "当前边界",
+    claim,
+    evidence: [],
+    invalid: true,
+    forceDisplay: true
+  });
   const riskTitles = uniqueTexts(riskBranches.map((branch) => String(branch.title || "").replace(/｜.*/, "").trim()).filter(meaningful), 3);
   const riskClaim = riskTitles.length
     ? `主要交付风险集中在${riskTitles.join("、")}，首轮只能承诺已核验边界内的轻量验证。`
-    : "主要交付风险集中在接口、权限、数据样例和验收口径，首轮只能承诺已核验边界内的轻量验证。";
+    : "暂无可展示的交付风险与应对。";
   return argumentTreeSection({
     className: "delivery-argument-section",
     kicker: "交付分析",
-    thesis: delivery.architectureSketch || "交付应先按功能项拆范围，再锁定数据、接口、权限和验收边界。",
+    thesis: delivery.architectureSketch || "暂无可展示的交付拆解。",
     summary: "这一页只保留交付视角需要的三件事：SOW分解、风险与应对、技术前置依赖。",
     nodes: [
       {
         label: "SOW分解",
-        claim: "本轮SOW只按可交付功能项拆分，难点只标注到具体二级功能项。",
+        claim: sowBranches.length ? "本轮SOW只展示已形成依据的可交付功能项。" : "暂无可展示的SOW分解。",
         evidence: sow,
-        branches: sowBranches.length ? sowBranches : deliveryBranches(sow, "功能项"),
+        branches: sowBranches.length ? sowBranches : [deliveryBoundaryBranch("当前报告没有可用的SOW功能项拆解；不使用后台模板补全。")],
         forceDisplay: true,
         useExplicitBranchesOnly: true,
         open: true,
@@ -9419,9 +9372,7 @@ function deliveryArgumentSection(report, round) {
       },
     {
       label: "前置依赖",
-      claim: sellerMode === "digital"
-        ? "落地前置条件集中在数据、接口、权限、安全、部署和验收口径，任一缺口都会压缩可承诺范围。"
-        : "落地前置条件集中在车型/品类需求、技术规格、认证测试、样品/BOM、质量记录和交付节奏，任一缺口都会压缩可承诺范围。",
+      claim: dependencyBranches.length ? "前置依赖聚焦本方案真正需要的技术条件。" : "暂无可展示的技术前置依赖。",
         evidence: dependencyBranches.flatMap((branch) => branch.evidence),
         branches: dependencyBranches,
         forceDisplay: true,
@@ -9520,7 +9471,7 @@ function actionQuestionnaireBranches(report = {}, round = {}) {
 
 function actionFocusBranches(report = {}, round = {}, sources = []) {
   const rating = ratingOf(report);
-  const delivery = buildDeliveryAssessment(report, round);
+  const delivery = existingDeliveryAssessment(report, round);
   const financeRows = financialKpiRowsForProfile(report, round);
   const topPain = arr(round.painsAndOpportunities).find((item) => meaningful(item.title || item.pain || item.opportunity)) || {};
   const topSolution = arr(round.solutionCards).find((item) => meaningful(item.title)) || {};
@@ -9562,14 +9513,6 @@ function actionFocusBranches(report = {}, round = {}, sources = []) {
   if (arr(entrySignal.evidence).length) {
     branches.push(make("进入窗口", entryWindowClaimFromEvidence(arr(entrySignal.evidence)), arr(entrySignal.evidence)));
   }
-  operationalInsightItems(report, round, sources).forEach((item) => {
-    branches.push(make(
-      item.title,
-      `${item.evidenceLevel === "推测信息" ? "推测信息：" : ""}${item.opportunity || item.pain} ${arr(item.toConfirm)[0] || ""}`,
-      [item.sourceBasis, item.reasoning, item.customerSignal, item.pain].filter(meaningful),
-      item.evidenceLevel === "推测信息" ? "attention-compact-fields inferred" : "attention-compact-fields"
-    ));
-  });
   if (topPain.title || topPain.pain || topPain.opportunity) {
     branches.push(make(
       "需求真实性",
