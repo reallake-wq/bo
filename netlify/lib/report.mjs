@@ -6267,7 +6267,19 @@ function sourceDecisionSignalText(source = {}) {
   return "";
 }
 
+function isCorruptExtractedText(value = "") {
+  const text = String(value || "");
+  if (!text.trim()) return false;
+  if (/@[A-Za-z][A-Za-z0-9_]{1,}@/.test(text)) return true;
+  const oddChars = text.match(/[\u0180-\u024F\u0250-\u02AF\u0370-\u03FF\u0400-\u04FF]/g) || [];
+  if (oddChars.length < 8) return false;
+  const cjkChars = text.match(/[\u4E00-\u9FFF]/g) || [];
+  const asciiWords = text.match(/[A-Za-z]{2,}/g) || [];
+  return oddChars.length > cjkChars.length * 0.25 && oddChars.length > asciiWords.join("").length * 0.15;
+}
+
 function cleanSourceEvidenceShell(value = "", max = 220) {
+  if (isCorruptExtractedText(value)) return "";
   let text = compactText(value, Math.max(max * 2, 360));
   text = text
     .replace(/请输入问题（例如：[^。；;]*）\s*/g, "")
@@ -6280,6 +6292,7 @@ function cleanSourceEvidenceShell(value = "", max = 220) {
     .replace(/\|\s*\d{4}年\d{1,2}月\s*\|/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+  if (isCorruptExtractedText(text)) return "";
   text = text.replace(/^(?:[.。]\s*)+/, "").replace(/[：:｜|\-_\s]+$/g, "");
   return cleanBusinessText(text, max);
 }
