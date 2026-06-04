@@ -95,6 +95,10 @@ const BAD_PATTERNS = {
     "\u4ea4\u4ed8\u5206\u6790[\\s\\S]{0,2600}(?:\u63a8\u8fdb\u524d\u8981\u9501\u5b9a|IT\u63a5\u53e3\u4eba|\u5ba2\u6237\u8d23\u4efb\u4eba|\u73b0\u573a\u8054\u7cfb\u4eba)",
   oldDeliveryScaffold:
     "\u4ea4\u4ed8\u5206\u6790[\\s\\S]{0,2600}(?:\u76f8\u5bf9\u96be\u70b9|\u4ea4\u4ed8\u8fb9\u754c|\u6574\u4f53\u590d\u6742\u6027|SOW\u5de5\u4f5c\u62c6\u5206)",
+  sowEmptyBoundary:
+    "\u6682\u65e0\u53ef\u5c55\u793a\u7684SOW\u5206\u89e3|\u5f53\u524d\u62a5\u544a\u6ca1\u6709\u53ef\u7528\u7684SOW\u529f\u80fd\u9879|\u4e0d\u4f7f\u7528\u540e\u53f0\u6a21\u677f\u8865\u5168",
+  visibleRuntimeFailure:
+    "\u6700\u7ec8\u6574\u5408\u6a21\u578b\u8d85\u65f6|\u5efa\u8bae\u5c06\u672c\u62a5\u544a\u4f5c\u4e3a\u4f1a\u524d\u53c2\u8003\u7ee7\u7eed\u6838\u5bf9|\u6a21\u578b\u5b8c\u5584\u6682\u65f6\u5931\u8d25",
   domainTemplateFallback:
     "\u56f4\u7ed5\u6211\u65b9\u4ea7\u54c1\\/\u670d\u52a1\u63d0\u524d\u51c6\u5907\u6837\u54c1\u3001\u6d4b\u8bd5\u6570\u636e\u548c\u6280\u672f\u89c4\u683c\u5bf9\u6807|\u5b9a\u70b9\u524d\u8fdb\u5165\u7814\u53d1\u9a8c\u8bc1|\u5ba2\u6237\u9700\u6c42\u89c4\u683c\\s*(?:\u2192|->|>)\\s*\u6837\u54c1\u6d4b\u8bd5\\s*(?:\u2192|->|>)\\s*\u5546\u52a1\u51c6\u5165|\u4e1a\u52a1\u6570\u636e\\/\u6587\u6863\\/\u7cfb\u7edf\u6837\u4f8b|\u7cfb\u7edf\u8fde\u63a5\u5668|\u4e1a\u52a1\u5e94\u7528\u524d\u53f0|\u8fd0\u8425\u7ba1\u7406\u540e\u53f0",
   ratingEcho:
@@ -112,7 +116,7 @@ const BAD_PATTERNS = {
   financeAsActionQuestion:
     "\u884c\u52a8\u6307\u5357[\\s\\S]{0,1600}(?:\u73b0\u573a\u786e\u8ba4\u8fd1\u4e24\u5e74\u8425\u4e1a\u6536\u5165|\u5ba2\u6237\u6700\u8fd1\u4e24\u5e74\u7684\u7ecf\u8425\u89c4\u6a21|\u8425\u4e1a\u6536\u5165\u3001\u51c0\u5229\u6da6\u3001\u7814\u53d1\u6295\u5165)",
   invalidPointClaim:
-    "\u6ca1\u6709(?:\u660e\u786e|\u53ef\u7528)(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba|\u4f9d\u636e)|\u65e0\u6cd5\u5f62\u6210(?:\u6709\u6548)?(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba|\u5224\u65ad)|\u4e0d\u80fd\u4f5c\u4e3a(?:\u6709\u6548)?(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba|\u4f9d\u636e)|\u5c1a\u4e0d\u8db3\u4ee5(?:\u652f\u6491|\u5224\u65ad|\u5206\u6790)",
+    "\u6682\u4e0d\u80fd\u5f62\u6210|\u6ca1\u6709(?:\u660e\u786e|\u53ef\u7528)(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba|\u4f9d\u636e)|\u65e0\u6cd5\u5f62\u6210(?:\u6709\u6548)?(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba|\u5224\u65ad)|\u4e0d\u80fd\u4f5c\u4e3a(?:\u6709\u6548)?(?:\u8bba\u70b9|\u89c2\u70b9|\u7ed3\u8bba|\u4f9d\u636e)|\u5c1a\u4e0d\u8db3\u4ee5(?:\u652f\u6491|\u5224\u65ad|\u5206\u6790)",
   academicLabel: "\u5206\u8bba\u70b9",
   systemNodeLabel: "\u5224\u65ad\u9879\\s*\\d+",
   lowValueClaim:
@@ -448,10 +452,6 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u9884\u7b97|\u4e70\u5355|\u4ed8\u6b3e\u80fd\u529b|\u8425\u6536|\u5229\u6da6"),
     decision: html.includes("decision-section") || hasText(text, "\u51b3\u7b56\u94fe|\u62cd\u677f|\u9884\u7b97\u5f52\u5c5e|\u91c7\u8d2d\u6743")
   };
-  const deliverySowBoundaryOnly =
-    html.includes("delivery-argument-section") &&
-    hasText(text, "\u6682\u65e0\u53ef\u5c55\u793a\u7684SOW\u5206\u89e3") &&
-    hasText(text, "\u4e0d\u4f7f\u7528\u540e\u53f0\u6a21\u677f\u8865\u5168");
   const structure = {
     consultingViews:
       html.includes("view-profile") &&
@@ -460,13 +460,10 @@ function scoreHtml(html, report = {}) {
       html.includes("view-delivery") &&
       html.includes("argument-tree"),
     workPackages:
-      (
-        html.includes("delivery-argument-section") &&
-        (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")) &&
-        hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") &&
-        hasText(text, "\u96be\u70b9\u6807\u8bc6|\u96be\u70b9")
-      ) ||
-      deliverySowBoundaryOnly,
+      html.includes("delivery-argument-section") &&
+      (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")) &&
+      (html.match(/sow-module-row/g) || []).length >= 2 &&
+      hasText(text, "\u96be\u70b9"),
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
     deliveryAssessment: html.includes("delivery-argument-section") && (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")),
     deliveryOrder:

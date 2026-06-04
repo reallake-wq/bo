@@ -1124,6 +1124,143 @@ function cleanListItem(value = "", max = 180) {
   return normalizeVisibleSupportText(value, max).replace(/[。；;，,\s]+$/g, "");
 }
 
+function uniqueByText(items = [], keyFn = (item) => item) {
+  const seen = new Set();
+  const out = [];
+  for (const item of arr(items)) {
+    const key = String(keyFn(item) || "")
+      .replace(/[。；;，,、：:\s'"“”‘’()（）【】\[\]\-—_·|/\\.!！？?]/g, "")
+      .toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function cleanSowText(value = "", context = {}, max = 180, options = {}) {
+  const report = contextReport(context);
+  const sellerMode = sellerCapabilityMode(report);
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence(context);
+  let text = cleanBusinessText(value, max);
+  text = sanitizeDomainTemplateText(text, context);
+  if (!meaningful(text)) return "";
+  if (digitalSolutionAssumptionText(text) && !(sellerMode === "digital" && hasDigitalTargetEvidence)) return "";
+  if (!options.allowNonDecision && isNonDecisionClaim(text)) return "";
+  if (/按功能项拆分的SOW工作包|一级工作包和二级工作项|不写人天|不写工期|不写价格|后台模板补全|当前报告没有可用/.test(text)) return "";
+  return text;
+}
+
+function sowTaskDifficulty(value = {}) {
+  const text = typeof value === "string" ? value : [
+    value.difficulty,
+    value.complexity,
+    value.hard,
+    value.name,
+    value.title,
+    value.description,
+    value.reason
+  ].filter(Boolean).join(" ");
+  if (value?.hard === true || value?.isHard === true) return true;
+  return /难点|困难|复杂|高风险|接口|权限|安全|脱敏|验收|数据口径|系统|认证|测试|图纸|BOM|规则|多方|跨部门|跨系统/.test(String(text || ""));
+}
+
+function normalizeSowTask(value = {}, context = {}) {
+  const raw = typeof value === "string" ? { name: value } : value || {};
+  const name = cleanSowText(raw.name || raw.title || raw.label || raw.task || raw.item || raw.description || raw.summary || "", context, 120);
+  if (!name) return null;
+  const description = cleanSowText(raw.description || raw.detail || raw.scope || raw.reason || raw.acceptance || "", context, 180, { allowNonDecision: true });
+  return {
+    name,
+    description: description && description !== name ? description : "",
+    hard: sowTaskDifficulty(raw),
+    sourceIds: normalizeSourceIdList(raw)
+  };
+}
+
+function parseSowString(value = "", context = {}) {
+  const text = cleanSowText(value, context, 280);
+  if (!text) return null;
+  const [rawTitle, ...restParts] = String(text).split(/[：:]/);
+  const primaryFunction = cleanSowText(rawTitle || text, context, 80, { allowNonDecision: true });
+  const rest = cleanSowText(restParts.join("：") || text, context, 260, { allowNonDecision: true });
+  if (!primaryFunction) return null;
+  const taskTexts = uniqueTexts(
+    (rest && rest !== primaryFunction ? rest : "")
+      .split(/[、，,；;\/]/)
+      .map((item) => cleanSowText(item, context, 120, { allowNonDecision: true }))
+      .filter(meaningful),
+    8
+  );
+  const items = (taskTexts.length ? taskTexts : [rest || primaryFunction])
+    .map((item) => normalizeSowTask(item, context))
+    .filter(Boolean)
+    .slice(0, 8);
+  if (!items.length) return null;
+  return {
+    priority: "",
+    solutionTitle: "",
+    primaryFunction,
+    description: "",
+    items,
+    sourceIds: []
+  };
+}
+
+function normalizeSowModule(value = {}, context = {}) {
+  if (typeof value === "string") return parseSowString(value, context);
+  if (!value || typeof value !== "object") return null;
+  const priorityRaw = cleanBusinessText(value.priority || value.level || value.rank || "", 12).toUpperCase();
+  const priority = /^P[0-2]$/.test(priorityRaw) ? priorityRaw : "";
+  const solutionTitle = cleanSowText(
+    value.solutionTitle || value.solution || value.solutionName || value.plan || value.planTitle || "",
+    context,
+    90,
+    { allowNonDecision: true }
+  );
+  const primaryFunction = cleanSowText(
+    value.primaryFunction || value.function || value.module || value.feature || value.title || value.name || value.workPackage || "",
+    context,
+    90,
+    { allowNonDecision: true }
+  );
+  const description = cleanSowText(value.description || value.scope || value.objective || value.value || "", context, 180, { allowNonDecision: true });
+  const rawItems = [
+    ...arr(value.items),
+    ...arr(value.tasks),
+    ...arr(value.children),
+    ...arr(value.subItems),
+    ...arr(value.secondaryItems),
+    ...arr(value.secondaryFunctions),
+    ...arr(value.functions),
+    ...arr(value.workItems)
+  ];
+  const items = uniqueByText(
+    rawItems
+      .map((item) => normalizeSowTask(item, context))
+      .filter(Boolean),
+    (item) => item.name
+  ).slice(0, 8);
+  if (!primaryFunction || !items.length) return null;
+  return {
+    priority,
+    solutionTitle,
+    primaryFunction,
+    description,
+    items,
+    sourceIds: normalizeSourceIdList(value)
+  };
+}
+
+function normalizeSowOutline(value = [], context = {}) {
+  return uniqueByText(
+    arr(value)
+      .map((item) => normalizeSowModule(item, context))
+      .filter(Boolean),
+    (item) => `${item.priority}|${item.solutionTitle}|${item.primaryFunction}|${item.items.map((task) => task.name).join("|")}`
+  ).slice(0, 12);
+}
+
 function actionableDependencyText(value = "", max = 180) {
   let raw = cleanBusinessText(value, max)
     .replace(/^(?:前置条件是\s*)+/g, "")
@@ -2100,11 +2237,13 @@ function cleanDeliveryData(delivery = {}, context = {}) {
     .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 6);
   const sowOutline = arr(delivery.sowOutline)
-    .map(cleanListItem)
-    .map((item) => sanitizeDomainTemplateText(item, context))
-    .filter(meaningful)
-    .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
-    .filter((item) => substantiveText(item, 8) && !isNonDecisionClaim(item))
+    .map((item) => normalizeSowModule(item, context))
+    .filter(Boolean)
+    .filter((item) =>
+      [item.solutionTitle, item.primaryFunction, item.description, ...arr(item.items).flatMap((task) => [task.name, task.description])]
+        .filter(Boolean)
+        .some((text) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(text))
+    )
     .slice(0, 10);
   return {
     ...delivery,
@@ -2141,7 +2280,7 @@ function completeStrategyData(strategy = {}, context = {}) {
 }
 
 function hasUsefulDelivery(delivery = {}) {
-  const sow = arr(delivery.sowOutline).filter(meaningful);
+  const sow = normalizeSowOutline(delivery.sowOutline);
   const risks = arr(delivery.deliveryRisks).filter(meaningful);
   return Boolean(
     meaningful(delivery.architectureSketch) &&
@@ -2528,7 +2667,7 @@ function meaningful(value) {
   if (/^(待确认|暂无|无|未获取|未取得|未在已读取公开来源中取得|公开来源不足|当前来源不足)/.test(text)) return false;
   if (/^(已采集来源，待核验数值|上传年报中待人工核对|未取得可读财务硬来源)$/.test(text)) return false;
   if (isBackendRiskTemplateText(text)) return false;
-  if (/信息置信度不足|企业信息不足|无法分析|无法判断|无法评估|分析不了|判断不了|没有数据|数据不足|不足以支撑|支撑不足|不能支撑|不能判断|隐藏低相关|重复或错误来源|资料有限|证据不足|以已读来源为准|未证实内容|需继续核对|用户提供线索待确认|无法给出有效判断|没有明确(?:观点|结论|依据)|没有可用(?:观点|结论|依据)|无法形成(?:有效)?(?:观点|结论|判断)|不能作为(?:有效)?(?:观点|结论|依据)|尚不足以(?:支撑|判断|分析)/.test(text)) return false;
+  if (/信息置信度不足|企业信息不足|无法分析|无法判断|无法评估|分析不了|判断不了|没有数据|数据不足|不足以支撑|支撑不足|不能支撑|不能判断|隐藏低相关|重复或错误来源|资料有限|证据不足|以已读来源为准|未证实内容|需继续核对|用户提供线索待确认|无法给出有效判断|暂不能形成|没有明确(?:观点|结论|依据)|没有可用(?:观点|结论|依据)|无法形成(?:有效)?(?:观点|结论|判断)|不能作为(?:有效)?(?:观点|结论|依据)|尚不足以(?:支撑|判断|分析)/.test(text)) return false;
   return true;
 }
 
@@ -2803,7 +2942,7 @@ function roundSolutionFromReportSolution(item = {}, index = 0) {
 }
 
 function normalizeExistingRound(report, round = {}, index = 0) {
-  const feedback = round.type === "post_visit" ? feedbackSignalPack(round.inputText || round.inputSummary) : { hasActionable: false };
+  const feedback = { hasActionable: false };
   const changeSummary = feedback.hasActionable
     ? mergeByTitle(
         feedback.changeSummary,
@@ -3140,7 +3279,7 @@ function finalPrompt(company, sourcePack, topicBriefs, quality) {
 18d. solutions 不只写“能做 AI”，要体现“客户场景 -> 方案介绍 -> 价值 -> 成效 -> 前提”。若来源包含产品手册、部署周期、价格区间或系统集成信息，应转化为方案边界和切入建议。
 19. salesThesis 必须站在销售视角回答四个问题：这个客户是否值得继续跟；有没有预算/买单能力；决策链和拍板路径可能在哪里；如果想成单应该怎么运作。必须先按维度收集证据，再形成观点，不能先写观点再硬配论据；采购能力只能用企业规模、财务/融资、客户作为甲方的招采/采购记录支撑；客户对外交付案例只能用于理解业务场景，不能证明客户有采购能力、采购习惯、同类项目采购或竞品供应商。
 20. solutionStrategy 必须站在售前视角回答四个问题：客户现状与问题；总体解决思路；分项方案优先级；落地路径。不要只列产品名，要把客户现状、痛点、方案价值和推进路径串起来。
-21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW分解。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写本方案真正需要的前置条件。若客户侧没有 IT/系统/数据证据，前置依赖只能写业务资料、流程样例、验收口径和合规边界，不得默认接口、权限、安全、部署等系统条件。不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
+21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW分解。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写本方案真正需要的前置条件。若客户侧没有 IT/系统/数据证据，前置依赖只能写业务资料、流程样例、验收口径和合规边界，不得默认接口、权限、安全、部署等系统条件。不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；SOW 必须与 solutions / solutionStrategy.rankedSolutions 的 P0-P2 方案对齐，每条写成结构化对象：priority、solutionTitle、primaryFunction、items；primaryFunction 是一级功能模块，items 是二级功能项数组，二级功能项可带 description 和 difficulty。只拆模型已输出且有依据的方案，不得用行业模板或我方历史样例补空；无法拆解的方案不要返回该 SOW 项。
 22. 拜访问卷必须随“我的企业信息”变化。若我的企业不是软件/IT/数字化服务商，不要默认生成 IT/数据/系统类问题；应围绕我方主营业务和核心产品生成业务场景、产品技术匹配、采购交付、质量/合规/付款等问题。
 
 企业信息：${JSON.stringify(company, null, 2)}
@@ -3180,7 +3319,15 @@ function finalPrompt(company, sourcePack, topicBriefs, quality) {
   "pains": [{"title":"经营痛点","sourceBasis":"具体来源和依据","reasoning":"痛点推导","validationSignals":["现场可确认的指标口径"],"aiEntry":"AI切入方向","sourceIds":[1,2]}],
   "solutions": [{"priority":"P1/P2/P0","title":"方案","customerPain":"客户痛点","introduction":"方案介绍","value":"方案价值","expectedImpact":"预期成效","prerequisite":"适用前提","why":"优先级理由","how":"做法","sourceIds":[1,2]}],
   "solutionStrategy": {"currentSituation":"客户现状与问题","overallApproach":"总体解决思路","rankedSolutions":[{"priority":"P0","title":"方案标题","why":"排序理由"}],"implementationPath":["第一步","第二步","第三步"]},
-  "deliveryAssessment": {"architectureSketch":"技术路径","deliveryRisks":["交付风险"],"dependencies":["交付依赖"],"sowOutline":["按功能项拆分的SOW工作包，写到一级工作包和二级工作项，不写人天/工期/价格"]},
+  "deliveryAssessment": {
+    "architectureSketch":"技术路径",
+    "deliveryRisks":["交付风险"],
+    "responsePlan":["对应风险的应对方案"],
+    "dependencies":["交付依赖"],
+    "sowOutline":[
+      {"priority":"P0","solutionTitle":"对应方案标题","primaryFunction":"一级功能模块","description":"功能边界","items":[{"name":"二级功能项","description":"功能简介","difficulty":"normal/hard"}],"sourceIds":[1,2]}
+    ]
+  },
   "requirements": {"preMeeting":["会前尽量了解"],"onSite":["现场顺势探问"]},
   "keywords": ["用于模糊搜索的关键词"]
 }`;
@@ -3422,7 +3569,7 @@ function supplementCard(input) {
     title: "用户提供线索",
     facts: [input],
     insight: "这条会前补充不作为公开事实；它用于调整现场探问重点和方案优先级。",
-    toConfirm: ["客户是否已明确 DFM/可制造性评审的业务目标、输入资料、评审流程和责任部门。"]
+    toConfirm: ["客户是否已明确真实业务场景、现有做法、目标效果、输入资料、责任边界和验收指标。"]
   };
 }
 
@@ -3906,87 +4053,18 @@ function feedbackSignalPack(input = "") {
 
 function applyUserSupplementHints(report, userInput) {
   const input = String(userInput || "").trim();
-  const feedback = feedbackSignalPack(input);
   const next = {
     ...report,
     userSupplementInsights: [...arr(report.userSupplementInsights), supplementCard(input)],
-    changeSummary: feedback.changeSummary || ["已新增“用户补充线索”模块。"],
-    updatedSections: feedback.updatedSections || ["用户补充线索"],
-    aiNeeds: compactText([report.aiNeeds, feedback.hasActionable ? feedback.summary : input].filter(Boolean).join("；"), 1000),
-    roundDelta: feedback
+    changeSummary: arr(report.changeSummary).length ? arr(report.changeSummary) : ["已记录用户补充线索，具体判断以模型完善结果为准。"],
+    updatedSections: arr(report.updatedSections).length ? arr(report.updatedSections) : ["用户补充线索"],
+    aiNeeds: compactText([report.aiNeeds, input].filter(Boolean).join("；"), 1000),
+    roundDelta: {
+      hasActionable: false,
+      summary: compactText(input, 320),
+      source: "userSupplement"
+    }
   };
-  if (feedback.hasActionable) {
-    next.conclusions = mergeByTitle(feedback.conclusions, next.conclusions, 8);
-    next.pains = mergeByTitle(feedback.pains, next.pains, 8);
-    next.solutions = mergeByTitle(feedback.solutions, next.solutions, 8);
-    next.internalNotes = mergeByTitle(feedback.internalNotes, next.internalNotes, 8);
-    next.customerInsights = {
-      ...(next.customerInsights || {}),
-      digitalCards: [
-        {
-          title: "用户反馈：流程自动化需求",
-          body: feedback.summary,
-          insight: "该线索来自拜访反馈，不作为公开事实；但可直接用于调整下一轮交流重点。",
-          toConfirm: feedback.requirements.onSite
-        },
-        ...arr(next.customerInsights?.digitalCards)
-      ].slice(0, 6)
-    };
-    next.requirements = {
-      ...(next.requirements || {}),
-      preMeeting: Array.from(new Set([...arr(feedback.requirements.preMeeting), ...arr(next.requirements?.preMeeting)])).slice(0, 12),
-      onSite: Array.from(new Set([...arr(feedback.requirements.onSite), ...arr(next.requirements?.onSite)])).slice(0, 12)
-    };
-    next.keywords = Array.from(new Set([...arr(next.keywords), ...feedback.keywords]));
-  }
-  if (isDfmInput(input)) {
-    next.changeSummary.push("已强化研发 DFM/可制造性评审相关痛点、方案和现场确认问题。");
-    next.updatedSections.push("研究结论", "经营痛点", "初步方案", "前置要求");
-    next.conclusions = [
-      { title: "补充线索", body: "客户已提出研发侧 DFM 能力诉求，建议把交流重点从泛 AI 介绍收敛到“研发知识沉淀、可制造性评审、工艺经验复用”的可验证场景。" },
-      ...arr(next.conclusions).filter((item) => item.title !== "补充线索")
-    ].slice(0, 6);
-    next.customerInsights = {
-      ...(next.customerInsights || {}),
-      digitalCards: [
-        supplementCard("客户提出研发需要 DFM 能力，可能涉及可制造性评审、工艺知识复用、设计问题闭环和跨部门协同。"),
-        ...arr(next.customerInsights?.digitalCards)
-      ].slice(0, 6)
-    };
-    next.pains = [
-      {
-        title: "研发 DFM 与工艺知识复用",
-        sourceBasis: "用户提供线索：客户提出研发需要 DFM 能力；待现场确认其设计评审、工艺评审、问题闭环和知识库现状。",
-        reasoning: "若研发阶段缺少结构化 DFM 规则和历史问题复用，容易在设计转制造、试制、量产导入中产生返工、沟通成本和经验依赖。",
-        validationSignals: ["是否已有 DFM 检查清单/规则库", "设计评审问题是否能结构化沉淀", "研发、工艺、质量之间的问题闭环周期", "历史问题是否能按产品/零件/工艺快速检索"],
-        aiEntry: "研发 DFM 知识助手：把设计规范、工艺经验、质量问题和历史评审记录沉淀为可问答、可追溯、可复用的规则与建议。"
-      },
-      ...arr(next.pains).filter((item) => !/DFM|可制造性|研发/.test(`${item.title}${item.aiEntry}`))
-    ].slice(0, 6);
-    next.solutions = [
-      {
-        priority: "P1",
-        title: "研发 DFM 知识助手",
-        why: "客户已直接提出 DFM 能力诉求，属于比泛办公 AI 更明确的业务切入点。",
-        how: "先确认 DFM 资料范围、历史问题样例、评审流程和责任部门，再评估知识库问答、规则检索、评审清单生成和问题闭环辅助。"
-      },
-      ...arr(next.solutions).filter((item) => !/DFM|可制造性|研发/.test(`${item.title}${item.how}`))
-    ].slice(0, 5);
-    next.requirements = {
-      ...(next.requirements || {}),
-      preMeeting: [
-        "DFM 需求由哪个部门提出：研发、工艺、质量、制造工程还是管理层。",
-        "是否有可脱敏的 DFM 清单、设计规范、历史评审问题、工艺问题和返工案例。",
-        ...arr(next.requirements?.preMeeting)
-      ].slice(0, 10),
-      onSite: [
-        "现场确认 DFM 的业务目标：减少设计返工、缩短评审周期、复用工艺经验，还是支撑新人上手。",
-        "确认 DFM 规则是否需要与 PLM/MES/QMS 或文档库集成。",
-        ...arr(next.requirements?.onSite)
-      ].slice(0, 10)
-    };
-    next.keywords = Array.from(new Set([...arr(next.keywords), "DFM", "可制造性评审", "研发知识库", "工艺知识复用", "设计问题闭环"]));
-  }
   next.changeSummary = Array.from(new Set(next.changeSummary));
   next.updatedSections = Array.from(new Set(next.updatedSections));
   return normalizeReportShape(next);
@@ -4006,6 +4084,8 @@ export async function improveStructuredReport(report, userInput) {
       conclusions: currentRound.conclusions,
       painsAndOpportunities: currentRound.painsAndOpportunities,
       solutionCards: currentRound.solutionCards,
+      solutionStrategy: currentRound.solutionStrategy || report.solutionStrategy,
+      deliveryAssessment: currentRound.deliveryAssessment || report.deliveryAssessment,
       questionnaire: currentRound.questionnaire,
       internalNotes: currentRound.internalNotes
     },
@@ -4031,10 +4111,9 @@ export async function improveStructuredReport(report, userInput) {
 1. 不要新增或编造来源，不要生成 sources 字段。
 2. 必须返回 changeSummary、updatedSections、userSupplementInsights。
 3. 先提炼用户补充信息中的“业务场景、现有做法、客户痛点、目标效果、关键约束、下一步样例”。只要出现具体业务场景或客户目标，就必须影响至少一个结论、一个痛点、一个方案和一个前置问题，不得只追加摘要。
-4. 如果补充信息涉及 DFM/可制造性/研发/工艺评审，必须新增或强化“研发 DFM 知识助手/可制造性评审/工艺知识复用”相关内容。
-5. 如果补充信息涉及视频、监控、视觉识别、违规告警、生产线、包装、错装、混装，必须新增或强化“视觉识别/产线防错/告警闭环”相关内容。
-6. 如果补充信息涉及材料、公文、会议纪要、讲话稿、专报、知识库、政策术语、格式规范，必须新增或强化“材料智能体/本地知识库/格式专员/研判分析”相关内容。
-7. 保持原有 JSON 字段结构。
+4. 不得根据固定行业模板、历史样例或关键词硬套方案；必须重新判断“我的企业能力范围 × 目标客户证据 × 用户补充线索”的交集。
+5. 若补充信息只体现兴趣或方向，不要写成确定需求；转成现场问题、适用前提或不建议承诺事项。
+6. 保持原有 JSON 字段结构。若更新 deliveryAssessment.sowOutline，必须按 priority、solutionTitle、primaryFunction、items 的结构化对象返回。
 用户补充信息：${userInput}
 当前报告：${JSON.stringify(safeReport, null, 2)}`
     }
@@ -7788,32 +7867,32 @@ function sowTaskRowsForSolution(item = {}, index = 0, report = {}) {
 }
 
 function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
-  return arr(delivery.sowOutline)
-    .filter(meaningful)
-    .filter((item) => !isDeliveryEstimateText(item))
+  return normalizeSowOutline(delivery.sowOutline, { report, round })
     .slice(0, 8)
     .map((item, index) => {
-      const [rawTitle, ...restParts] = String(item).split(/[：:]/);
-      const title = cleanBusinessText(rawTitle || item, 58);
-      const rest = cleanBusinessText(restParts.join("：") || item, 260);
-      const tasks = uniqueTexts(
-        rest
-          .replace(title, "")
-          .split(/[、，,；;\/]/)
-          .map((task) => cleanBusinessText(task, 120))
-          .filter(meaningful),
-        8
-      );
+      const title = cleanBusinessText(item.primaryFunction || item.solutionTitle || "功能项", 70);
+      const solutionTitle = cleanBusinessText(item.solutionTitle || "", 90);
+      const priority = /^P[0-2]$/.test(String(item.priority || "")) ? item.priority : `P${Math.min(index, 2)}`;
+      const rows = arr(item.items)
+        .map((task) => ({
+          label: cleanBusinessText(task.name || task.title || task.label || "", 120),
+          description: cleanBusinessText(task.description || task.detail || "", 180),
+          hard: Boolean(task.hard),
+          sourceIds: normalizeSourceIdList(task)
+        }))
+        .filter((row) => meaningful(row.label))
+        .slice(0, 10);
       return {
-        title: `P${Math.min(index, 2)}｜${title}`,
-        claim: title,
-        rows: (tasks.length ? tasks : [rest || title]).map((task) => ({ label: task, description: "", hard: false })).slice(0, 10),
-        evidence: [item],
+        title: `${priority}｜${title}`,
+        claim: solutionTitle && solutionTitle !== title ? `${solutionTitle}｜${title}` : title,
+        rows,
+        evidence: [item.description, ...rows.flatMap((row) => [row.label, row.description])].filter(meaningful),
         kind: "sow-module-fields",
-        sourceIds: [],
+        sourceIds: Array.from(new Set([...normalizeSourceIdList(item), ...rows.flatMap((row) => normalizeSourceIdList(row))])),
         forceDisplay: true
       };
-    });
+    })
+    .filter((branch) => arr(branch.rows).length);
 }
 
 function sowTaskList(group = {}, solution = {}, complexityMap = null, groupIndex = 0) {
@@ -8672,6 +8751,47 @@ function presalesPerspective(report, round, sources = []) {
       "pain-fields"
     )
   );
+  const implementationSteps = uniqueTexts(arr(strategy.implementationPath).map((item) => cleanBusinessText(item, 140)).filter(meaningful), 5);
+  const approachBranches = [];
+  let dynamicApproachClaim = "";
+  if (meaningful(strategy.overallApproach)) {
+    approachBranches.push(forcedBranch("总体思路", cleanBusinessText(strategy.overallApproach, 180), implementationSteps.slice(0, 3)));
+  }
+  if (implementationSteps.length) {
+    approachBranches.push(forcedBranch("推进路径", implementationSteps[0], implementationSteps.slice(1, 4)));
+  }
+  if (!approachBranches.length && solutions.length) {
+    const solutionPathItems = solutions
+      .slice(0, 5)
+      .map((item, index) => ({
+        priority: normalizePriorityLabel(item.priority, index),
+        title: cleanBusinessText(item.title || item.solution || "方案", 60),
+        basis: cleanBusinessText(item.value || item.introduction || item.customerPain || item.prerequisite || "", 170),
+        sourceIds: normalizeSourceIdList(item)
+      }))
+      .filter((item) => meaningful(item.title));
+    const leadSolution = solutionPathItems[0];
+    const expansionSolutions = solutionPathItems.slice(1, 4);
+    if (leadSolution) {
+      dynamicApproachClaim = expansionSolutions.length
+        ? `解决路径从“${leadSolution.title}”开始，再按${expansionSolutions.map((item) => `${item.priority} ${item.title}`).join("、")}扩展。`
+        : `解决路径先聚焦“${leadSolution.title}”。`;
+      approachBranches.push(forcedBranch(
+        "优先验证",
+        `${leadSolution.priority}｜${leadSolution.title}${leadSolution.basis ? `：${leadSolution.basis}` : ""}`,
+        expansionSolutions.map((item) => `${item.priority}｜${item.title}${item.basis ? `：${item.basis}` : ""}`),
+        leadSolution.sourceIds
+      ));
+      if (expansionSolutions.length) {
+        approachBranches.push(forcedBranch(
+          "扩展路径",
+          expansionSolutions.map((item) => `${item.priority}｜${item.title}`).join("；"),
+          expansionSolutions.map((item) => item.basis).filter(meaningful),
+          collectSourceIds(expansionSolutions)
+        ));
+      }
+    }
+  }
   const nodes = [
     {
       label: "客户可能的核心业务场景",
@@ -8701,20 +8821,17 @@ function presalesPerspective(report, round, sources = []) {
       wide: true,
       tone: "strong"
     },
-    {
+    ...(approachBranches.length ? [{
       label: "解决思路",
-      claim: strategy.overallApproach || "解决思路暂不能形成有效判断。",
-      evidence: arr(strategy.implementationPath),
-      branches: [
-        forcedBranch("总体思路", strategy.overallApproach || "未形成可用的总体解决思路。", arr(strategy.implementationPath).slice(0, 3)),
-        forcedBranch("推进路径", arr(strategy.implementationPath)[0] || "未形成明确推进路径。", arr(strategy.implementationPath).slice(1, 4))
-      ],
+      claim: meaningful(strategy.overallApproach) ? cleanBusinessText(strategy.overallApproach, 180) : (implementationSteps[0] || dynamicApproachClaim),
+      evidence: implementationSteps,
+      branches: approachBranches,
       allowConfirmEvidence: true,
       allowBoundaryEvidence: true,
       forceDisplay: true,
       useExplicitBranchesOnly: true,
       tone: "normal"
-    },
+    }] : []),
     {
       label: "配套解决方案",
       claim: solutionSummary,
@@ -8819,12 +8936,15 @@ function presalesPerspective(report, round, sources = []) {
       tone: "risk"
     }
   ].filter(Boolean);
+  const presalesThesis = [strategy.overallApproach, dynamicApproachClaim, solutionSummary, topPain.opportunity]
+    .map((item) => cleanBusinessText(item, 220))
+    .find(meaningful) || "";
   return `<div class="report-view-panel view-presales">
     ${argumentTreeSection({
       className: "presales-argument-section",
       kicker: "方案分析",
-      thesis: strategy.overallApproach || "售前方案应先收敛到可验证场景，再扩展为完整方案。",
-      summary: "这一页站在售前视角，把客户现状、痛点机会、解决思路和方案优先级串成一条方案逻辑。",
+      thesis: presalesThesis,
+      summary: "",
       nodes,
       sources,
       showClaim: false
@@ -8971,56 +9091,54 @@ function technicalDependencyBranches(delivery = {}, round = {}, report = {}) {
 
 function deliveryArgumentSection(report, round) {
   const delivery = existingDeliveryAssessment(report, round);
-  const sow = arr(delivery.sowOutline).filter(meaningful).slice(0, 4);
   const sowBranches = sowArgumentBranches(report, round, delivery);
   const riskBranches = deliveryRiskResponseBranches(report, round, delivery);
   const dependencyBranches = technicalDependencyBranches(delivery, round, report);
-  const deliveryBoundaryBranch = (claim) => ({
-    title: "当前边界",
-    claim,
-    evidence: [],
-    invalid: true,
-    forceDisplay: true
-  });
   const riskTitles = uniqueTexts(riskBranches.map((branch) => String(branch.title || "").replace(/｜.*/, "").trim()).filter(meaningful), 3);
   const riskClaim = riskTitles.length
     ? `主要交付风险集中在${riskTitles.join("、")}，首轮只能承诺已核验边界内的轻量验证。`
-    : "暂无可展示的交付风险与应对。";
+    : "";
+  const nodes = [];
+  if (sowBranches.length) {
+    nodes.push({
+      label: "SOW分解",
+      claim: "本轮SOW只展示已形成依据的可交付功能项。",
+      evidence: sowBranches.flatMap((branch) => branch.evidence),
+      branches: sowBranches,
+      forceDisplay: true,
+      useExplicitBranchesOnly: true,
+      open: true,
+      wide: true
+    });
+  }
+  if (riskBranches.length) {
+    nodes.push({
+      label: "风险与应对",
+      claim: riskClaim,
+      evidence: riskBranches.flatMap((branch) => branch.evidence),
+      branches: riskBranches,
+      forceDisplay: true,
+      useExplicitBranchesOnly: true,
+      tone: "risk"
+    });
+  }
+  if (dependencyBranches.length) {
+    nodes.push({
+      label: "前置依赖",
+      claim: "前置依赖聚焦本方案真正需要的技术条件。",
+      evidence: dependencyBranches.flatMap((branch) => branch.evidence),
+      branches: dependencyBranches,
+      forceDisplay: true,
+      useExplicitBranchesOnly: true,
+      tone: "watch"
+    });
+  }
   return argumentTreeSection({
     className: "delivery-argument-section",
     kicker: "交付分析",
-    thesis: delivery.architectureSketch || "暂无可展示的交付拆解。",
-    summary: "这一页只保留交付视角需要的三件事：SOW分解、风险与应对、技术前置依赖。",
-    nodes: [
-      {
-        label: "SOW分解",
-        claim: sowBranches.length ? "本轮SOW只展示已形成依据的可交付功能项。" : "暂无可展示的SOW分解。",
-        evidence: sow,
-        branches: sowBranches.length ? sowBranches : [deliveryBoundaryBranch("当前报告没有可用的SOW功能项拆解；不使用后台模板补全。")],
-        forceDisplay: true,
-        useExplicitBranchesOnly: true,
-        open: true,
-        wide: true
-      },
-      {
-        label: "风险与应对",
-        claim: riskClaim,
-        evidence: riskBranches.flatMap((branch) => branch.evidence),
-        branches: riskBranches,
-        forceDisplay: true,
-        useExplicitBranchesOnly: true,
-        tone: "risk"
-      },
-    {
-      label: "前置依赖",
-      claim: dependencyBranches.length ? "前置依赖聚焦本方案真正需要的技术条件。" : "暂无可展示的技术前置依赖。",
-        evidence: dependencyBranches.flatMap((branch) => branch.evidence),
-        branches: dependencyBranches,
-        forceDisplay: true,
-        useExplicitBranchesOnly: true,
-        tone: "watch"
-      }
-    ],
+    thesis: delivery.architectureSketch || nodes[0]?.claim || "",
+    summary: "",
+    nodes,
     sources: arr(report.sources),
     showClaim: false
   });
