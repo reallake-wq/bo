@@ -1206,9 +1206,60 @@ function actionableRiskText(value = "", max = 180) {
   return isNonDecisionClaim(raw) ? "" : cleanBusinessText(raw, max);
 }
 
+function hasTenderLikeText(value = "") {
+  return /招投标|投标|中标|标书|资质材料|采购公告|招标公告|成交结果|评标|采购人|招标人|项目金额|中标金额/.test(String(value || ""));
+}
+
+function emptyExternalRecordText(value = "") {
+  const text = String(value || "");
+  const emptySignal = /"empty"\s*:\s*true|"total"\s*:\s*0|未发现任何记录|未查询到|未查到|暂无记录|无记录/.test(text);
+  const positiveSignal = /中标|招标公告|采购公告|采购人|招标人|成交|评标|金额|项目名称|供应商名称|客户名称/.test(text);
+  return emptySignal && !positiveSignal;
+}
+
+function sanitizeTenderOverreachItem(item = {}) {
+  const next = { ...item };
+  const title = cleanBusinessText(next.title || next.label || "", 120);
+  const bodyText = [
+    next.body,
+    next.summary,
+    next.insight,
+    next.note,
+    next.customerSignal,
+    next.sourceBasis,
+    next.reasoning,
+    ...arr(next.facts),
+    ...arr(next.evidence)
+  ].map((value) => cleanBusinessText(value, 360)).filter(meaningful).join("；");
+  if (!hasTenderLikeText(title)) return next;
+  if (emptyExternalRecordText(bodyText)) {
+    return {
+      ...next,
+      title: "",
+      label: "",
+      body: "",
+      summary: "",
+      insight: ""
+    };
+  }
+  if (!hasTenderLikeText(bodyText)) {
+    const fixedTitle = title
+      .replace(/招投标\s*\/\s*售前线索[：:]?/g, "商务拓展线索：")
+      .replace(/招投标\s*\/\s*交付线索[：:]?/g, "交付线索：")
+      .replace(/招投标\s*线索[：:]?/g, "商务线索：")
+      .replace(/投标\s*\/\s*售前/g, "商务拓展")
+      .replace(/投标/g, "商务")
+      .replace(/标书/g, "材料");
+    return { ...next, title: cleanBusinessText(fixedTitle, 120) };
+  }
+  return next;
+}
+
 function cleanRoundTextItem(item = {}) {
   if (!item || typeof item !== "object") return item;
-  const next = { ...item };
+  let next = { ...item };
+  if (typeof next.title === "string") next.title = cleanBusinessText(next.title, 140);
+  if (typeof next.label === "string") next.label = cleanBusinessText(next.label, 80);
   const textKeys = [
     "body",
     "summary",
@@ -1239,6 +1290,7 @@ function cleanRoundTextItem(item = {}) {
   for (const key of listKeys) {
     if (Array.isArray(next[key])) next[key] = next[key].map((value) => (typeof value === "string" ? cleanListItem(value, 220) : value)).filter(meaningful);
   }
+  next = sanitizeTenderOverreachItem(next);
   return next;
 }
 
@@ -2934,10 +2986,12 @@ export function normalizeReportShape(report = {}) {
   const guarded = ensureReportRounds(applyFreshnessGuardrails(sanitizeReportDecisionData(shaped)));
   const roundsWithStrategy = arr(guarded.rounds).map((round) => {
     const nextRound = { ...round };
+    const cleanedBusinessInsights = cleanDecisionCardItems(nextRound.businessInsights, 12);
     const cleanedPains = cleanDecisionPains(nextRound.painsAndOpportunities, { round: nextRound, report: guarded });
     const cleanedSolutions = cleanDecisionSolutions(nextRound.solutionCards, { round: nextRound, report: guarded });
     const strategyRound = {
       ...nextRound,
+      businessInsights: cleanedBusinessInsights,
       painsAndOpportunities: cleanedPains,
       solutionCards: cleanedSolutions
     };
@@ -2953,6 +3007,7 @@ export function normalizeReportShape(report = {}) {
       deliveryAssessment: cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: strategyRound }),
       painsAndOpportunities: cleanedPains,
       solutionCards: cleanedSolutions,
+      businessInsights: cleanedBusinessInsights,
       conclusions: cleanDecisionCardItems(nextRound.conclusions, 8),
       customerInfo: arr(nextRound.customerInfo).map(cleanRoundSection).filter((section) => arr(section.items).length),
       internalNotes: arr(nextRound.internalNotes).map(cleanInternalNote).filter(isActionableInternalNote)
