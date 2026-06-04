@@ -2,6 +2,7 @@ import { fail, json } from "../lib/http.mjs";
 import { readJson } from "../lib/store.mjs";
 import { updateJob } from "../lib/pipeline.mjs";
 import { decorateJob } from "../lib/job-progress.mjs";
+import { enrichJobErrorPatch } from "../lib/job-errors.mjs";
 import { withOacRequestContext } from "../lib/auth.mjs";
 
 function isStale(job) {
@@ -19,7 +20,7 @@ function canAutoResume(job) {
 }
 
 function publicJob(job = {}) {
-  const out = decorateJob(job);
+  const out = decorateJob(enrichJobErrorPatch(job));
   delete out.inputText;
   delete out.checkpoint;
   delete out.sourceAudit;

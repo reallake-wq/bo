@@ -1295,11 +1295,113 @@ function cleanDecisionMetrics(items = []) {
 function targetContextForSolution(context = {}) {
   const round = context.round || {};
   return [
+    contextReport(context).companyName,
+    contextReport(context).standardName,
+    contextReport(context).targetCompanyName,
     ...arr(round.customerInfo).flatMap((section) => arr(section.items).flatMap((item) => [section.title, item.title, item.body, item.insight, item.summary, ...arr(item.facts)])),
     ...arr(round.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
     ...arr(round.painsAndOpportunities).flatMap((item) => [item.title, item.customerSignal, item.pain, item.opportunity, item.reasoning, item.sourceBasis]),
     round.inputSummary
   ].map((item) => cleanBusinessText(item, 180)).filter(meaningful).join(" ");
+}
+
+function reportSpecificBrandEvidence(context = {}, extraText = "") {
+  const report = contextReport(context);
+  const round = context.round || {};
+  return [
+    sellerProfileText(report),
+    report.sellerProfileName,
+    report.companyName,
+    report.standardName,
+    report.targetCompanyName,
+    extraText,
+    ...arr(report.sources).flatMap((source) => [
+      source.title,
+      source.name,
+      source.url,
+      source.snippet,
+      source.summary,
+      source.text,
+      source.content,
+      ...arr(source.facts),
+      ...arr(source.implications)
+    ]),
+    ...arr(round.customerInfo).flatMap((section) => arr(section.items).flatMap((item) => [section.title, item.title, item.body, item.insight, item.summary, ...arr(item.facts)])),
+    ...arr(report.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
+    ...arr(round.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
+    ...arr(report.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
+    ...arr(round.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary])
+  ].flatMap((item) => (Array.isArray(item) ? item : [item])).filter(Boolean).join(" ");
+}
+
+function allowsHolliCubeBrand(context = {}, extraText = "") {
+  return /HolliCube|HollySys|和利时|卡优倍|和言智能/.test(reportSpecificBrandEvidence(context, extraText));
+}
+
+function customerPlatformLabel(context = {}, extraText = "") {
+  return allowsHolliCubeBrand(context, extraText) ? "HolliCube" : "待核验的数据、资料或工具边界";
+}
+
+function targetEvidenceTextForAnalysis(context = {}, extraText = "") {
+  const report = contextReport(context);
+  const round = context.round || {};
+  return [
+    extraText,
+    ...arr(report.sources).flatMap((source) => [
+      source.title,
+      source.name,
+      source.snippet,
+      source.summary,
+      source.text,
+      source.content,
+      ...arr(source.facts),
+      ...arr(source.implications)
+    ]),
+    ...arr(report.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
+    ...arr(round.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
+    ...arr(report.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
+    ...arr(round.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
+    ...arr(round.customerInfo).flatMap((section) => arr(section.items).flatMap((item) => [section.title, item.title, item.body, item.insight, item.summary, ...arr(item.facts)]))
+  ].flatMap((item) => (Array.isArray(item) ? item : [item])).filter(Boolean).join(" ");
+}
+
+function hasTargetDigitalOperatingEvidence(context = {}, extraText = "") {
+  const evidenceText = targetEvidenceTextForAnalysis(context, "");
+  const digitalPattern = /IT|信息化|数字化|系统|平台|软件|数据|接口|API|SDK|MES|ERP|WMS|LIMS|SCADA|PLM|QMS|OA|CRM|SAP|工业互联网|物联网|智能制造|数据中台|知识库|数据问答|智能体|Agent|AI|AIOps|算法|模型|预测性维护|运维|自动化|软件著作权|软著|信息通信|智慧工厂|数字化工厂|招聘.{0,20}(IT|数据|算法|软件|运维|信息化)/i;
+  if (digitalPattern.test(evidenceText)) return true;
+  const signalText = cleanBusinessText(extraText, 800);
+  const hasCustomerAction = /招标|中标|采购|建设|上线|部署|使用|对接|招聘|软著|软件著作权|专利|项目|案例|官网|公开披露|公告|年报|技术中心|信息通信/.test(signalText);
+  const selfGenerated = /客户已有工业平台和模型线索|现有平台|可接入|已核验的数据|待核验的数据|场景智能体|上层智能体|我方能力更适合/.test(signalText);
+  return hasCustomerAction && !selfGenerated && digitalPattern.test(signalText);
+}
+
+function neutralizeUnsupportedBrandText(value = "", context = {}) {
+  if (typeof value !== "string" || !value) return value;
+  if (allowsHolliCubeBrand(context)) return value;
+  return value
+    .replace(/HolliCube\s*上层智能体编排试点/g, "场景智能体编排试点")
+    .replace(/围绕\s*HolliCube\s*生态应用接入/g, "围绕生态应用接入、可开放接口和业务工具")
+    .replace(/HolliCube\s*可开放接口/g, "可开放接口")
+    .replace(/把\s*HolliCube\s*中[的]?/g, "把已核验的")
+    .replace(/HolliCube\s*数据接口/g, "已确认数据接口")
+    .replace(/HolliCube/g, "待核验的数据、资料或工具边界")
+    .replace(/HollySys/g, "现有工业平台")
+    .replace(/和言智能问答/g, "智能问答")
+    .replace(/和利时卡优倍/g, "既有工业平台供应商")
+    .replace(/和利时/g, "既有工业平台供应商")
+    .replace(/卡优倍/g, "既有工业平台供应商");
+}
+
+function neutralizeUnsupportedBrandItem(item = {}, context = {}) {
+  if (!item || typeof item !== "object") return item;
+  const next = { ...item };
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === "string") next[key] = neutralizeUnsupportedBrandText(value, context);
+    else if (Array.isArray(value)) {
+      next[key] = value.map((entry) => (typeof entry === "string" ? neutralizeUnsupportedBrandText(entry, context) : entry));
+    }
+  }
+  return next;
 }
 
 function isForcedSellerProductSolution(item = {}, context = {}) {
@@ -1540,9 +1642,77 @@ function isUnsupportedPresalesEfficiencyTemplateItem(item = {}, context = {}) {
   return !itemHasPresalesEfficiencyEvidence(item, context);
 }
 
+function heavyDigitalSolutionText(value = "") {
+  return /系统接入|数据接入|接口|API|SDK|平台|数据中台|HolliCube|MES|ERP|WMS|LIMS|SCADA|PLM|QMS|智能体|Agent|知识库|数据问答|AIOps|自动化闭环|工具调用|流程编排|任务编排|权限审计|部署|SSO|账号体系/i.test(String(value || ""));
+}
+
+function sanitizeUngroundedDigitalSolution(item = {}, context = {}) {
+  const report = contextReport(context);
+  if (sellerCapabilityMode(report) !== "digital") return item;
+  const text = [
+    item.title,
+    item.customerPain,
+    item.introduction,
+    item.value,
+    item.expectedImpact,
+    item.prerequisite,
+    item.why,
+    item.how,
+    item.body
+  ].join(" ");
+  if (!heavyDigitalSolutionText(text)) return item;
+  if (hasTargetDigitalOperatingEvidence(context, text)) return item;
+  return {
+    ...item,
+    title: "业务场景轻量验证",
+    customerPain: meaningful(item.customerPain) && !heavyDigitalSolutionText(item.customerPain)
+      ? item.customerPain
+      : "客户真实业务场景、资料样例和合作边界仍需现场确认，当前证据不足以预设系统接入或平台编排。",
+    introduction: "先核验客户真实业务问题、可脱敏资料、流程样例和成功指标，再判断是否需要知识库、智能体、数据接入或系统对接。",
+    value: "避免把我方能力强行套到客户身上，用最小验证判断是否存在真实商机。",
+    expectedImpact: "形成是否进入二次交流、样例验证或正式方案的判断依据。",
+    prerequisite: "客户能说明业务问题、当前处理方式、可提供资料或样例、验收口径和合规边界。",
+    why: "当前客户侧证据不足以支撑重型数字化方案，只能作为会前假设核验。",
+    how: "现场先问场景、指标、资料和边界；确认后再决定是否进入具体系统、数据或自动化方案。",
+    body: ""
+  };
+}
+
+function sanitizeUngroundedDigitalPain(item = {}, context = {}) {
+  const report = contextReport(context);
+  if (sellerCapabilityMode(report) !== "digital") return item;
+  const text = [
+    item.title,
+    item.customerSignal,
+    item.sourceBasis,
+    item.reasoning,
+    item.pain,
+    item.aiEntry,
+    item.opportunity,
+    item.body
+  ].join(" ");
+  if (!heavyDigitalSolutionText(text)) return item;
+  if (hasTargetDigitalOperatingEvidence(context, text)) return item;
+  return {
+    ...item,
+    title: "业务场景待核验",
+    customerSignal: meaningful(item.customerSignal) && !heavyDigitalSolutionText(item.customerSignal)
+      ? item.customerSignal
+      : "当前客户侧证据不足以证明其已有IT系统、内部平台、数据接口或数字化改造需求。",
+    sourceBasis: meaningful(item.sourceBasis) && !heavyDigitalSolutionText(item.sourceBasis) ? item.sourceBasis : "",
+    reasoning: "先确认客户真实业务问题、当前处理方式、可提供资料和验收指标，再判断是否需要知识库、智能体、数据接入或系统对接。",
+    pain: "业务场景和资料边界尚未核验，不能直接推断为系统或平台类痛点。",
+    aiEntry: "以业务场景轻量验证作为首轮切入，而不是预设客户已有IT能力。",
+    opportunity: "现场确认后再决定是否进入具体数字化方案。",
+    body: ""
+  };
+}
+
 function cleanDecisionSolutions(items = [], context = {}) {
   const cleaned = arr(items)
     .map(cleanRoundTextItem)
+    .map((item) => neutralizeUnsupportedBrandItem(item, context))
+    .map((item) => sanitizeUngroundedDigitalSolution(item, context))
     .filter((item) => meaningful(item.title))
     .filter((item) => [item.customerPain, item.introduction, item.value, item.expectedImpact, item.how, item.why].some(meaningful))
     .filter((item) => !isNonDecisionClaim([item.customerPain, item.introduction, item.value, item.expectedImpact, item.how, item.why].join("；")))
@@ -1575,6 +1745,7 @@ function prioritySorted(items = []) {
 }
 
 function normalizePrioritizedSolutions(items = [], limit = 6) {
+  const seen = new Set();
   return prioritySorted(
     arr(items)
       .map((item, index) => ({
@@ -1583,7 +1754,24 @@ function normalizePrioritizedSolutions(items = [], limit = 6) {
         priority: normalizePriorityLabel(item.priority, index)
       }))
       .filter((item) => meaningful(item.title))
-  ).slice(0, limit);
+  )
+    .filter((item) => {
+      const key = solutionDedupeKey(item);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function solutionDedupeKey(item = {}) {
+  const text = [item.title, item.customerPain, item.introduction, item.value, item.why, item.how].filter(meaningful).join(" ");
+  if (/场景智能体编排试点|上层智能体编排试点/.test(text)) return "agent-orchestration-pilot";
+  if (/生态应用接入|伙伴应用接入|伙伴接入|应用接入.*智能体编排/.test(text)) return "ecosystem-agent-access";
+  if (/工业知识库|知识库.*数据问答|数据问答.*知识库/.test(text)) return "knowledge-qa";
+  if (/预测性维护|运维智能体|AIOps/.test(text)) return "maintenance-aiops";
+  if (/售前投标|投标.*交付知识库|交付知识库助手/.test(text)) return "presales-delivery-knowledge";
+  return normalizeForCompare(item.title || item.name || item.label || "");
 }
 
 function priorityMatchKeywords(value = "") {
@@ -1704,6 +1892,8 @@ function visibleSolutionCards(items = [], limit = 5) {
 function cleanDecisionPains(items = [], context = {}) {
   return arr(items)
     .map(cleanRoundTextItem)
+    .map((item) => neutralizeUnsupportedBrandItem(item, context))
+    .map((item) => sanitizeUngroundedDigitalPain(item, context))
     .map((item) => sanitizeSellerPain(item, context))
     .filter((item) => meaningful(item.title) || meaningful(item.reasoning) || meaningful(item.aiEntry) || meaningful(item.pain) || meaningful(item.opportunity))
     .filter((item) => !isNonDecisionClaim([item.sourceBasis, item.customerSignal, item.reasoning, item.pain, item.aiEntry, item.opportunity].join("；")))
@@ -1729,8 +1919,10 @@ function cleanStrategyData(strategy = {}, context = {}) {
   if (!strategy || typeof strategy !== "object") return strategy;
   const currentSituation = usefulDecisionText(strategy.currentSituation) || "";
   const rawOverallApproach = usefulDecisionText(strategy.overallApproach) || "";
+  const sellerMode = sellerCapabilityMode(contextReport(context));
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence(context);
   const overallApproach =
-    sellerAllowsDigitalSolution(contextReport(context)) || !digitalSolutionAssumptionText(rawOverallApproach)
+    (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(rawOverallApproach)
       ? rawOverallApproach
       : "";
   const implementationPath = arr(strategy.implementationPath)
@@ -1753,16 +1945,22 @@ function cleanStrategyData(strategy = {}, context = {}) {
     ),
     implementationPath: implementationPath.length || !shouldCompletePath
       ? implementationPath
-      : sellerCapabilityMode(contextReport(context)) === "digital"
+      : sellerMode === "digital" && hasDigitalTargetEvidence
         ? [
           "业务访谈先锁定真实痛点、责任部门和预算归属。",
           "P0场景先采集样例数据和流程材料，定义边界、指标和成功标准。",
           "按轻量验证、小范围试点、系统或知识体系集成三步推进。"
         ]
+        : sellerMode === "digital"
+          ? [
+          "先确认客户真实业务场景、影响指标、责任部门和预算归属。",
+          "只要求客户提供可脱敏资料、流程样例或业务规则，不预设其已有IT系统。",
+          "验证通过后再判断是否需要系统接口、数据接入或正式项目范围。"
+        ]
         : [
-          "先确认客户具体车型、品类、现有供应商和技术/认证要求。",
-          "P0场景先拿一个产品线做样品、测试、报价或份额提升闭环。",
-          "按样品验证、小批试用、供应商准入和批量供货路径推进。"
+          "先确认客户具体采购品类、使用场景、现有供应商和验收要求。",
+          "P0场景先拿一个最小品类或服务范围做匹配、验证、报价或份额提升闭环。",
+          "按方案匹配、小范围验证、准入评审和规模化合作路径推进。"
         ]
   };
 }
@@ -1780,61 +1978,80 @@ function cleanDeliveryData(delivery = {}, context = {}) {
   if (!delivery || typeof delivery !== "object") return delivery;
   const report = contextReport(context);
   const sellerMode = sellerCapabilityMode(report);
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence(context);
   const rawArchitectureSketch = usefulDecisionText(delivery.architectureSketch) || "";
   const architectureSketch =
-    sellerMode === "digital" || !digitalSolutionAssumptionText(rawArchitectureSketch)
+    (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(rawArchitectureSketch)
       ? rawArchitectureSketch
       : "";
   const responsePlan = arr(delivery.responsePlan || delivery.mitigations || delivery.riskResponses)
     .map((item) => cleanBusinessText(item, 180))
     .filter(meaningful)
-    .filter((item) => sellerMode === "digital" || !digitalSolutionAssumptionText(item))
+    .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 5);
   const deliveryRisks = arr(delivery.deliveryRisks)
     .map(actionableRiskText)
     .filter(meaningful)
-    .filter((item) => sellerMode === "digital" || !digitalSolutionAssumptionText(item))
+    .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 6);
   const dependencies = arr(delivery.dependencies)
     .map(actionableDependencyText)
     .filter(meaningful)
-    .filter((item) => sellerMode === "digital" || !digitalSolutionAssumptionText(item))
+    .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .slice(0, 6);
   const sowOutline = arr(delivery.sowOutline)
     .map(cleanListItem)
     .filter(meaningful)
-    .filter((item) => sellerMode === "digital" || !digitalSolutionAssumptionText(item))
+    .filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
     .filter((item) => substantiveText(item, 8) && !isNonDecisionClaim(item))
     .slice(0, 10);
   const shouldCompleteDelivery = meaningful(architectureSketch) || responsePlan.length || deliveryRisks.length || dependencies.length || sowOutline.length;
   const fallbackSowOutline = shouldCompleteDelivery
     ? sellerMode === "digital"
-      ? defaultDeliverySowOutline().map((item) => `${item.title}：${arr(item.items).join("、")}`)
+      ? hasDigitalTargetEvidence
+        ? defaultDeliverySowOutline().map((item) => `${item.title}：${arr(item.items).join("、")}`)
+        : [
+          "业务场景核验：业务问题、影响岗位、当前做法、优先级",
+          "资料样例核验：脱敏资料、流程样例、业务规则、历史案例",
+          "方案边界判断：轻量验证范围、验收指标、是否需要后续系统接入"
+        ]
       : [
-          "产品匹配确认：目标品类、技术参数、认证要求",
-          "样品与质量验证：样品准备、测试数据、问题闭环",
-          "商务与交付准备：报价、准入、产能和交付计划"
+          "方案匹配确认：目标品类/服务、关键指标、认证或验收要求",
+          "小范围验证：样品、试用服务、测试数据或效果证明",
+          "商务与交付准备：报价、准入、人员/产能/物料/服务响应和交付计划"
         ]
     : [];
   const fallbackDependencies = shouldCompleteDelivery
     ? sellerMode === "digital"
-      ? [
+      ? hasDigitalTargetEvidence
+        ? [
         "现有系统清单、接口/API文档、读写权限、鉴权方式和日志审计要求。",
         "脱敏业务文档、系统样例、接口说明或离线数据样例。",
         "既有系统的只读/写入边界、账号权限和审计要求。"
       ]
+        : [
+        "客户真实业务问题、影响岗位、当前处理方式和优先级。",
+        "可脱敏资料、流程样例、历史案例、业务规则或线下表单。",
+        "本轮验证目标、验收指标、不可触碰的数据/合规边界和后续决策口径。"
+      ]
       : [
-        "目标车型、产品品类、技术规格、认证要求和验收标准。",
-        "样品、图纸/BOM、测试工况、质量问题记录和竞品供应信息。",
+        "目标品类/服务、关键规格、认证要求和验收标准。",
+        "样品、资料、测试条件、质量问题记录或竞品供应信息。",
         "供应商准入要求、报价口径、账期、合同主体和付款主体。"
       ]
     : [];
   const fallbackDeliveryRisks = shouldCompleteDelivery
     ? sellerMode === "digital"
-      ? [
+      ? hasDigitalTargetEvidence
+        ? [
         "系统接口、权限和脱敏样例未锁定时，只能做轻量验证，不能承诺正式对接效果。",
         "客户既有平台能力边界不清时，方案定位容易与现有系统发生冲突。",
         "多系统数据口径和现场责任岗位不清，会影响数据问答、运维闭环和验收口径。"
+      ]
+        : [
+        "客户业务场景、资料样例和成功指标未确认时，只能做会前假设或现场轻量验证。",
+        "未确认客户是否具备IT系统、数据接口或内部技术能力前，不能承诺系统对接、自动化闭环或正式上线效果。",
+        "如果客户只希望采购外部供应商服务，方案应按资料、流程和人工协同边界设计，不能默认客户自建平台。"
       ]
       : [
         "技术规格、认证要求和测试工况未锁定时，样品验证可能反复返工。",
@@ -1859,6 +2076,36 @@ function hasUsefulStrategy(strategy = {}) {
       arr(strategy.rankedSolutions).some((item) => meaningful(item.title) || meaningful(item.why)) ||
       arr(strategy.implementationPath).some(meaningful)
   );
+}
+
+function hasCompleteStrategy(strategy = {}) {
+  return Boolean(
+    meaningful(strategy.currentSituation) &&
+      meaningful(strategy.overallApproach) &&
+      arr(strategy.rankedSolutions).some((item) => meaningful(item.title) || meaningful(item.why)) &&
+      arr(strategy.implementationPath).some(meaningful)
+  );
+}
+
+function completeStrategyData(strategy = {}, context = {}) {
+  const report = contextReport(context);
+  const round = context.round || {};
+  const cleaned = cleanStrategyData(strategy, context);
+  if (hasCompleteStrategy(cleaned)) return cleaned;
+  const fallback = cleanStrategyData(
+    buildSolutionStrategy(
+      { ...report, solutionStrategy: {} },
+      { ...round, solutionStrategy: {} }
+    ),
+    context
+  );
+  return {
+    ...cleaned,
+    currentSituation: cleaned.currentSituation || fallback.currentSituation || "",
+    overallApproach: cleaned.overallApproach || fallback.overallApproach || "",
+    rankedSolutions: arr(cleaned.rankedSolutions).length ? cleaned.rankedSolutions : arr(fallback.rankedSolutions),
+    implementationPath: arr(cleaned.implementationPath).length ? cleaned.implementationPath : arr(fallback.implementationPath)
+  };
 }
 
 function hasUsefulDelivery(delivery = {}) {
@@ -1996,7 +2243,7 @@ function painFromSignal(signal = {}, report = {}) {
       sourceIds
     };
   }
-  if (/运维|预测性维护|告警|AIOps|维修|备件|可观测/.test(text)) {
+  if (/运维|预测性维护|告警|AIOps|维修|备件|可观测/.test(text) && hasTargetDigitalOperatingEvidence({ report }, text)) {
     return {
       title: "预测性维护到运维闭环的落地断点",
       sourceBasis,
@@ -2010,31 +2257,35 @@ function painFromSignal(signal = {}, report = {}) {
       sourceIds
     };
   }
-  if (/生态|伙伴|应用融合|接入/.test(text)) {
+  if (/生态|伙伴|应用融合|接入/.test(text) && hasTargetDigitalOperatingEvidence({ report }, text)) {
+    const platform = customerPlatformLabel({ report }, text);
+    const validationSignal = platform === "HolliCube"
+      ? "HolliCube 对伙伴开放哪些接口、工具和数据边界"
+      : "哪些业务数据、系统接口或工具边界可以开放给伙伴应用";
     return {
       title: "生态伙伴应用接入与治理压力",
       sourceBasis,
       reasoning: "客户正在推进平台生态和上层应用融合，伙伴数量和应用类型增加后，接入标准、接口权限、测试验收和交付管理会成为规模化复制的瓶颈。",
       validationSignals: [
         "当前生态伙伴数量、接入流程和验收标准",
-        "HolliCube 对伙伴开放哪些接口、工具和数据边界",
+        validationSignal,
         "是否已有开发者门户、应用市场或伙伴交付模板"
       ],
       aiEntry: "用生态应用接入与智能体编排工作台，把伙伴应用的接口、知识、流程和验收点沉淀为可复用模板。",
       sourceIds
     };
   }
-  if (/多系统|集成|互联互通|ERP|SAP|WMS|LIMS|MES/.test(text)) {
+  if (/多系统|集成|互联互通|ERP|SAP|WMS|LIMS|MES/.test(text) && hasTargetDigitalOperatingEvidence({ report }, text)) {
     return {
       title: "多系统集成后的数据问答与流程协同压力",
       sourceBasis,
-      reasoning: "客户案例涉及 MES、ERP、SAP、WMS、LIMS 等多系统集成，数据打通后仍可能存在口径解释、跨系统查询、人工流转和交付运维沟通成本。",
+      reasoning: "客户侧证据涉及 MES、ERP、SAP、WMS、LIMS 等多系统或集成线索，数据打通后仍可能存在口径解释、跨系统查询、人工流转和交付运维沟通成本。",
       validationSignals: [
         "高频查询和跨系统动作分别发生在哪些岗位",
         "数据口径和接口权限由谁维护",
         "是否能提供脱敏样例验证只读问答和流程辅助"
       ],
-      aiEntry: "在现有平台和多系统接口之上，先做只读数据问答和流程辅助智能体，再按场景逐步接入任务流转。",
+      aiEntry: "在已核验的系统和接口边界之上，先做只读数据问答和流程辅助智能体，再按场景逐步接入任务流转。",
       sourceIds
     };
   }
@@ -2055,40 +2306,48 @@ function solutionFromPainSignal(signal = {}, index = 0, report = {}) {
   const text = [signal.title, signal.basis, signal.aiEntry].join(" ");
   const basePain = safeScenarioText(signal.basis || signal.title || "", 220);
   const sourceIds = arr(signal.sourceIds).slice(0, 6);
-  if (/生态|伙伴|应用融合|接入/.test(text)) {
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report }, text);
+  if (/生态|伙伴|应用融合|接入/.test(text) && hasDigitalTargetEvidence) {
+    const platform = customerPlatformLabel({ report }, text);
+    const introduction = platform === "HolliCube"
+      ? "围绕 HolliCube 生态应用接入，提供智能体编排、API/工具调用、知识库和应用验收流程，让伙伴应用可以按统一标准接入、测试和交付。"
+      : "围绕生态应用接入、可开放接口和业务工具，提供智能体编排、API/工具调用、知识库和应用验收流程，让伙伴应用可以按统一标准接入、测试和交付。";
+    const prerequisite = platform === "HolliCube"
+      ? "确认伙伴类型、现有接入流程、HolliCube 可开放接口、权限边界和验收标准。"
+      : "确认伙伴类型、现有接入流程、可开放接口、权限边界和验收标准。";
     return {
       priority: index === 0 ? "P0" : "P1",
       title: "生态应用接入与智能体编排工作台",
       customerPain: basePain || "客户正在推进平台生态和上层应用融合，需要降低伙伴接入、应用编排和验收管理成本。",
-      introduction: "围绕 HolliCube 生态应用接入，提供智能体编排、API/工具调用、知识库和应用验收流程，让伙伴应用可以按统一标准接入、测试和交付。",
+      introduction,
       value: "减少重复接口沟通和交付标准不一致，把生态伙伴管理从人工协调转为可配置、可追踪的流程。",
       expectedImpact: "优先形成一个伙伴应用接入样板，再复制到更多行业应用和区域能力中心。",
-      prerequisite: "确认伙伴类型、现有接入流程、HolliCube 可开放接口、权限边界和验收标准。",
-      why: "客户公开线索显示其在吸收生态伙伴并融合上层应用，和智用开物的智能体基础平台存在交集。",
+      prerequisite,
+      why: "客户侧线索显示其在吸收生态伙伴并融合上层应用，与我方智能体、知识库或应用编排能力存在交集。",
       how: "先选择一个伙伴应用做接入样板，梳理接口、知识、流程和验收点，再沉淀为可复用模板。",
       sourceIds
     };
   }
-  if (/多系统|集成|互联互通|ERP|WMS|LIMS|MES/.test(text)) {
+  if (/多系统|集成|互联互通|ERP|WMS|LIMS|MES/.test(text) && hasDigitalTargetEvidence) {
     return {
       priority: index === 0 ? "P0" : "P1",
       title: "跨系统数据问答与流程智能体",
-      customerPain: basePain || "客户项目中涉及多系统互联互通，交付和运维阶段容易出现接口、数据口径和人工流转成本。",
-      introduction: "在现有工业平台和 MES/ERP/WMS/LIMS 等系统之上，先做只读数据问答和流程辅助智能体，再按场景逐步接入任务流转。",
+      customerPain: basePain || "客户侧证据涉及多系统互联互通，交付和运维阶段容易出现接口、数据口径和人工流转成本。",
+      introduction: "在已核验的系统、数据和权限边界之上，先做只读数据问答和流程辅助智能体，再按场景逐步接入任务流转。",
       value: "让售前、交付和客户现场能用自然语言查询系统数据、定位口径差异，并把常见跨系统动作固化为可审计流程。",
       expectedImpact: "降低跨系统查询和沟通成本，减少项目交付中反复解释口径、查表和人工转录的时间。",
       prerequisite: "确认可接入系统清单、数据口径、接口权限、脱敏样例和只读/写入边界。",
-      why: "公开案例显示客户具备多系统集成经验，这更适合先做补充型数据问答和流程智能体，而不是替换其平台。",
+      why: "客户侧线索显示存在多系统或集成场景，更适合先做补充型数据问答和流程辅助，而不是预设替换既有系统。",
       how: "先围绕一个已交付行业案例选取 3-5 个高频查询和流程动作，做轻量验证后再扩展。",
       sourceIds
     };
   }
-  if (/运维|预测性维护|告警|AIOps|维修/.test(text)) {
+  if (/运维|预测性维护|告警|AIOps|维修/.test(text) && hasDigitalTargetEvidence) {
     return {
       priority: index === 0 ? "P0" : "P2",
       title: "预测性维护闭环与运维智能体",
-      customerPain: basePain || "客户具备工业数据和模型基础，但预测结果是否能转成工单、备件、处置和复盘闭环仍需验证。",
-      introduction: "把预测告警、故障知识、维修建议、备件申请和处置复盘组织为运维智能体工作流，作为现有工业数据平台的上层应用补充。",
+      customerPain: basePain || "客户侧证据出现运维、告警、维修或预测性维护线索，但预测结果是否能转成工单、备件、处置和复盘闭环仍需验证。",
+      introduction: "把已核验的告警、故障知识、维修建议、备件申请和处置复盘组织为运维智能体工作流，作为具体业务场景的辅助能力。",
       value: "把数据洞察从看板提醒推进到岗位可执行动作，提升运维响应和经验复用效率。",
       expectedImpact: "先验证告警解释、处置建议和知识追溯，再决定是否接入正式工单或备件系统。",
       prerequisite: "确认设备台账、历史告警、维修记录、权限边界和现场责任岗位。",
@@ -2111,28 +2370,45 @@ function solutionFromPainSignal(signal = {}, index = 0, report = {}) {
       sourceIds
     };
   }
-  if (/智能体|Agent|机理模型|HolliCube|流程智能化|上层应用/.test(text)) {
+  if (/智能体|Agent|机理模型|HolliCube|流程智能化|上层应用/.test(text) && hasDigitalTargetEvidence) {
+    const platform = customerPlatformLabel({ report }, text);
+    const genericTitle = platform === "HolliCube" ? "HolliCube 上层智能体编排试点" : "场景智能体编排试点";
+    const customerPain = platform === "HolliCube"
+      ? (basePain || "客户已有工业平台和模型基础，但从数据服务到岗位可执行应用之间仍需要场景化编排。")
+      : (basePain || "客户存在智能体、流程智能化或上层应用线索，但从业务数据、知识和工具到岗位可执行应用之间仍需现场验证。");
+    const introduction = platform === "HolliCube"
+      ? "把 HolliCube 中的数据服务、模型能力和业务工具封装为智能体可调用能力，先做一个只读分析或辅助决策场景。"
+      : "把已核验的业务数据、知识、系统接口和工具封装为智能体可调用能力，先做一个只读分析或辅助决策场景。";
+    const value = platform === "HolliCube"
+      ? "在不替换现有平台的前提下，验证智能体对工业场景的补充价值。"
+      : "在不预设替换既有系统的前提下，验证智能体对具体业务场景的补充价值。";
+    const prerequisite = platform === "HolliCube"
+      ? "确认平台接口、工具调用边界、样例数据和责任岗位。"
+      : "确认可开放数据、系统接口、工具调用边界、样例数据和责任岗位。";
+    const why = platform === "HolliCube"
+      ? "客户已有工业平台和模型线索，我方能力更适合做上层智能体编排补充。"
+      : "当前线索只支持把智能体作为补充型上层应用假设，不能预设客户已有平台或替换既有系统。";
     return {
       priority: index === 0 ? "P0" : "P2",
-      title: "HolliCube 上层智能体编排试点",
-      customerPain: basePain || "客户已有工业平台和模型基础，但从数据服务到岗位可执行应用之间仍需要场景化编排。",
-      introduction: "把 HolliCube 中的数据服务、模型能力和业务工具封装为智能体可调用能力，先做一个只读分析或辅助决策场景。",
-      value: "在不替换现有平台的前提下，验证智能体对工业场景的补充价值。",
+      title: genericTitle,
+      customerPain,
+      introduction,
+      value,
       expectedImpact: "形成一个可演示、可解释、可复用的上层应用样板。",
-      prerequisite: "确认平台接口、工具调用边界、样例数据和责任岗位。",
-      why: "客户已有工业平台和模型线索，智用开物更适合做上层智能体编排补充。",
+      prerequisite,
+      why,
       how: "先做只读查询和建议生成，再评估是否进入工具调用或流程闭环。",
       sourceIds
     };
   }
   return {
     priority: index === 0 ? "P0" : "P2",
-    title: /知识|问答|数据/.test(text) ? "工业知识库与数据问答平台" : safeScenarioText(signal.title || "场景智能体轻量验证", 60),
+    title: hasDigitalTargetEvidence && /知识|问答|数据/.test(text) ? "知识库与数据问答轻量验证" : safeScenarioText(signal.title || "业务场景轻量验证", 60),
     customerPain: basePain || safeScenarioText(signal.title || "客户场景仍需现场确认。", 180),
-    introduction: safeScenarioText(signal.aiEntry || "围绕该线索做知识库、数据问答或场景智能体的轻量验证。", 260),
+    introduction: safeScenarioText((hasDigitalTargetEvidence ? signal.aiEntry : "") || "先把该线索作为业务假设核验，确认客户是否有明确场景、可提供资料和合作边界。", 260),
     value: "把公开线索转成可验证的业务场景，降低首轮交流中的方案误判。",
     expectedImpact: "形成是否进入二次交流、样例验证或正式方案的判断依据。",
-    prerequisite: "确认业务负责人、样例数据、系统边界和客户侧成功指标。",
+    prerequisite: "确认业务负责人、可提供资料或样例、合作边界和客户侧成功指标；未确认前不预设系统接入。",
     why: "该方向来自分主题证据整理，适合作为会前假设而非正式承诺。",
     how: "先现场确认场景强度，再决定是否做轻量验证。",
     sourceIds
@@ -2655,7 +2931,9 @@ export function normalizeReportShape(report = {}) {
     const nextRound = { ...round };
     const cleanedStrategy = cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: nextRound });
     const cleanedDelivery = cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: nextRound });
-    nextRound.solutionStrategy = hasUsefulStrategy(cleanedStrategy) ? cleanedStrategy : buildSolutionStrategy(guarded, nextRound);
+    nextRound.solutionStrategy = hasCompleteStrategy(cleanedStrategy)
+      ? cleanedStrategy
+      : completeStrategyData(cleanedStrategy, { report: guarded, round: nextRound });
     nextRound.deliveryAssessment = hasUsefulDelivery(cleanedDelivery) ? cleanedDelivery : buildDeliveryAssessment(guarded, nextRound);
     return {
       ...nextRound,
@@ -2677,7 +2955,7 @@ export function normalizeReportShape(report = {}) {
     rounds: roundsWithStrategy,
     solutionStrategy: (() => {
       const cleaned = cleanStrategyData(guarded.solutionStrategy || active.solutionStrategy, { report: guarded, round: active });
-      return hasUsefulStrategy(cleaned) ? cleaned : cleanStrategyData(buildSolutionStrategy(guarded, active), { report: guarded, round: active });
+      return hasCompleteStrategy(cleaned) ? cleaned : completeStrategyData(cleaned, { report: guarded, round: active });
     })(),
     deliveryAssessment: (() => {
       const cleaned = cleanDeliveryData(guarded.deliveryAssessment || active.deliveryAssessment, { report: guarded, round: active });
@@ -2783,6 +3061,7 @@ function finalPrompt(company, sourcePack, topicBriefs, quality) {
 7c. 我的企业信息里的“核心产品/服务、典型场景、历史案例”是能力边界和可参考经验，不是固定产品清单。方案应来自“我方能力范围 × 目标客户场景证据/用户反馈”的交集。
 7d. 不得因为我方做过排产、追溯、知识库、视觉、设备、零部件等，就默认目标客户需要同类方案；也不得因为这是我方能力就一概排除。只有目标客户资料或用户反馈出现对应痛点、项目、采购、系统、流程或场景时，才可提出该类具体方案；否则应抽象成能力适配、轻量验证或现场问题。
 7e. 如果目标客户本身是软件商、集成商、设备商或方案提供商，要区分“客户对外服务的产品/案例”和“客户自己作为甲方要采购/改造的需求”。对外交付案例只能用于理解客户业务和生态合作可能，不能直接推断其内部采购需求。
+7f. 本产品面向千行百业，不得默认目标客户有 IT 团队、内部平台、系统接口、数据中台、自研能力或数字化改造预算。系统接入、数据接入、平台编排、自动化闭环等方案必须由目标客户侧证据或用户补充需求触发；证据不足时只写成业务场景核验、资料样例确认和现场问题。
 8. customerInsights.metrics 必须先呈现财务硬指标：营业收入/净销售额、净利润或归母净利润、毛利率或经营利润率、经营现金流、资产负债率或总资产负债、研发投入、员工规模、客户集中度。若来源没有对应数据，不要生成占位指标；不要写“未取得”“待核验”类空信息。
 9. 若企业信息包含 stockCode 或来源包含“财务硬来源”，必须优先使用财务硬来源抽取指标；不得笼统写“公开来源未采集到财务数据”，必须说明已查来源与缺失原因。
 10. 若企业信息包含 annualReportEvidence，必须把它作为用户上传年报证据使用，优先级高于第三方网页；引用时写“用户上传年报”并保留页码或章节。
@@ -2800,7 +3079,7 @@ function finalPrompt(company, sourcePack, topicBriefs, quality) {
 18d. solutions 不只写“能做 AI”，要体现“客户场景 -> 方案介绍 -> 价值 -> 成效 -> 前提”。若来源包含产品手册、部署周期、价格区间或系统集成信息，应转化为方案边界和切入建议。
 19. salesThesis 必须站在销售视角回答四个问题：这个客户是否值得继续跟；有没有预算/买单能力；决策链和拍板路径可能在哪里；如果想成单应该怎么运作。必须先按维度收集证据，再形成观点，不能先写观点再硬配论据；采购能力只能用企业规模、财务/融资、客户作为甲方的招采/采购记录支撑；客户对外交付案例只能用于理解业务场景，不能证明客户有采购能力、采购习惯、同类项目采购或竞品供应商。
 20. solutionStrategy 必须站在售前视角回答四个问题：客户现状与问题；总体解决思路；分项方案优先级；落地路径。不要只列产品名，要把客户现状、痛点、方案价值和推进路径串起来。
-21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW分解。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写技术条件（数据、接口、权限、安全、部署、验收口径），不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
+21. deliveryAssessment 必须站在交付视角做初步评估：技术路径、交付依赖、主要交付风险、应对方案和SOW分解。交付页只展示 SOW分解、风险与应对、前置依赖三类；风险和应对必须绑定成同一张表，不要拆成两个模块；前置依赖只写本方案真正需要的前置条件。若客户侧没有 IT/系统/数据证据，前置依赖只能写业务资料、流程样例、验收口径和合规边界，不得默认接口、权限、安全、部署等系统条件。不要写锁定负责人、会后更新、开场切入等非技术废话。不要输出资源数量、人天、工期或价格估算；本阶段只按功能模块/工作项拆分，不要按需求澄清、原型验证、上线运营这类实施流程拆分；每个工作包尽量拆到“一级功能模块/二级功能项”，不能承诺未锁定的接口、数据、周期和效果。
 22. 拜访问卷必须随“我的企业信息”变化。若我的企业不是软件/IT/数字化服务商，不要默认生成 IT/数据/系统类问题；应围绕我方主营业务和核心产品生成业务场景、产品技术匹配、采购交付、质量/合规/付款等问题。
 
 企业信息：${JSON.stringify(company, null, 2)}
@@ -4923,40 +5202,57 @@ function painsAndOpportunitySection(round, sources) {
 function buildSolutionStrategy(report, round) {
   const explicit = round.solutionStrategy || report.solutionStrategy || {};
   const sellerMode = sellerCapabilityMode(report);
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report, round });
   const solutions = cleanDecisionSolutions(arr(round.solutionCards).filter((item) => meaningful(item.title)), { report, round });
   const pains = alignPainPrioritiesWithSolutions(arr(round.painsAndOpportunities).filter((item) => meaningful(item.title) || meaningful(item.pain)), solutions, 8);
   const topPain = pains[0] || {};
   const p0 = solutions.find((item) => String(item.priority || "").toUpperCase() === "P0") || solutions[0] || {};
-  const ranked = solutions.slice(0, 5).map((item, index) => ({
-    priority: normalizePriorityLabel(item.priority, index),
-    title: item.title || "建议方案",
-    why: item.value || item.why || item.expectedImpact || item.customerPain || ""
-  }));
+  const ranked = solutions.length
+    ? solutions.slice(0, 5).map((item, index) => ({
+        priority: normalizePriorityLabel(item.priority, index),
+        title: item.title || "建议方案",
+        why: item.value || item.why || item.expectedImpact || item.customerPain || ""
+      }))
+    : pains.slice(0, 5).map((item, index) => ({
+        priority: normalizePriorityLabel(item.priority, index),
+        title: item.opportunity && substantiveText(item.opportunity, 6)
+          ? compactText(item.opportunity, 42)
+          : `围绕“${compactText(item.title || item.pain || "客户痛点", 28)}”验证方案方向`,
+        why: item.pain || item.customerSignal || item.reasoning || "该方向仅作为现场验证入口，需用客户事实确认后再形成正式方案。"
+      }));
   const defaultPath = [
-    ...(sellerMode === "digital"
+    ...(sellerMode === "digital" && hasDigitalTargetEvidence
       ? [
           "业务访谈先锁定真实痛点、责任部门和预算归属。",
           "P0场景先采集样例数据和流程材料，定义边界、指标和成功标准。",
           "按轻量验证、小范围试点、系统或知识体系集成三步推进。"
         ]
+      : sellerMode === "digital"
+        ? [
+          "先确认客户真实业务场景、影响指标、责任部门和预算归属。",
+          "只要求客户提供可脱敏资料、流程样例或业务规则，不预设其已有IT系统。",
+          "验证通过后再判断是否需要系统接口、数据接入或正式项目范围。"
+        ]
       : [
-          "先确认客户具体车型、品类、现有供应商和技术/认证要求。",
-          "P0场景先拿一个产品线做样品、测试、报价或份额提升闭环。",
-          "按样品验证、小批试用、供应商准入和批量供货路径推进。"
+          "先确认客户具体采购品类、使用场景、现有供应商和验收要求。",
+          "P0场景先拿一个最小品类或服务范围做匹配、验证、报价或份额提升闭环。",
+          "按方案匹配、小范围验证、准入评审和规模化合作路径推进。"
         ])
   ];
   return {
     currentSituation: explicit.currentSituation || topPain.pain || topPain.customerSignal || "",
     overallApproach:
-      (sellerMode === "digital" || !digitalSolutionAssumptionText(explicit.overallApproach) ? explicit.overallApproach : "") ||
+      ((sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(explicit.overallApproach) ? explicit.overallApproach : "") ||
       (p0.title
-        ? sellerMode === "digital"
+        ? sellerMode === "digital" && hasDigitalTargetEvidence
           ? `围绕“${p0.title}”建立第一切入点，再用知识库、数据问答或自动化能力补齐交付和复用链路。`
-          : `围绕“${p0.title}”建立第一切入点，再按产品匹配、样品验证、商务准入和批量供货路径推进。`
+          : sellerMode === "digital"
+            ? `围绕“${p0.title}”先核验业务场景、资料样例和客户侧成功指标，再判断是否进入数据、系统或知识库方案。`
+          : `围绕“${p0.title}”建立第一切入点，再按方案匹配、小范围验证、商务准入和规模化合作路径推进。`
         : "先把客户问题收敛到一个可验证场景，再逐步扩大到流程、数据和组织协同。"),
     rankedSolutions: arr(explicit.rankedSolutions).length ? cleanDecisionSolutions(explicit.rankedSolutions, { report, round }) : ranked,
-    implementationPath: arr(explicit.implementationPath).filter((item) => sellerMode === "digital" || !digitalSolutionAssumptionText(item)).length
-      ? arr(explicit.implementationPath).filter((item) => sellerMode === "digital" || !digitalSolutionAssumptionText(item))
+    implementationPath: arr(explicit.implementationPath).filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item)).length
+      ? arr(explicit.implementationPath).filter((item) => (sellerMode === "digital" && hasDigitalTargetEvidence) || !digitalSolutionAssumptionText(item))
       : defaultPath
   };
 }
@@ -4984,10 +5280,18 @@ function solutionWorkItems(solution = {}, report = {}) {
   const text = `${solution.title || ""} ${solution.introduction || ""} ${solution.value || ""} ${solution.prerequisite || ""}`;
   const items = [];
   if (sellerCapabilityMode(report) !== "digital") {
-    items.push("需求与规格确认：确认车型平台、产品品类、技术参数、认证要求和验收口径。");
-    items.push("样品与测试验证：准备样品、测试数据、质量记录和问题闭环。");
-    items.push("商务与供应准入：完成报价、供应商准入、账期、交付计划和合同边界。");
-    items.push("小批与量产准备：安排产能、物料、工艺、质量控制和交付节奏。");
+    items.push("需求与规格确认：确认采购品类、使用场景、关键指标、认证要求和验收口径。");
+    items.push("小范围验证：准备样品、试用服务、测试数据、质量记录或效果证明。");
+    items.push("商务与准入确认：完成报价、供应商准入、账期、交付计划和合同边界。");
+    items.push("规模化合作准备：安排产能、人员、物料、服务响应、质量控制和交付节奏。");
+    return items;
+  }
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report }, text);
+  if (!hasDigitalTargetEvidence) {
+    items.push("业务场景核验：确认客户真实问题、影响指标、使用岗位和优先级。");
+    items.push("资料样例确认：确认客户可提供的脱敏资料、流程样例、业务规则或历史案例。");
+    items.push("方案边界确认：判断本轮只做材料/流程/知识验证，还是需要后续系统或数据接入。");
+    items.push("验证指标确认：定义效率、质量、成本、合规或客户满意度等可衡量指标。");
     return items;
   }
   if (/排产|APS|计划|调度/.test(text)) {
@@ -5013,7 +5317,10 @@ function solutionWorkItems(solution = {}, report = {}) {
   } else if (/智能体|AI|agent|HolliCube|工业AI|平台/.test(text)) {
     items.push("场景智能体中心：管理不同业务场景的智能体、工具和提示词。");
     items.push("工业知识库层：沉淀行业 know-how、工艺规则、产品文档和项目经验。");
-    items.push("数据与系统连接器：对接 HolliCube、MES/APS/ERP/WMS/LIMS 等系统数据。");
+    const platform = customerPlatformLabel({ report }, text);
+    items.push(platform === "HolliCube"
+      ? "数据与系统连接器：对接 HolliCube、业务系统和接口数据。"
+      : "数据与系统连接器：对接已核验业务数据、系统接口和工具调用入口。");
     items.push("流程编排与工具调用：支持查询、分析、生成、告警和任务流转。");
     items.push("权限审计与运营台：管理角色权限、调用日志、效果反馈和版本迭代。");
   } else {
@@ -5064,9 +5371,26 @@ function solutionWorkPackages(solution = {}, report = {}) {
       ];
     }
     return [
-      { title: "产品匹配确认", items: ["目标品类和应用场景确认", "技术参数/认证/验收口径对齐", "现有供应商与替代边界梳理"] },
-      { title: "样品与质量验证", items: ["样品准备", "测试数据和质量记录", "问题闭环与版本确认"] },
-      { title: "商务与交付准备", items: ["报价与账期确认", "供应商准入资料", "产能、物料和交付计划"] }
+      { title: "方案匹配确认", items: ["目标品类/服务和应用场景确认", "关键指标、认证或验收口径对齐", "现有供应商与替代边界梳理"] },
+      { title: "小范围验证", items: ["样品、试用服务或样例方案准备", "测试数据、质量记录或效果证明", "问题闭环与版本确认"] },
+      { title: "商务与交付准备", items: ["报价与账期确认", "供应商准入资料", "人员/产能/物料/服务响应和交付计划"] }
+    ];
+  }
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report }, text);
+  if (!hasDigitalTargetEvidence) {
+    return [
+      {
+        title: "业务场景核验",
+        items: ["业务问题和影响指标确认", "使用岗位和流程边界确认", "客户优先级和预算归属确认"]
+      },
+      {
+        title: "资料样例核验",
+        items: ["脱敏资料或流程样例", "业务规则和历史案例", "可量化验收指标"]
+      },
+      {
+        title: "方案边界判断",
+        items: ["仅做会前/现场轻量验证", "是否需要系统或数据接入", "是否进入正式方案和报价"]
+      }
     ];
   }
   if (/排产|APS|计划|调度/.test(text)) {
@@ -5150,6 +5474,18 @@ function solutionWorkPackages(solution = {}, report = {}) {
     ];
   }
   if (/智能体|AI|agent|HolliCube|工业AI|平台/.test(text)) {
+    const platform = customerPlatformLabel({ report }, text);
+    const connectorItems = platform === "HolliCube"
+      ? [
+          "HolliCube 数据接口",
+          "MES/APS/ERP/WMS/LIMS 适配",
+          "权限、日志和审计接口"
+        ]
+      : [
+          "已核验系统/API数据接口",
+          "业务数据、文档和工具调用入口",
+          "权限、日志和审计接口"
+        ];
     return [
       {
         title: "场景智能体中心",
@@ -5165,11 +5501,7 @@ function solutionWorkPackages(solution = {}, report = {}) {
       },
       {
         title: "系统连接器",
-        items: [
-          "HolliCube 数据接口",
-          "MES/APS/ERP/WMS/LIMS 适配",
-          "权限、日志和审计接口"
-        ]
+        items: connectorItems
       },
       {
         title: "业务工作台",
@@ -5193,6 +5525,7 @@ function buildDeliveryAssessment(report, round) {
   const explicit = round.deliveryAssessment || report.deliveryAssessment || {};
   const solutions = arr(round.solutionCards);
   const sellerMode = sellerCapabilityMode(report);
+  const hasDigitalTargetEvidence = hasTargetDigitalOperatingEvidence({ report, round });
   const prerequisites = Array.from(
     new Set(
       solutions
@@ -5210,12 +5543,16 @@ function buildDeliveryAssessment(report, round) {
   const architecture =
     explicit.architectureSketch ||
     (firstSolution.title
-      ? sellerMode === "digital"
+      ? sellerMode === "digital" && hasDigitalTargetEvidence
         ? `围绕“${firstSolution.title}”构建：客户业务数据/文档/系统样例 → 知识库或场景智能体 → 业务工作台/告警/报告输出。`
-        : `围绕“${firstSolution.title}”构建：客户车型/品类需求 → 样品与测试验证 → 商务准入与供货计划 → 小批/量产交付。`
-      : sellerMode === "digital"
+        : sellerMode === "digital"
+          ? `围绕“${firstSolution.title}”构建：客户业务问题 → 脱敏资料/流程样例 → 轻量验证 → 是否进入系统或数据接入判断。`
+        : `围绕“${firstSolution.title}”构建：客户品类/服务需求 → 小范围验证 → 商务准入与交付计划 → 规模化合作。`
+      : sellerMode === "digital" && hasDigitalTargetEvidence
         ? "客户业务数据/文档/系统样例 → 知识库或场景智能体 → 工作台/告警/报告输出。"
-        : "客户需求规格 → 样品测试 → 商务准入 → 小批/量产交付。");
+        : sellerMode === "digital"
+          ? "客户业务问题 → 脱敏资料/流程样例 → 轻量验证 → 是否进入系统或数据接入判断。"
+        : "客户需求规格 → 小范围验证 → 商务准入 → 规模化合作。");
   const riskTexts = arr(explicit.deliveryRisks)
     .map((item) => actionableRiskText(item, 190))
     .filter(meaningful);
@@ -5235,25 +5572,38 @@ function buildDeliveryAssessment(report, round) {
     : defaultDeliverySowOutline().map((item) => `${item.title}：${arr(item.items).join("、")}`);
   const fallbackDependencies = [
     ...(sellerMode === "digital"
-      ? [
+      ? hasDigitalTargetEvidence
+        ? [
           "现有系统清单、接口/API文档、读写权限、鉴权方式和日志审计要求。",
           "脱敏业务文档、数据样例、字段字典、更新频率和质量规则。",
           "部署方式、网络/服务器资源、安全权限、SSO/账号体系和审计留痕要求。",
           "验收数据集、指标口径、边界样例和变更处理机制。"
         ]
+        : [
+          "客户真实业务问题、影响岗位、当前处理方式和优先级。",
+          "可脱敏资料、流程样例、历史案例、业务规则或线下表单。",
+          "本轮验证目标、验收指标、不可触碰的数据/合规边界和后续决策口径。",
+          "是否需要系统或数据接入；未确认前不把接口/API作为交付前提。"
+        ]
       : [
-          "目标车型、产品品类、技术规格、认证要求和验收标准。",
-          "样品、图纸/BOM、测试工况、质量问题记录和竞品供应信息。",
+          "目标品类/服务、关键规格、认证要求和验收标准。",
+          "样品、资料、测试条件、质量问题记录或竞品供应信息。",
           "供应商准入要求、报价口径、账期、合同主体和付款主体。",
-          "预测需求量、交付节奏、产能要求、包装/物流和售后响应要求。"
+          "预测需求量、交付节奏、人员/产能/物料/服务响应要求。"
         ])
   ];
   const fallbackRisks = [
     ...(sellerMode === "digital"
-      ? [
+      ? hasDigitalTargetEvidence
+        ? [
           "系统接口、权限和脱敏样例未锁定时，只能做轻量验证，不能承诺正式对接效果。",
-          "客户已有 HolliCube、和言智能问答等能力，方案定位若变成平台替代会引发技术路线冲突。",
+          "客户已有平台、智能问答或自研能力时，方案定位若变成替代既有能力会引发技术路线冲突。",
           "多系统数据口径、接口边界和验收指标不清，会影响数据问答、运维闭环和验收口径。"
+        ]
+        : [
+          "客户业务场景、资料样例和成功指标未确认时，只能做会前假设或现场轻量验证。",
+          "未确认客户是否具备IT系统、数据接口或内部技术能力前，不能承诺系统对接、自动化闭环或正式上线效果。",
+          "如果客户只希望采购外部供应商服务，方案应按资料、流程和人工协同边界设计，不能默认客户自建平台。"
         ]
       : [
           "技术规格、认证要求和测试工况未锁定时，样品验证可能反复返工。",
@@ -5268,15 +5618,21 @@ function buildDeliveryAssessment(report, round) {
     responsePlan: arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses).length
       ? arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses)
       : (sellerMode === "digital"
-        ? [
+        ? hasDigitalTargetEvidence
+          ? [
           "先用一个最小业务闭环验证价值，再决定是否进入系统集成和正式项目范围。",
           "把数据样例、接口权限、部署条件和验收口径列成客户侧准备清单，清单外内容不进入本轮交付范围。",
           "把验收口径提前写清，包括准确率、效率提升、告警命中、报表质量或人工节省口径。"
         ]
+          : [
+          "先用一个最小业务场景验证价值，再决定是否需要系统、数据或接口接入。",
+          "把脱敏资料、流程样例、业务规则和验收口径列成客户侧准备清单，清单外内容不进入本轮交付范围。",
+          "把验收口径提前写清，包括效率、质量、成本、合规或人工节省口径。"
+        ]
         : [
-          "先用一个车型/品类的小样品或小批订单验证技术、质量和交付价值。",
-          "把规格、认证、样品、报价、账期和准入资料列成客户侧准备清单。",
-          "把验收口径提前写清，包括测试指标、质量责任、交付节奏和量产放量条件。"
+          "先用一个最小品类/服务范围验证技术、质量、成本或交付价值。",
+          "把规格、认证、样品/资料、报价、账期和准入资料列成客户侧准备清单。",
+          "把验收口径提前写清，包括测试指标、质量责任、交付节奏和规模化合作条件。"
         ]),
     sowOutline: (sowTexts.length ? sowTexts : fallbackSow).slice(0, 8)
   };
@@ -5393,7 +5749,7 @@ function sellerProfileText(report = {}) {
     profile.strengths,
     profile.keywords
   ]
-    .flatMap((item) => arr(item))
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
     .filter(Boolean)
     .join(" ");
 }
@@ -7701,7 +8057,7 @@ function sowTaskDescription(task = "", group = {}, solution = {}) {
     [/know-how|行业|工艺/, "沉淀行业经验、工艺规则和专家知识，支撑专业问答与方案生成。"],
     [/产品文档|项目经验/, "汇总产品资料、实施文档和项目经验，支撑售前和交付复用。"],
     [/规则|标准口径/, "统一业务规则、术语和验收口径，降低跨团队协作返工。"],
-    [/HolliCube|接口|连接器|适配/, "对接客户现有平台或业务系统，打通数据读取和工具调用入口。"],
+    [/HolliCube|接口|连接器|适配/, "对接已确认的系统、数据源或业务工具，打通必要的数据读取和工具调用入口。"],
     [/MES|APS|ERP|WMS|LIMS/, "接入核心业务系统数据，为问答、分析和流程辅助提供上下文。"],
     [/问答|分析/, "提供业务人员直接使用的查询、分析和生成入口。"],
     [/告警|任务流转/, "把异常提醒、待办分派和处理结果纳入闭环记录。"],

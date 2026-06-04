@@ -1,6 +1,7 @@
 import { fail, json } from "../lib/http.mjs";
 import { readJson } from "../lib/store.mjs";
 import { decorateJob } from "../lib/job-progress.mjs";
+import { enrichJobErrorPatch } from "../lib/job-errors.mjs";
 import { withOacApiContext } from "../lib/auth.mjs";
 
 function pathId(request, context) {
@@ -14,7 +15,7 @@ export default async function handler(request, context) {
       if (!jobId) return fail("缺少 jobId", 400);
       const job = await readJson("jobs", `${jobId}.json`, null);
       if (!job) return fail("任务不存在", 404);
-      const out = decorateJob(job);
+      const out = decorateJob(enrichJobErrorPatch(job));
       delete out.inputText;
       delete out.checkpoint;
       return json({ ok: true, job: out });

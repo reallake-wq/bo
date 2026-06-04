@@ -64,14 +64,53 @@ const PAGE_SIZE = 12;
 const PRODUCT_NAME_CN = "商机参谋团";
 const PRODUCT_NAME_EN = "Opportunity Advisory Crew";
 const PRODUCT_ACRONYM = "OAC";
-const APP_VERSION = "2.4.0";
+const RECENT_TASK_DAYS = 7;
+const APP_VERSION = "2.4.1";
 const APP_UPDATED_AT = "2026-06-04";
-const APP_RELEASE_TITLE = "动态证据评分与报告稳定性修复";
+const APP_RELEASE_TITLE = "任务进度可视化与动态证据修复";
 const APP_RELEASE_NOTES = [
+  "任务中心默认展示运行中和异常任务，已完成任务改到“已完成”标签页查看。",
+  "任务卡增加阶段进度条、当前阶段、耗时和失败处理建议，让用户知道跑到哪一步和下一步怎么做。",
   "招投标/中标线索改为证据评分，区分甲方采购记录和客户自身售前交付压力。",
   "修复旧模板自我引用问题，避免存量报告把上一版结论当成新证据继续展示。",
-  "方案分析和行动指南只在证据能支撑时展示投标、标书、资质材料等相关判断。",
-  "同步验证最近报告、报告结构、移动端阅读和生产构建。"
+  "方案分析和行动指南只在证据能支撑时展示投标、标书、资质材料等相关判断。"
+];
+const APP_RELEASE_HISTORY = [
+  {
+    version: APP_VERSION,
+    date: APP_UPDATED_AT,
+    title: APP_RELEASE_TITLE,
+    notes: APP_RELEASE_NOTES
+  },
+  {
+    version: "2.4.0",
+    date: "2026-06-04",
+    title: "报告证据链与动态判断修复",
+    notes: [
+      "强化报告结论必须由客户证据和我的企业能力共同支撑，减少固定模板带来的错配。",
+      "修复招投标、标书、供应链、平台能力等线索被机械带入方案的问题。",
+      "优化任务完成态和异常态，避免已完成任务继续显示旧错误。"
+    ]
+  },
+  {
+    version: "2.3.0",
+    date: "2026-06-02",
+    title: "生产存储与天眼查链路稳定性",
+    notes: [
+      "调整线上 Blob 存储和备用环境变量，提升报告、任务和租户数据读取稳定性。",
+      "增加天眼查代理密钥配置，降低企业查询链路受网络环境影响的概率。"
+    ]
+  },
+  {
+    version: "2.2.0",
+    date: "2026-06-01",
+    title: "租户 License 与报告质量升级",
+    notes: [
+      "上线租户隔离、License 管理、我的企业和报告质量规则。",
+      "报告页按企业画像、商务分析、方案分析、交付分析和行动指南组织。",
+      "加强销售、售前、交付三类视角的证据和结论约束。"
+    ]
+  }
 ];
 const WORKERS: Record<string, any> = {
   resolve: { name: "澄镜", role: "客户核对参谋", verb: "正在核对企业主体" },
@@ -146,6 +185,7 @@ let pollTimer: number | undefined;
 let pollingJobs = false;
 let pollAgainAfterCurrent = false;
 let taskSyncWarning = "";
+let taskCenterView = "running";
 let reportHtml = "";
 let authMe: any = null;
 let authError = "";
@@ -578,6 +618,9 @@ function saveJobSnapshot(jobId: string, job: any) {
     detail: job.detail || snapshots[jobId]?.detail || "",
     progress: job.progress ?? snapshots[jobId]?.progress ?? 0,
     phaseKey: job.phaseKey || snapshots[jobId]?.phaseKey || "",
+    currentPhaseKey: job.currentPhaseKey || snapshots[jobId]?.currentPhaseKey || "",
+    currentPhaseLabel: job.currentPhaseLabel || snapshots[jobId]?.currentPhaseLabel || "",
+    phaseTree: Array.isArray(job.phaseTree) ? job.phaseTree : snapshots[jobId]?.phaseTree || [],
     updatedAt: job.updatedAt || snapshots[jobId]?.updatedAt || ""
   };
   try {
@@ -2298,6 +2341,7 @@ async function createReportJob() {
       body: JSON.stringify({ jobId: data.jobId })
     });
     setCreateStatus(`任务已创建：${escapeHtml(profile.companyName)} → ${escapeHtml(candidateCompany.standardName || candidateCompany.name)}。你可以关闭页面，后台会继续运行。`, "success");
+    taskCenterView = "running";
     setTab("tasks");
     startPolling();
   } catch (error: any) {
@@ -2306,37 +2350,87 @@ async function createReportJob() {
 }
 
 function jobStats(jobs: any[]) {
+  const running = jobs.filter((job) => isLiveJob(job)).length;
+  const done = jobs.filter((job) => isDoneJob(job)).length;
+  const error = jobs.filter((job) => isErrorJob(job)).length;
   return {
-    running: jobs.filter((job) => ["queued", "running", "needs_resume"].includes(String(job.status || ""))).length,
-    done: jobs.filter((job) => job.status === "done").length,
-    error: jobs.filter((job) => ["error", "cancelled"].includes(String(job.status || ""))).length,
+    running,
+    done,
+    error,
+    active: running + error,
     total: jobs.length
   };
+}
+
+function isLiveJob(job: any) {
+  return ["queued", "running", "needs_resume"].includes(String(job?.status || ""));
+}
+
+function isDoneJob(job: any) {
+  return String(job?.status || "") === "done";
+}
+
+function isErrorJob(job: any) {
+  return ["error", "cancelled"].includes(String(job?.status || ""));
+}
+
+function taskViewJobs(jobs: any[]) {
+  if (taskCenterView === "done") return jobs.filter((job) => isDoneJob(job));
+  if (taskCenterView === "error") return jobs.filter((job) => isErrorJob(job));
+  if (taskCenterView === "all") return jobs;
+  return jobs.filter((job) => isLiveJob(job));
+}
+
+function taskViewEmptyText() {
+  if (taskCenterView === "done") return "暂无已完成任务。完成后的任务会在这里集中查看。";
+  if (taskCenterView === "error") return "暂无异常任务。任务失败后会在这里显示处理建议。";
+  if (taskCenterView === "all") return "暂无任务。创建后，参谋团会在这里显示每位成员正在做什么。";
+  return "暂无运行中任务。已完成任务请点“已完成”查看。";
+}
+
+function taskFilterBar(stats: any) {
+  const tabs = [
+    ["running", "LoaderCircle", "运行中", stats.running],
+    ["done", "CircleCheck", "已完成", stats.done],
+    ["error", "TriangleAlert", "异常", stats.error],
+    ["all", "Layers3", "全部", stats.total]
+  ];
+  return `<div class="task-summary-bar" role="tablist" aria-label="任务状态">
+    ${tabs
+      .map(
+        ([value, iconName, label, count]) =>
+          `<button class="${taskCenterView === value ? "active" : ""}" data-task-view="${escapeHtml(String(value))}" type="button" role="tab" aria-selected="${taskCenterView === value ? "true" : "false"}">${icon(String(iconName))}<span>${escapeHtml(String(label))}</span><b>${escapeHtml(count)}</b></button>`
+      )
+      .join("")}
+  </div>`;
 }
 
 function renderTaskCenter() {
   const root = document.querySelector("#tasksTab");
   if (!root) return;
   const ids = activeJobIds();
-  const jobs = ids.map((id) => activeJobs[id] || loadJobSnapshot(id) || { jobId: id, status: "queued", stage: "等待同步", progress: 0 });
-  const stats = jobStats(jobs);
+  const allJobs = ids.map((id) => activeJobs[id] || loadJobSnapshot(id) || { jobId: id, status: "queued", stage: "等待同步", progress: 0 });
+  const stats = jobStats(allJobs);
+  const jobs = taskViewJobs(allJobs);
   root.innerHTML = `
     <section class="workspace-section">
       <div class="section-title compact-title">
         <h2>任务中心</h2>
-        <p>参谋成员协同处理；任务中断会优先从断点自动续跑，完成后可打开报告或手动清除。</p>
+        <p>默认只看运行中任务；已完成和异常任务可点上方状态切换。</p>
       </div>
-      <div class="task-summary-bar">
-        <span>${icon("LoaderCircle")}处理 <b>${stats.running}</b></span>
-        <span>${icon("CircleCheck")}完成 <b>${stats.done}</b></span>
-        <span>${icon("TriangleAlert")}异常 <b>${stats.error}</b></span>
-        <span>${icon("Layers3")}全部 <b>${stats.total}</b></span>
-      </div>
+      ${taskFilterBar(stats)}
       ${taskSyncWarning ? `<div class="task-warning">${icon("TriangleAlert")}任务中心刚才有一次同步失败，已保留当前任务状态并自动重试：${escapeHtml(taskSyncWarning)}</div>` : ""}
       <div class="task-list">
-        ${jobs.length ? jobs.map(taskCard).join("") : `<div class="empty-state compact-empty">暂无任务。创建后，参谋团会在这里显示每位成员正在做什么。</div>`}
+        ${jobs.length ? jobs.map(taskCard).join("") : `<div class="empty-state compact-empty">${escapeHtml(taskViewEmptyText())}</div>`}
       </div>
     </section>`;
+  root.querySelectorAll("[data-task-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const value = (button as HTMLElement).dataset.taskView || "active";
+      taskCenterView = ["running", "done", "error", "all"].includes(value) ? value : "running";
+      renderTaskCenter();
+    });
+  });
   root.querySelectorAll("[data-open-report]").forEach((button) => {
     button.addEventListener("click", () => openReport((button as HTMLElement).dataset.openReport || ""));
   });
@@ -2346,12 +2440,149 @@ function renderTaskCenter() {
   root.querySelectorAll("[data-cancel-task]").forEach((button) => {
     button.addEventListener("click", () => cancelJob((button as HTMLElement).dataset.cancelTask || ""));
   });
+  root.querySelectorAll("[data-refresh-task]").forEach((button) => {
+    button.addEventListener("click", () => pollJobs());
+  });
   refreshIcons();
 }
 
+function taskPhaseRail(job: any) {
+  const phases = Array.isArray(job.phaseTree) ? job.phaseTree : [];
+  if (!phases.length) return "";
+  const doneCount = phases.filter((phase: any) => phase.status === "done").length;
+  const current = phases.find((phase: any) => ["running", "error", "cancelled"].includes(String(phase.status || ""))) || phases[doneCount] || phases[phases.length - 1];
+  const status = String(current?.status || "pending");
+  const labelMap: Record<string, string> = {
+    done: "已完成",
+    running: "当前",
+    error: "失败",
+    cancelled: "已停止",
+    pending: "等待"
+  };
+  return `<div class="task-phase-panel ${escapeHtml(status)}">
+    <div class="task-phase-summary">
+      <div>
+        <span>${escapeHtml(labelMap[status] || "当前")}</span>
+        <b>${escapeHtml(current?.label || current?.key || job.currentPhaseLabel || "任务处理中")}</b>
+        ${current?.currentStep ? `<small>${escapeHtml(current.currentStep)}</small>` : ""}
+      </div>
+      <strong>${escapeHtml(doneCount)}/${escapeHtml(phases.length)}</strong>
+    </div>
+    <div class="task-phase-grid" aria-label="任务阶段">
+      ${phases
+        .map((phase: any) => {
+          const phaseStatus = String(phase.status || "pending");
+          return `<span class="task-phase-chip ${escapeHtml(phaseStatus)}"><i></i><b>${escapeHtml(phase.label || phase.key || "")}</b><em>${escapeHtml(labelMap[phaseStatus] || phaseStatus)}</em></span>`;
+        })
+        .join("")}
+    </div>
+  </div>`;
+}
+
+function taskNextAction(job: any) {
+  const status = String(job.status || "");
+  const text = `${job.stage || ""} ${job.detail || ""} ${job.error || ""}`;
+  if (status === "needs_resume") return "系统已保存断点，会自动从上次卡点继续；请先保留任务，不要重复新建。";
+  if (isLiveJob(job) && Number(job.updatedAgoMs || 0) > 8 * 60 * 1000) return "任务较长时间未更新时，系统会尝试断点续跑；已采集证据会优先复用。";
+  if (status === "cancelled") return "任务已停止，不会生成正式报告；需要报告时请重新创建。";
+  return "";
+}
+
+function taskFailureGuidance(job: any) {
+  if (!isErrorJob(job)) return null;
+  const status = String(job.status || "");
+  const text = `${job.stage || ""} ${job.detail || ""} ${job.error || ""}`.trim();
+  if (job.errorCause || job.nextAction || job.errorType) {
+    return {
+      cause: job.errorCause || `后台已识别异常类型：${job.errorType || "unknown_error"}。`,
+      action: job.nextAction || "请先刷新状态；如果仍失败，请联系管理员，并保留任务 ID、目标客户和失败时间方便排查。",
+      admin: job.contactAdmin !== false,
+      type: job.errorType || "",
+      provider: job.errorProvider || "",
+      recoverable: job.recoverable,
+      resumeStrategy: job.resumeStrategy || ""
+    };
+  }
+  if (status === "cancelled") {
+    return {
+      cause: "任务被手动停止，不会继续生成正式报告。",
+      action: "如仍需要报告，请确认输入信息后重新创建任务。",
+      admin: false
+    };
+  }
+  if (/token|tokens|insufficient_quota|billing|balance|余额不足|模型余额|账户余额|扣费|欠费|payment/i.test(text)) {
+    return {
+      cause: "模型调用额度或 token 余额不足，最终分析/整合无法继续。",
+      action: "请管理员检查模型服务余额、Netlify AI Gateway 或相关模型 Key 的计费状态；余额恢复后优先从断点继续或只重跑失败步骤。",
+      admin: true
+    };
+  }
+  if (/rate limit|429|too many requests|并发|限流|请求过多/i.test(text)) {
+    return {
+      cause: "上游接口或模型服务触发限流，通常是短时间请求过多。",
+      action: "请等待 5-15 分钟后刷新状态或从断点继续；如频繁出现，请管理员降低并发或检查供应商限流策略。",
+      admin: true
+    };
+  }
+  if (/天眼查|Tavily|search|搜索|积分|quota|credit|limit|402|额度|次数不足|credits/i.test(text)) {
+    return {
+      cause: "数据源额度不足或接口暂时不可用，证据采集可能未完成。",
+      action: "请等待额度恢复，或由管理员补充/更换数据源 Key；如果已有足够证据，可先生成临时报告并标注缺失来源。",
+      admin: true
+    };
+  }
+  if (/timeout|超时|整合模型|最终整合|function timeout|execution timed out|运行预算/i.test(text)) {
+    return {
+      cause: "任务运行时间过长或最终整合模型超时，可能已完成部分证据采集。",
+      action: "请先点“刷新状态”。若仍失败，优先从断点继续或只重跑最终整合，避免重新消耗检索额度。",
+      admin: false
+    };
+  }
+  if (/checkpoint missing|断点缺失|没有可恢复断点/i.test(text)) {
+    return {
+      cause: "系统没有找到可恢复断点，无法确认从哪一步继续。",
+      action: "请重新创建任务；为避免重复消耗额度，重新创建前先确认目标客户、我的企业和补充信息是否正确。",
+      admin: false
+    };
+  }
+  if (/身份|绑定|identity|license|授权|会话|tenant|租户|权限/i.test(text)) {
+    return {
+      cause: "任务缺少租户、授权、目标客户或我的企业绑定信息。",
+      action: "请确认授权登录状态、我的企业绑定和目标客户信息；仍无法恢复时联系管理员处理。",
+      admin: true
+    };
+  }
+  if (/network|fetch|ECONN|ENOTFOUND|连接|网络|接口|service unavailable|5\\d\\d/i.test(text)) {
+    return {
+      cause: "网络或上游服务临时异常，任务未能完成当前步骤。",
+      action: "请刷新状态后重试；如果连续失败，请联系管理员检查服务日志和上游接口状态。",
+      admin: true
+    };
+  }
+  return {
+    cause: text ? "系统记录到失败信息，但无法自动归类具体原因。" : "系统未返回明确失败原因。",
+    action: "请先刷新状态；如果仍失败，请联系管理员，并保留任务 ID、目标客户和失败时间方便排查。",
+    admin: true
+  };
+}
+
+function taskFailureGuidanceHtml(job: any) {
+  const guidance = taskFailureGuidance(job);
+  if (!guidance) return "";
+  return `<div class="task-failure-guidance">
+    ${guidance.type ? `<div class="task-error-tags"><span>${escapeHtml(guidance.type)}</span>${guidance.provider ? `<span>${escapeHtml(guidance.provider)}</span>` : ""}${guidance.recoverable !== undefined ? `<span>${guidance.recoverable ? "可恢复" : "需重建/人工处理"}</span>` : ""}</div>` : ""}
+    <b>${icon("TriangleAlert")}失败原因</b>
+    <p>${escapeHtml(guidance.cause)}</p>
+    <b>${icon("ListChecks")}解决办法</b>
+    <p>${escapeHtml(guidance.action)}</p>
+    ${guidance.resumeStrategy ? `<small>${icon("RefreshCw")}恢复策略：${escapeHtml(guidance.resumeStrategy)}</small>` : ""}
+    ${guidance.admin ? `<small>${icon("ShieldCheck")}如果你无法处理，请联系管理员并保留任务 ID：${escapeHtml(job.jobId || "-")}</small>` : ""}
+  </div>`;
+}
+
 function taskCard(job: any) {
-  const running = ["queued", "running", "needs_resume"].includes(String(job.status || ""));
-  const done = job.status === "done" && job.reportId;
+  const running = isLiveJob(job);
+  const done = isDoneJob(job) && job.reportId;
   const report = job.report || {};
   const identity = job.jobIdentity || {};
   const target =
@@ -2377,6 +2608,8 @@ function taskCard(job: any) {
   const detailText = job.detail || job.error || "Task is running in the background.";
   const searchQuotaWarning = /Tavily.*(额度|限额|quota|credit|limit|429|402|exceed|usage|棰濆害|闄愰)/i.test(detailText);
   const workerVerb = done ? "已完成作战简报，可打开查看" : worker.verb;
+  const nextAction = taskNextAction(job);
+  const failureGuidance = taskFailureGuidanceHtml(job);
   return `
     <article class="task-card ${done ? "done" : running ? "running" : "error"}">
       <div class="task-head">
@@ -2387,6 +2620,7 @@ function taskCard(job: any) {
         <strong class="task-percent">${Math.round(Number(job.progress || 0))}%</strong>
       </div>
       <div class="progress-track"><div style="width:${Math.max(0, Math.min(Number(job.progress || 0), 100))}%"></div></div>
+      ${taskPhaseRail(job)}
       <div class="worker-line">
         <span class="worker-avatar">${escapeHtml(worker.name.slice(0, 1))}</span>
         <div><b>${escapeHtml(worker.name)} · ${escapeHtml(worker.role)}</b><small>${escapeHtml(workerVerb)}</small></div>
@@ -2398,11 +2632,13 @@ function taskCard(job: any) {
         <span>${icon("Link")}来源 ${escapeHtml(job.sourceCount ?? "-")}</span>
       </div>
       <p>${escapeHtml(job.detail || job.error || "任务正在后台处理。")}</p>
+      ${failureGuidance}
+      ${nextAction ? `<div class="task-next-action">${icon(isErrorJob(job) ? "TriangleAlert" : "ListChecks")}<span>${escapeHtml(nextAction)}</span></div>` : ""}
       ${searchQuotaWarning ? `<div class="task-warning">${icon("TriangleAlert")}Tavily 搜索额度可能已用完，请补充 Key 或等待额度恢复。</div>` : ""}
       <div class="actions">
         ${done ? `<button class="primary" data-open-report="${escapeHtml(job.reportId)}" type="button">${icon("FileText")}打开报告</button><button data-complete-task="${escapeHtml(job.jobId)}" type="button">${icon("CircleCheck")}确认清除</button>` : ""}
         ${running ? `<button class="danger ghost" data-cancel-task="${escapeHtml(job.jobId)}" type="button">${icon("OctagonX")}停止</button>` : ""}
-        ${!running && !done ? `<button data-complete-task="${escapeHtml(job.jobId)}" type="button">${icon("CircleCheck")}清除</button>` : ""}
+        ${!running && !done ? `<button data-refresh-task="${escapeHtml(job.jobId)}" type="button">${icon("RefreshCw")}刷新状态</button><button data-complete-task="${escapeHtml(job.jobId)}" type="button">${icon("CircleCheck")}清除</button>` : ""}
       </div>
     </article>`;
 }
@@ -2420,11 +2656,11 @@ async function pollJobs() {
     return;
   }
   pollingJobs = true;
-  const isLiveTask = (job: any) => ["queued", "running", "needs_resume"].includes(String(job?.status || ""));
+  const isLiveTask = (job: any) => isLiveJob(job);
   const isRecentFinishedTask = (job: any) => {
     if (!["done", "error", "cancelled"].includes(String(job?.status || ""))) return false;
     const ts = Date.parse(job.completedAt || job.finishedAt || job.updatedAt || "");
-    return Number.isFinite(ts) && Date.now() - ts < 24 * 60 * 60 * 1000;
+    return Number.isFinite(ts) && Date.now() - ts < RECENT_TASK_DAYS * 24 * 60 * 60 * 1000;
   };
   try {
     const remote = await api("/.netlify/functions/list-report-jobs");
@@ -2433,7 +2669,7 @@ async function pollJobs() {
     const remoteJobs = Array.isArray(remote.jobs) ? remote.jobs : [];
     const visibleRemoteJobs = remoteJobs
       .filter((job: any) => isLiveTask(job) || isRecentFinishedTask(job))
-      .slice(0, 20);
+      .slice(0, 50);
     for (const job of visibleRemoteJobs) {
       if (!job?.jobId || blocked.has(job.jobId)) continue;
       activeJobs[job.jobId] = mergeJobSnapshot(activeJobs[job.jobId] || loadJobSnapshot(job.jobId), job, job.jobId);
@@ -2453,7 +2689,7 @@ async function pollJobs() {
       const job = activeJobs[jobId] || loadJobSnapshot(jobId);
       return !job || isLiveTask(job) || isRecentFinishedTask(job);
     })
-    .slice(0, 20);
+    .slice(0, 50);
   if (!ids.length) {
     if (pollTimer) window.clearInterval(pollTimer);
     pollTimer = undefined;
@@ -2689,6 +2925,7 @@ function licenseUsageCompactHtml() {
 }
 
 function aboutOacHtml() {
+  const history = APP_RELEASE_HISTORY.slice(1);
   return `
     <section class="profile-version-card" aria-label="关于 OAC">
       <div class="profile-version-head">
@@ -2705,6 +2942,29 @@ function aboutOacHtml() {
           ${APP_RELEASE_NOTES.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
         </ul>
       </details>
+      ${
+        history.length
+          ? `<details class="profile-version-history">
+              <summary>${icon("Clock3")}查看更多更新历史</summary>
+              <div class="profile-version-history-list">
+                ${history
+                  .map(
+                    (release) => `<article>
+                      <div>
+                        <b>${escapeHtml(release.version)}</b>
+                        <small>${escapeHtml(release.date)}</small>
+                      </div>
+                      <strong>${escapeHtml(release.title)}</strong>
+                      <ul>
+                        ${(release.notes || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+                      </ul>
+                    </article>`
+                  )
+                  .join("")}
+              </div>
+            </details>`
+          : ""
+      }
     </section>`;
 }
 
@@ -2944,6 +3204,7 @@ async function refreshReport(report: any) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jobId: data.jobId })
     });
+    taskCenterView = "running";
     closeReportView("tasks");
     startPolling();
   } catch (error: any) {
@@ -3047,6 +3308,7 @@ async function queueReportRoundJob(reportId: string) {
       body: JSON.stringify({ jobId: data.jobId })
     });
     if (status) status.textContent = "下一轮判断已进入任务中心。你可以关闭页面，完成后再打开报告。";
+    taskCenterView = "running";
     closeReportView("tasks");
     startPolling();
   } catch (error: any) {

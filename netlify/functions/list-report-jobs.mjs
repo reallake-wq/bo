@@ -1,6 +1,7 @@
 import { fail, json } from "../lib/http.mjs";
 import { listJson } from "../lib/store.mjs";
 import { decorateJob } from "../lib/job-progress.mjs";
+import { enrichJobErrorPatch } from "../lib/job-errors.mjs";
 import { withOacRequestContext } from "../lib/auth.mjs";
 
 const RECENT_JOB_DAYS = 7;
@@ -13,7 +14,7 @@ function isRecentOrActive(job) {
 }
 
 function publicJob(job = {}) {
-  const decorated = decorateJob(job);
+  const decorated = decorateJob(enrichJobErrorPatch(job));
   delete decorated.inputText;
   delete decorated.checkpoint;
   delete decorated.sourceAudit;
@@ -24,7 +25,16 @@ function publicJob(job = {}) {
   delete decorated.sensitiveVerification;
   delete decorated.annualReportEvidence;
   delete decorated.quality;
-  delete decorated.phaseTree;
+  if (Array.isArray(decorated.phaseTree)) {
+    decorated.phaseTree = decorated.phaseTree.map((phase) => ({
+      key: phase.key || "",
+      label: phase.label || "",
+      status: phase.status || "",
+      currentStep: String(phase.currentStep || "").slice(0, 160),
+      phaseElapsedText: phase.phaseElapsedText || "",
+      phaseEstimatedRemainingText: phase.phaseEstimatedRemainingText || ""
+    }));
+  }
   if (decorated.jobIdentity?.sellerProfileSnapshot) {
     const snapshot = decorated.jobIdentity.sellerProfileSnapshot;
     decorated.jobIdentity.sellerProfileSnapshot = {

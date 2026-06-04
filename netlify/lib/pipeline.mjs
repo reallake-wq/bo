@@ -5,6 +5,7 @@ import { clip, id, normalizeText, nowIso, slugify, scoreMatch } from "./util.mjs
 import { ratingIndex } from "./opportunity-rating.mjs";
 import { resolveOpportunityRating } from "./rating-resolver.mjs";
 import { JobCancelledError, decorateJob, normalizePhase } from "./job-progress.mjs";
+import { enrichJobErrorPatch } from "./job-errors.mjs";
 import { auditReport, auditSources } from "./source-audit.mjs?v=oac-insight-20260531a";
 import { readAnnualReportEvidence } from "./annual-report.mjs";
 import { getProfile, profileSnapshot } from "./profiles.mjs";
@@ -274,6 +275,7 @@ export async function updateJob(jobId, patch) {
 }
 
 async function updateJobNow(jobId, patch) {
+  patch = enrichJobErrorPatch(patch || {});
   const current = await readJson("jobs", `${jobId}.json`, null);
   if (!current) throw new Error(`任务不存在：${jobId}`);
   const currentTerminal = ["done", "error", "cancelled"].includes(String(current.status || ""));
@@ -286,7 +288,7 @@ async function updateJobNow(jobId, patch) {
   const terminalPatchStatus = ["done", "error", "cancelled"].includes(String(patch.status || ""));
   if (!currentHasIdentity && !terminalPatchStatus) {
     const updatedAt = nowIso();
-    const failed = {
+    const failed = enrichJobErrorPatch({
       ...current,
       jobId: current.jobId || jobId,
       status: "error",
@@ -307,7 +309,7 @@ async function updateJobNow(jobId, patch) {
           detail: "后台收到无身份任务的进度更新，已终止该任务，避免生成空壳报告。"
         }
       ]
-    };
+    });
     await writeJson("jobs", `${jobId}.json`, failed);
     return decorateJob(failed);
   }
