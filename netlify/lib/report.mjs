@@ -1305,16 +1305,16 @@ function targetContextForSolution(context = {}) {
   ].map((item) => cleanBusinessText(item, 180)).filter(meaningful).join(" ");
 }
 
-function reportSpecificBrandEvidence(context = {}, extraText = "") {
+function targetSpecificBrandEvidence(context = {}) {
   const report = contextReport(context);
   const round = context.round || {};
   return [
-    sellerProfileText(report),
-    report.sellerProfileName,
     report.companyName,
     report.standardName,
     report.targetCompanyName,
-    extraText,
+    report.region,
+    report.industry,
+    ...arr(report.aliases),
     ...arr(report.sources).flatMap((source) => [
       source.title,
       source.name,
@@ -1328,18 +1328,25 @@ function reportSpecificBrandEvidence(context = {}, extraText = "") {
     ]),
     ...arr(round.customerInfo).flatMap((section) => arr(section.items).flatMap((item) => [section.title, item.title, item.body, item.insight, item.summary, ...arr(item.facts)])),
     ...arr(report.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
-    ...arr(round.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
-    ...arr(report.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
-    ...arr(round.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary])
+    ...arr(round.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)])
   ].flatMap((item) => (Array.isArray(item) ? item : [item])).filter(Boolean).join(" ");
 }
 
-function allowsHolliCubeBrand(context = {}, extraText = "") {
-  return /HolliCube|HollySys|和利时|卡优倍|和言智能/.test(reportSpecificBrandEvidence(context, extraText));
+function targetHasHolliCubeBrand(context = {}) {
+  return /HolliCube|HollySys|和利时|卡优倍|和言智能/.test(targetSpecificBrandEvidence(context));
 }
 
-function customerPlatformLabel(context = {}, extraText = "") {
-  return allowsHolliCubeBrand(context, extraText) ? "HolliCube" : "待核验的数据、资料或工具边界";
+function sellerHasHolliCubeBrand(report = {}) {
+  return /HolliCube|HollySys|和利时|卡优倍|和言智能/.test([sellerProfileText(report), report.sellerProfileName].join(" "));
+}
+
+function allowsHolliCubeBrand(context = {}) {
+  const report = contextReport(context);
+  return targetHasHolliCubeBrand(context) || sellerHasHolliCubeBrand(report);
+}
+
+function customerPlatformLabel(context = {}) {
+  return targetHasHolliCubeBrand(context) ? "HolliCube" : "待核验的数据、资料或工具边界";
 }
 
 function targetEvidenceTextForAnalysis(context = {}, extraText = "") {
@@ -1359,8 +1366,6 @@ function targetEvidenceTextForAnalysis(context = {}, extraText = "") {
     ]),
     ...arr(report.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
     ...arr(round.sourceBriefs).flatMap((brief) => [brief.title, ...arr(brief.facts), ...arr(brief.implications)]),
-    ...arr(report.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
-    ...arr(round.businessInsights).flatMap((item) => [item.title, item.body, item.insight, item.summary]),
     ...arr(round.customerInfo).flatMap((section) => arr(section.items).flatMap((item) => [section.title, item.title, item.body, item.insight, item.summary, ...arr(item.facts)]))
   ].flatMap((item) => (Array.isArray(item) ? item : [item])).filter(Boolean).join(" ");
 }
@@ -2929,18 +2934,25 @@ export function normalizeReportShape(report = {}) {
   const guarded = ensureReportRounds(applyFreshnessGuardrails(sanitizeReportDecisionData(shaped)));
   const roundsWithStrategy = arr(guarded.rounds).map((round) => {
     const nextRound = { ...round };
-    const cleanedStrategy = cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: nextRound });
-    const cleanedDelivery = cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: nextRound });
+    const cleanedPains = cleanDecisionPains(nextRound.painsAndOpportunities, { round: nextRound, report: guarded });
+    const cleanedSolutions = cleanDecisionSolutions(nextRound.solutionCards, { round: nextRound, report: guarded });
+    const strategyRound = {
+      ...nextRound,
+      painsAndOpportunities: cleanedPains,
+      solutionCards: cleanedSolutions
+    };
+    const cleanedStrategy = cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: strategyRound });
+    const cleanedDelivery = cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: strategyRound });
     nextRound.solutionStrategy = hasCompleteStrategy(cleanedStrategy)
       ? cleanedStrategy
-      : completeStrategyData(cleanedStrategy, { report: guarded, round: nextRound });
-    nextRound.deliveryAssessment = hasUsefulDelivery(cleanedDelivery) ? cleanedDelivery : buildDeliveryAssessment(guarded, nextRound);
+      : completeStrategyData(cleanedStrategy, { report: guarded, round: strategyRound });
+    nextRound.deliveryAssessment = hasUsefulDelivery(cleanedDelivery) ? cleanedDelivery : buildDeliveryAssessment(guarded, strategyRound);
     return {
       ...nextRound,
-      solutionStrategy: cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: nextRound }),
-      deliveryAssessment: cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: nextRound }),
-      painsAndOpportunities: cleanDecisionPains(nextRound.painsAndOpportunities, { round: nextRound, report: guarded }),
-      solutionCards: cleanDecisionSolutions(nextRound.solutionCards, { round: nextRound, report: guarded }),
+      solutionStrategy: cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: strategyRound }),
+      deliveryAssessment: cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: strategyRound }),
+      painsAndOpportunities: cleanedPains,
+      solutionCards: cleanedSolutions,
       conclusions: cleanDecisionCardItems(nextRound.conclusions, 8),
       customerInfo: arr(nextRound.customerInfo).map(cleanRoundSection).filter((section) => arr(section.items).length),
       internalNotes: arr(nextRound.internalNotes).map(cleanInternalNote).filter(isActionableInternalNote)

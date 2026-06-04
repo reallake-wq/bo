@@ -65,15 +65,14 @@ const PRODUCT_NAME_CN = "商机参谋团";
 const PRODUCT_NAME_EN = "Opportunity Advisory Crew";
 const PRODUCT_ACRONYM = "OAC";
 const RECENT_TASK_DAYS = 7;
-const APP_VERSION = "2.4.1";
+const APP_VERSION = "2.4.2";
 const APP_UPDATED_AT = "2026-06-04";
-const APP_RELEASE_TITLE = "任务进度可视化与动态证据修复";
+const APP_RELEASE_TITLE = "证据边界与存量报告修复";
 const APP_RELEASE_NOTES = [
-  "任务中心默认展示运行中和异常任务，已完成任务改到“已完成”标签页查看。",
-  "任务卡增加阶段进度条、当前阶段、耗时和失败处理建议，让用户知道跑到哪一步和下一步怎么做。",
-  "招投标/中标线索改为证据评分，区分甲方采购记录和客户自身售前交付压力。",
-  "修复旧模板自我引用问题，避免存量报告把上一版结论当成新证据继续展示。",
-  "方案分析和行动指南只在证据能支撑时展示投标、标书、资质材料等相关判断。"
+  "收紧方案和交付兜底边界，卖方能力、行业模板和历史样例不能当成目标客户事实。",
+  "HolliCube、平台、接口等具体系统词只在目标客户证据支持时作为客户事实展示，避免串入无关报告。",
+  "存量报告打开时按新版规则重新归一化，清理半截策略、旧方案污染和无证据模板判断。",
+  "保留任务中心阶段进度、异常原因和解决建议，便于用户判断运行状态和下一步处理方式。"
 ];
 const APP_RELEASE_HISTORY = [
   {
@@ -81,6 +80,16 @@ const APP_RELEASE_HISTORY = [
     date: APP_UPDATED_AT,
     title: APP_RELEASE_TITLE,
     notes: APP_RELEASE_NOTES
+  },
+  {
+    version: "2.4.1",
+    date: "2026-06-04",
+    title: "任务进度可视化与动态证据修复",
+    notes: [
+      "任务中心默认展示运行中和异常任务，已完成任务改到“已完成”标签页查看。",
+      "任务卡增加阶段进度条、当前阶段、耗时和失败处理建议。",
+      "招投标/中标线索改为证据评分，区分甲方采购记录和客户自身售前交付压力。"
+    ]
   },
   {
     version: "2.4.0",
