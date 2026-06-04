@@ -1162,6 +1162,7 @@ function sowTaskDifficulty(value = {}) {
     value.reason
   ].filter(Boolean).join(" ");
   if (value?.hard === true || value?.isHard === true) return true;
+  if (value?.hard === false || value?.isHard === false || value?.difficulty === "normal" || value?.complexity === "normal") return false;
   return /难点|困难|复杂|高风险|接口|权限|安全|脱敏|验收|数据口径|系统|认证|测试|图纸|BOM|规则|多方|跨部门|跨系统/.test(String(text || ""));
 }
 
@@ -3129,7 +3130,11 @@ export function normalizeReportShape(report = {}) {
       solutionCards: cleanedSolutions
     };
     const cleanedStrategy = cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: strategyRound });
-    const cleanedDelivery = cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: strategyRound });
+    const cleanedDelivery = deliveryWithDerivedSow(
+      nextRound.deliveryAssessment,
+      guarded,
+      strategyRound
+    );
     nextRound.solutionStrategy = hasCompleteStrategy(cleanedStrategy)
       ? cleanedStrategy
       : completeStrategyData(cleanedStrategy, { report: guarded, round: strategyRound });
@@ -3137,7 +3142,7 @@ export function normalizeReportShape(report = {}) {
     return {
       ...nextRound,
       solutionStrategy: cleanStrategyData(nextRound.solutionStrategy, { report: guarded, round: strategyRound }),
-      deliveryAssessment: cleanDeliveryData(nextRound.deliveryAssessment, { report: guarded, round: strategyRound }),
+      deliveryAssessment: deliveryWithDerivedSow(nextRound.deliveryAssessment, guarded, strategyRound),
       painsAndOpportunities: cleanedPains,
       solutionCards: cleanedSolutions,
       businessInsights: cleanedBusinessInsights,
@@ -3158,7 +3163,7 @@ export function normalizeReportShape(report = {}) {
       return hasCompleteStrategy(cleaned) ? cleaned : completeStrategyData(cleaned, { report: guarded, round: active });
     })(),
     deliveryAssessment: (() => {
-      const cleaned = cleanDeliveryData(guarded.deliveryAssessment || active.deliveryAssessment, { report: guarded, round: active });
+      const cleaned = deliveryWithDerivedSow(guarded.deliveryAssessment || active.deliveryAssessment, guarded, active);
       return cleaned;
     })()
   };
@@ -5394,13 +5399,13 @@ function solutionWorkPackages(solution = {}, report = {}) {
 
 function buildDeliveryAssessment(report, round) {
   const explicit = round.deliveryAssessment || report.deliveryAssessment || {};
-  return cleanDeliveryData({
+  return deliveryWithDerivedSow({
     architectureSketch: explicit.architectureSketch || "",
     deliveryRisks: arr(explicit.deliveryRisks),
     dependencies: arr(explicit.dependencies),
     responsePlan: arr(explicit.responsePlan || explicit.mitigations || explicit.riskResponses),
     sowOutline: arr(explicit.sowOutline)
-  }, { report, round });
+  }, report, round);
 }
 
 function isSpecificDeliveryDependency(value = "") {
@@ -7879,8 +7884,79 @@ function sowTaskRowsForSolution(item = {}, index = 0, report = {}) {
   );
 }
 
+function splitSolutionFeatureLabels(title = "") {
+  const text = cleanBusinessText(title, 90)
+    .replace(/^P[0-2]\s*[｜|:：-]\s*/i, "")
+    .replace(/方案|试点|平台$/g, "")
+    .trim();
+  if (!meaningful(text)) return [];
+  const split = text
+    .split(/(?:与|和|及|、|，|,|\/|\+|＋)/)
+    .map((item) => cleanBusinessText(item, 36).replace(/^(?:跨系统|多源|统一|轻量)\s*/g, "").trim())
+    .filter((item) => meaningful(item) && substantiveText(item, 3));
+  return uniqueTexts(split.length > 1 ? split : [text], 5);
+}
+
+function solutionDerivedSowOutline(report = {}, round = {}) {
+  const context = { report, round };
+  const rawSolutions = arr(round.solutionCards).length ? round.solutionCards : arr(report.solutions);
+  const solutions = cleanDecisionSolutions(rawSolutions, context)
+    .filter((item) => meaningful(item.title || item.name))
+    .slice(0, 5);
+  return solutions
+    .map((solution, index) => {
+      const solutionTitle = cleanSowText(solution.title || solution.name || "", context, 90, { allowNonDecision: true });
+      if (!solutionTitle) return null;
+      const labels = splitSolutionFeatureLabels(solutionTitle);
+      const basis = cleanSowText(
+        solution.introduction || solution.value || solution.how || solution.body || solution.prerequisite || "",
+        context,
+        180,
+        { allowNonDecision: true }
+      );
+      const prereq = cleanSowText(solution.prerequisite || solution.boundary || "", context, 160, { allowNonDecision: true });
+      const hardIndex = labels.findIndex((label) =>
+        /接口|API|SDK|权限|安全|脱敏|验收|数据口径|系统|认证|测试|图纸|BOM|规则|多方|跨部门|跨系统|集成|编排/.test(`${label} ${prereq}`)
+      );
+      const items = labels
+        .map((label, labelIndex) => normalizeSowTask({
+          name: label,
+          description: basis,
+          difficulty: labelIndex === hardIndex ? "hard" : "normal",
+          hard: labelIndex === hardIndex,
+          sourceIds: normalizeSourceIdList(solution)
+        }, context))
+        .filter(Boolean)
+        .slice(0, 6);
+      if (!items.length) return null;
+      return {
+        priority: normalizePriorityLabel(solution.priority, index),
+        solutionTitle,
+        primaryFunction: solutionTitle,
+        description: basis,
+        items,
+        sourceIds: normalizeSourceIdList(solution)
+      };
+    })
+    .filter(Boolean);
+}
+
+function deliveryWithDerivedSow(delivery = {}, report = {}, round = {}) {
+  const cleaned = cleanDeliveryData(delivery, { report, round });
+  if (arr(cleaned?.sowOutline).length) return cleaned;
+  const derived = normalizeSowOutline(solutionDerivedSowOutline(report, round), { report, round });
+  if (!derived.length) return cleaned;
+  return {
+    ...cleaned,
+    sowOutline: derived,
+    sowOutlineDerivedFromSolutions: true
+  };
+}
+
 function sowArgumentBranches(report = {}, round = {}, delivery = {}) {
-  return normalizeSowOutline(delivery.sowOutline, { report, round })
+  const explicitOutline = normalizeSowOutline(delivery.sowOutline, { report, round });
+  const outline = explicitOutline.length ? explicitOutline : normalizeSowOutline(solutionDerivedSowOutline(report, round), { report, round });
+  return outline
     .slice(0, 8)
     .map((item, index) => {
       const title = cleanBusinessText(item.primaryFunction || item.solutionTitle || "功能项", 70);

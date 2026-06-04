@@ -453,6 +453,13 @@ function scoreHtml(html, report = {}) {
       hasText(text, "\u9884\u7b97|\u4e70\u5355|\u4ed8\u6b3e\u80fd\u529b|\u8425\u6536|\u5229\u6da6"),
     decision: html.includes("decision-section") || hasText(text, "\u51b3\u7b56\u94fe|\u62cd\u677f|\u9884\u7b97\u5f52\u5c5e|\u91c7\u8d2d\u6743")
   };
+  const deliveryHtml = firstSectionHtml(html, "battle-section argument-section delivery-argument-section");
+  const deliveryText = plainText(deliveryHtml);
+  const deliverySowRows = (deliveryHtml.match(/sow-module-row/g) || []).length;
+  const deliveryHasSowFields =
+    deliveryHtml.includes("sow-module-fields") ||
+    deliveryHtml.includes("sow-row-fields") ||
+    deliveryHtml.includes("sow-fields");
   const structure = {
     consultingViews:
       html.includes("view-profile") &&
@@ -461,12 +468,11 @@ function scoreHtml(html, report = {}) {
       html.includes("view-delivery") &&
       html.includes("argument-tree"),
     workPackages:
-      html.includes("delivery-argument-section") &&
-      (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")) &&
-      (html.match(/sow-module-row/g) || []).length >= 2 &&
-      hasText(text, "\u96be\u70b9"),
+      Boolean(deliveryHtml) &&
+      deliveryHasSowFields &&
+      deliverySowRows >= 2,
     solutionStrategy: html.includes("presales-argument-section") && html.includes("battle-solution"),
-    deliveryAssessment: html.includes("delivery-argument-section") && (html.includes("sow-module-fields") || html.includes("sow-row-fields") || html.includes("sow-fields")),
+    deliveryAssessment: Boolean(deliveryHtml) && deliveryHasSowFields,
     deliveryOrder:
       html.indexOf("SOW\u5206\u89e3") >= 0 &&
       html.indexOf("\u98ce\u9669\u4e0e\u5e94\u5bf9") >= 0 &&
@@ -495,7 +501,7 @@ function scoreHtml(html, report = {}) {
     deliveryRisk:
       sections.delivery &&
       structure.deliveryOrder &&
-      (hasText(text, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") || html.includes("sow-table")),
+      (deliverySowRows >= 2 || hasText(deliveryText, "\u4e8c\u7ea7\u5de5\u4f5c\u9879|\u4e8c\u7ea7\u529f\u80fd\u9879") || deliveryHtml.includes("sow-table")),
     presalesPlaybook:
       html.includes("presales-argument-section") &&
       hasText(text, "\u6838\u5fc3\u4e1a\u52a1\u573a\u666f") &&
